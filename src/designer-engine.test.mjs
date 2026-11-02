@@ -28,9 +28,9 @@ test('separate rings and crossing exterior outlines do not pretend to be one clo
 test('arbitrary angle intersections remain connected without parameter-rounding gaps',()=>{
   const p=make();p.walls=polygon([[.13,.27],[11.37,.27],[11.37,7.83],[.13,7.83]]);p.walls.push({id:'diag',a:{x:.13,y:1.1},b:{x:11.37,y:6.2},kind:'bearing',section:'50x150',studStep:.6});const r=calculateDesigner(p);assert.equal(r.geometry.closed,true);near(r.geometry.area,11.24*7.56);assert.equal(r.corners.filter(x=>x.kind==='t').length,2);
 });
-test('floor pieces split at physical bearing wall; none scheme preserves unsupported eight-metre pieces',()=>{
-  const p=make();p.joints.spliceScheme='none';let r=calculateDesigner(p);assert.ok(r.timber.instances.filter(b=>b.role==='joist').every(b=>Math.abs(b.length-4)<1e-5));
-  p.walls=p.walls.filter(w=>w.kind!=='bearing');r=calculateDesigner(p);assert.ok(r.timber.instances.filter(b=>b.role==='joist').every(b=>Math.abs(b.length-8)<1e-5));assert.ok(r.timber.overStock.some(b=>b.role==='joist'));assert.equal(r.splices.length,0);
+test('ground joists use real grillage lines while an upper unsupported eight-metre span remains uncut',()=>{
+  const p=make();p.floors=2;p.joints.spliceScheme='none';let r=calculateDesigner(p);assert.ok(r.timber.instances.filter(b=>b.role==='joist'&&b.level===1).every(b=>b.length<=p.foundation.spacing+1e-5));assert.ok(r.timber.instances.filter(b=>b.role==='joist'&&b.level===2).every(b=>Math.abs(b.length-4)<1e-5));
+  p.walls=p.walls.filter(w=>w.kind!=='bearing');r=calculateDesigner(p);assert.ok(r.timber.instances.filter(b=>b.role==='joist'&&b.level===1).every(b=>b.length<=p.foundation.spacing+1e-5));assert.ok(r.timber.instances.filter(b=>b.role==='joist'&&b.level===2).every(b=>Math.abs(b.length-8)<1e-5));assert.ok(r.timber.overStock.some(b=>b.role==='joist'&&b.level===2));assert.equal(r.splices.length,0);
 });
 test('half-lap physical pieces: length assembly, mass conservation and all cut lengths ≤6m',()=>{
   const p=make(),r=calculateDesigner(p);const groups=Map.groupBy(r.timber.instances,b=>b.memberId);

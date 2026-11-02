@@ -24,7 +24,7 @@ test('let-in braces sit inside the wall depth at 45–60° without crossing wind
     const length=Math.hypot(z.x-a.x,z.y-a.y),nx=-(z.y-a.y)/length*b.h/2000,ny=(z.x-a.x)/length*b.h/2000,poly=[{x:a.x+nx,y:a.y+ny},{x:z.x+nx,y:z.y+ny},{x:z.x-nx,y:z.y-ny},{x:a.x-nx,y:a.y-ny}];
     for(const o of p.openings.filter(o=>o.wallId===w.id))assert.equal(interiorOverlap(poly,windowPolygon(o,base)),false);
   }
-  for(const w of p.walls)assert.ok(m.braces.filter(b=>b.wallId===w.id).length<=1,'One continuous let-in diagonal, not an automatically invented X');
+  for(const line of m.wallLines){const braces=m.braces.filter(b=>b.wallId===line.wallId);assert.equal(line.braceCount,braces.length);assert.ok(braces.every(b=>b.connectedPlates),'Every diagonal connects the real plates');}
 });
 
 test('let-in notches remove installed wood exactly once while gross stock blanks retain their full length',()=>{

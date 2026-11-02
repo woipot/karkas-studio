@@ -111,21 +111,37 @@ export function buildWallBracing(project,result={}){
       lineChecks.push({id:`${w.id}-${l.index}-sheet-edges`,label:`${label}: кромки листов`,status:'unverified',note:unsupported?`${unsupported} участка кромок требуют дополнительной стойки, блокинга или изменения раскроя; дублирующая древесина не выдумана.`:'Добавлены геометрические подкладные элементы; крепёж кромок и их связь с каркасом требуют расчёта.'});
       if(unsupported)out.warnings.push(`${label}: ${unsupported} участка стыков обшивки без подтверждённого опирания.`);
     }else{
-      let chosen=null;const stockLength=project.cutting?.stockLength??6,angles=[50,...Array.from({length:20},(_,i)=>50+(i+1)/2),...Array.from({length:10},(_,i)=>50-(i+1)/2)];
-      for(const [a,b] of [...clearIntervals].sort((x,y)=>(y[1]-y[0])-(x[1]-x[0]))){
-        for(const reverse of [false,true]){
-          const startS=reverse?b:a,sign=reverse?-1:1,runMax=b-a,lower=baseY+B/2,candidates=[runMax];
-          for(const angle of angles)for(let i=1;i<samples.length;i++){const A=samples[i-1],C=samples[i],m=(C.topY-A.topY)/(C.s-A.s),intercept=A.topY-m*A.s,denom=Math.tan(angle*Math.PI/180)-m*sign,run=(intercept+m*startS-B/2-lower)/denom,end=startS+sign*run;if(finite(run)&&run>EPS&&run<=runMax+EPS&&end>=A.s-EPS&&end<=C.s+EPS)candidates.push(run);}
-          const options=candidates.map(run=>{const upper=top(startS+sign*run)-B/2,rise=upper-lower,angle=Math.atan2(rise,run)*180/Math.PI,length=Math.hypot(run,rise),cutLength=length+braceSection.h/1000/Math.tan(angle*Math.PI/180);return {a:startS,b:startS+sign*run,lower,upper,angle,cutLength};}).filter(q=>q.angle>=45-EPS&&q.angle<=60+EPS&&q.cutLength<=stockLength+EPS).sort((x,y)=>Math.abs(x.angle-50)-Math.abs(y.angle-50));
-          if(options.length){chosen=options[0];break;}
-        }if(chosen)break;
+      const stockLength=project.cutting?.stockLength??6,angles=[50,...Array.from({length:20},(_,i)=>50+(i+1)/2),...Array.from({length:10},(_,i)=>50-(i+1)/2)];
+      function fitBrace(a,b,reverse){
+        const startS=reverse?b:a,sign=reverse?-1:1,runMax=b-a,lower=baseY+B/2,candidates=[runMax];
+        for(const angle of angles)for(let i=1;i<samples.length;i++){const A=samples[i-1],C=samples[i],m=(C.topY-A.topY)/(C.s-A.s),intercept=A.topY-m*A.s,denom=Math.tan(angle*Math.PI/180)-m*sign,run=(intercept+m*startS-B/2-lower)/denom,end=startS+sign*run;if(finite(run)&&run>EPS&&run<=runMax+EPS&&end>=A.s-EPS&&end<=C.s+EPS)candidates.push(run);}
+        return candidates.map(run=>{const upper=top(startS+sign*run)-B/2,rise=upper-lower,angle=Math.atan2(rise,run)*180/Math.PI,length=Math.hypot(run,rise),cutLength=length+braceSection.h/1000/Math.tan(angle*Math.PI/180);return {a:startS,b:startS+sign*run,lower,upper,angle,cutLength};}).filter(q=>q.angle>=45-EPS&&q.angle<=60+EPS&&q.cutLength<=stockLength+EPS).sort((x,y)=>Math.abs(y.b-y.a)-Math.abs(x.b-x.a)||Math.abs(x.angle-50)-Math.abs(y.angle-50))[0]??null;
       }
+      const chosenBraces=[];
+      for(const [a,b] of clearIntervals){
+        // Lay out a sequence across each available pier, rather than one
+        // diagonal at an arbitrary wall end. Separate end cuts so their
+        // notches do not overlap. Every brace still connects both plates.
+        let best=[],score=-1;const minRise=Math.max(.1,Math.min(top(a),top(b))-baseY-B),maxCount=Math.min(40,Math.max(1,Math.floor((b-a)/(minRise/Math.tan(Math.PI/3))))),gap=braceSection.h/1000*1.7;
+        for(let n=1;n<=maxCount;n++){
+          const segment=(b-a)/n,trial=[];
+          for(let j=0;j<n;j++){
+            const left=a+j*segment+(j?gap/2:0),right=a+(j+1)*segment-(j<n-1?gap/2:0);
+            const item=fitBrace(left,right,j%2===1)??fitBrace(left,right,j%2===0);if(item)trial.push(item);
+          }
+          const covered=sum(trial.map(q=>Math.abs(q.b-q.a))),merit=covered-trial.length*.001;if(merit>score+EPS){best=trial;score=merit;}
+        }
+        chosenBraces.push(...best);
+      }
+      wallLine.braceIds=[];wallLine.braceCount=chosenBraces.length;wallLine.coveredLength=sum(chosenBraces.map(q=>Math.abs(q.b-q.a)));
+      const chosen=chosenBraces[0];
       if(!chosen){lineChecks.push({id:`${w.id}-${l.index}-let-in-fit`,label:`${label}: непрерывная врезная укосина`,status:'fail',note:`Нет чистого простенка для цельной доски 45–60° от нижней до верхней обвязки в заготовке ${stockLength} м с припусками косых торцов. Укороченная декоративная X-связь не подставляется.`});out.warnings.push(`${label}: цельная врезная укосина 45–60° не помещается без пересечения проёмов или превышения заготовки ${stockLength} м.`);wallLine.braceAvailable=false;}
       else{
+        for(const chosen of chosenBraces){
         const normal=exteriorNormal*(D/2-braceSection.b/2000),aa={x:chosen.a,y:chosen.lower},bb={x:chosen.b,y:chosen.upper},dx=bb.x-aa.x,dy=bb.y-aa.y,Lb=Math.hypot(dx,dy),half=braceSection.h/2000;
         const endHalf=half/(Math.abs(dy)/Lb),bracePoly=clean([{x:aa.x-endHalf,y:aa.y},{x:bb.x-endHalf,y:bb.y},{x:bb.x+endHalf,y:bb.y},{x:aa.x+endHalf,y:aa.y}]);
         const cutAngle=90-chosen.angle,item=board('Врезная диагональная укосина','bracing','letInBrace',braceSection.b,braceSection.h,at(aa.x,aa.y,normal),at(bb.x,bb.y,normal),{wallId:w.id,level:l.index,floor:l.index,angle:chosen.angle,crossAxis:[v[0],0,v[1]],insetDepth:braceSection.b/1000,cutLength:chosen.cutLength,requireSingleStock:true,cutStart:{scheme:'miter',angle:cutAngle,tiltSign:-Math.sign(dx)},cutEnd:{scheme:'miter',angle:cutAngle,tiltSign:Math.sign(dx)},connectedPlates:true});
-        if(item){out.braces.push(item);out.quantities.bracesLength+=item.length;wallLine.braceAvailable=true;wallLine.angle=chosen.angle;wallLine.braceId=item.id;
+        if(item){out.braces.push(item);out.quantities.bracesLength+=item.length;wallLine.braceAvailable=true;wallLine.angle=chosen.angle;wallLine.braceId??=item.id;wallLine.braceIds.push(item.id);
           for(const timber of owned){
             if(!['stud','king','jack','cripple','corner','plate','fullHeightStud','continuousStud'].includes(timber.role))continue;
             const a=toLocal(timber.start),b=toLocal(timber.end),dx=b.x-a.x,dy=b.y-a.y,Lm=Math.hypot(dx,dy);if(Lm<EPS)continue;
@@ -136,10 +152,11 @@ export function buildWallBracing(project,result={}){
             const slope=(bb.y-aa.y)/(bb.x-aa.x),s=toLocal(timber.start).x,grooveY=aa.y+slope*(s-aa.x),alignment=dot(boardAxes(timber).x,[u[0],0,u[1]]),isVertical=Math.abs(dx)<EPS&&Math.abs(alignment)>.99,faceSign=Math.sign(exteriorNormal*dot(sec.normalAxis,[v[0],0,v[1]]))||1;
             const record={boardId:timber.id,braceId:item.id,wallId:w.id,level:l.index,volume,depth,intersectionArea:area(overlap),polygon:overlap.map(q=>at(q.x,q.y,(n0+n1)/2)),grossIntersectionVolume:rawVolume,requiresCutBoolean:cutUnknown,shape:isVertical?'verticalStudGroove':'polygon',slope,localSlope:slope*alignment,normalSide:exteriorNormal,faceSign,face:faceSign>0?'front':'back',positionXYZ:at(s,grooveY,(n0+n1)/2),...(isVertical?{station:(grooveY-timber.start[1])*Math.sign(timber.end[1]-timber.start[1]),length:braceSection.h/1000/(Math.abs(bb.x-aa.x)/Lb)}:{})};
             if(cutUnknown)out.warnings.push(`${label}: выборка укосины пересекает элемент со стыком или повёрнутым сечением; дополнительный вычет массы не назначен без точного объединения вырезов.`);
-            const k=timber.id;if(!notchById.has(k))notchById.set(k,{...record,braceIds:[item.id]});else{const prev=notchById.get(k);prev.volume+=volume;prev.grossIntersectionVolume+=rawVolume;prev.braceIds.push(item.id);}
+            const k=timber.id;if(!notchById.has(k))notchById.set(k,{...record,braceIds:[item.id],cuts:[record]});else{const prev=notchById.get(k);prev.volume+=volume;prev.grossIntersectionVolume+=rawVolume;prev.intersectionArea+=record.intersectionArea;prev.braceIds.push(item.id);prev.cuts.push(record);}
           }
         }
-        lineChecks.push({id:`${w.id}-${l.index}-let-in-connections`,label:`${label}: узлы врезной доски`,status:'unverified',note:'Показана врезка в реальные стойки и обвязки. Крепление к каждой пересечённой стойке и обоим поясам, сдвиг, устойчивость сжатой диагонали и обратное направление ветра требуют расчёта.'});
+        }
+        lineChecks.push({id:`${w.id}-${l.index}-let-in-connections`,label:`${label}: узлы врезной доски`,status:'unverified',note:'Показана серия диагоналей по доступной длине стены с врезкой в реальные стойки и обвязки. Крепление к каждой пересечённой стойке и обоим поясам, сдвиг, устойчивость сжатой диагонали и обратное направление ветра требуют расчёта.'});
         if((w.studStep??.6)>.4064+EPS)out.warnings.push(`${label}: шаг стоек больше 406 мм; это не прескриптивный метод IRC2021 LIB, необходим инженерный расчёт.`);
       }
     }
@@ -147,7 +164,7 @@ export function buildWallBracing(project,result={}){
     lineChecks.push({id:`${w.id}-${l.index}-load-path`,label:`${label}: путь горизонтальной нагрузки`,status:'unverified',note:'Диски крыши/перекрытий, коллекторы, обвязки, анкеры и соединения со свайным ростверком не рассчитаны.'});out.wallLines.push(wallLine);out.checks.push(...lineChecks);
   }
   out.notches=[...notchById.values()];out.quantities.notchVolume=sum(out.notches.map(n=>n.volume));out.quantities.sheetArea=sum(out.panels.map(p=>p.area));out.quantities.sheets=sheetIds.size;out.quantities.purchasedSheetArea=sheetIds.size*p.sheetWidth*p.sheetHeight;out.quantities.wasteArea=Math.max(0,out.quantities.purchasedSheetArea-out.quantities.sheetArea);out.quantities.panelMass=sum(out.panels.map(p=>p.mass));
-  out.assumptions=['Постоянная стеновая связь выбрана явно: конструкционная обшивка, врезная доска или отсутствие связи. Внешние декоративные X автоматически не добавляются.','Панели представлены реальными полигонами с физически вырезанными окнами/дверями. Части одного stockSheetId относятся к одному закупочному листу; внутренняя триангуляция не является дополнительным швом.','Листы подрезаются к фактическим осям стоек там, где возможно; под неподдержанными кромками добавляется геометрический блокинг или стойка. Неразрешённые стыки помечены, а пересекающая существующие доски древесина не выдумывается.','Количество листов — по принятой сетке раскладки без повторного использования остатков; это не доказанный оптимальный раскрой. Масса панели = чистая площадь × толщина × плотность; выбранная панель должна быть исключена из прочих вводимых слоёв стены.','Врезная укосина расположена в плоскости каркаса и в чистом простенке под углом45–60°, от нижней до верхней обвязки. Выборки получены по пересечениям с реальными досками; они ослабляют сечения, которые требуют повторного расчёта.','Объём выборок вычитается из уже существующих досок один раз. При пересечении с ранее заданным силовым стыком дополнительный вычет откладывается до точного объединения вырезов.','Крепёж кромок/поля, сорт и свойства плиты, анкеры и работа диафрагм не выводятся из геометрии. При designShear=null сдвиговая несущая способность неизвестна. Введённые кН/м дают только предварительное сравнение, не полное нормативное подтверждение.','Ориентиры APA/ICC относятся к определённым методам и областям применения. Они не означают автоматического соответствия проекта нормам; для свайных оснований и высоких стен нужен отдельный путь передачи горизонтальной нагрузки.'];
+  out.assumptions=['Постоянная стеновая связь выбрана явно: конструкционная обшивка, врезная доска или отсутствие связи. Внешние декоративные X автоматически не добавляются.','Панели представлены реальными полигонами с физически вырезанными окнами/дверями. Части одного stockSheetId относятся к одному закупочному листу; внутренняя триангуляция не является дополнительным швом.','Листы подрезаются к фактическим осям стоек там, где возможно; под неподдержанными кромками добавляется геометрический блокинг или стойка. Неразрешённые стыки помечены, а пересекающая существующие доски древесина не выдумывается.','Количество листов — по принятой сетке раскладки без повторного использования остатков; это не доказанный оптимальный раскрой. Масса панели = чистая площадь × толщина × плотность; выбранная панель должна быть исключена из прочих вводимых слоёв стены.','Серия врезных укосин распределена по длине каждого подходящего чистого простенка в плоскости каркаса под углом 45–60°, от нижней до верхней обвязки. Выборки получены по пересечениям с реальными досками; они ослабляют сечения, которые требуют повторного расчёта.','Объём выборок вычитается из уже существующих досок один раз. При пересечении с ранее заданным силовым стыком дополнительный вычет откладывается до точного объединения вырезов.','Крепёж кромок/поля, сорт и свойства плиты, анкеры и работа диафрагм не выводятся из геометрии. При designShear=null сдвиговая несущая способность неизвестна. Введённые кН/м дают только предварительное сравнение, не полное нормативное подтверждение.','Ориентиры APA/ICC относятся к определённым методам и областям применения. Они не означают автоматического соответствия проекта нормам; для свайных оснований и высоких стен нужен отдельный путь передачи горизонтальной нагрузки.'];
   out.assumptions.push('Предварительный сдвиг от ветра оценён по габаритам каждого этажа и максимальной фактической высоте профиля стены на этаже; это консервативная огибающая, а не пространственное распределение жёсткости. Врезная доска остаётся цельной, включая припуски косых торцов в длине заготовки; сжатие и обратное направление ветра не подтверждаются автоматически.');
   out.warnings=[...new Set(out.warnings)];out.status=out.checks.some(c=>c.status==='fail')?'fail':'unverified';return out;
 }

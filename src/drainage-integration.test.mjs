@@ -27,7 +27,7 @@ function corrected(){
 
 test('actual L-house sample: old lower gables discharge into raised floor/walls',()=>{
   const {base,roof,drainage}=calculate(oldGables());
-  near(base.geometry.levels[0].topY,3.805);near(base.geometry.levels[1].baseY,3.805);near(base.geometry.levels[1].wallBaseY,4.09);near(base.geometry.levels[1].topY,6.69);
+  const [lower,upper]=base.geometry.levels;near(lower.baseY,base.grillageModel.topY);near(lower.wallBaseY,lower.baseY+base.timber.platformHeight);near(lower.topY,lower.wallBaseY+lower.height);near(upper.baseY,lower.topY);near(upper.wallBaseY,upper.baseY+base.timber.platformHeight);near(upper.topY,upper.wallBaseY+upper.height);
   near(roof.projectedArea,92);near(drainage.quantities.projectedCatchmentArea,92);
   const blocked=drainage.flows.filter(f=>f.status==='wallBlock');
   assert.ok(blocked.some(f=>f.zoneId===lowerIds[0]),'South lower roof must detect inflow at y=5');

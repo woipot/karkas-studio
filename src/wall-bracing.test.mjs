@@ -57,9 +57,9 @@ test('raked wall panels follow the actual profile, upgraded section and collinea
   assert.ok(m.wallLines[0].demandShear>=.3*4*4*1.4-1e-8,'wind includes raised wall height');
 });
 
-test('one continuous inset brace uses actual plate-to-plate length and a 45–60° clear bay',()=>{
+test('a sequence of full-height braces covers the clear wall at 45–60°',()=>{
   const {p,result}=fixture();p.bracing.method='letIn';const m=buildWallBracing(p,result),b=m.braces[0];
-  assert.equal(m.braces.length,1);assert.equal(m.panels.length,0);
+  assert.ok(m.braces.length>=2);assert.equal(m.panels.length,0);assert.ok(m.wallLines[0].coveredLength>5,'Diagonals span the clear wall rather than only its end');
   assert.ok(b.angle>=45&&b.angle<=60);near(b.start[1],1.030);near(b.end[1],3.780);
   near(b.start[2],-.0625);near(b.end[2],-.0625);assert.equal(b.requireSingleStock,true);
   assert.ok(b.cutLength<=6);assert.equal(b.cutStart.tiltSign,-1);assert.equal(b.cutEnd.tiltSign,1);
@@ -75,8 +75,8 @@ test('25 mm deep notches are calculated once per physical board, with exact volu
   for(const n of m.notches){near(n.depth,.025);near(n.volume,n.intersectionArea*.025);assert.ok(n.volume>0);}
   near(m.quantities.notchVolume,m.notches.reduce((s,n)=>s+n.volume,0));
   const groove=m.notches.find(n=>n.shape==='verticalStudGroove');
-  assert.ok(groove.station>0);assert.ok(groove.length>.1);near(groove.length,.1/Math.cos(50*Math.PI/180));
-  near(groove.slope,Math.tan(50*Math.PI/180));assert.equal(groove.normalSide,-1);assert.equal(groove.faceSign,-1);
+  assert.ok(groove.station>0);assert.ok(groove.length>.1);near(groove.length,.1*Math.sqrt(1+groove.slope**2));
+  assert.ok(Math.atan(Math.abs(groove.slope))*180/Math.PI>=45);assert.equal(groove.normalSide,-1);assert.equal(groove.faceSign,-1);
 });
 
 test('stock fitting steepens a tall brace and never silently splices it',()=>{

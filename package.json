@@ -1,1 +1,26 @@
-{"name":"karkas-studio","version":"3.3.0","private":true,"type":"module","scripts":{"dev":"vite --host 0.0.0.0","build":"vite build","test":"node --test src/*.test.mjs"},"dependencies":{"react":"^19.1.0","react-dom":"^19.1.0","three":"^0.180.0"},"devDependencies":{"vite":"^7.1.0"}}
+{
+  "name": "karkas-engine",
+  "version": "4.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "node scripts/build-engine-example.mjs && vite build",
+    "test": "node --test src/*.test.mjs",
+    "mcp": "node mcp/server.mjs",
+    "example": "node scripts/build-engine-example.mjs",
+    "test:mcp": "node --test src/mcp-engine.test.mjs",
+    "demo": "node scripts/demo-mcp.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "three": "^0.180.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.4.0",
+    "vite": "^7.1.0"
+  }
+}

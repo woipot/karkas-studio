@@ -88,7 +88,10 @@ export function calculateEstimate(project={},result={},precomputedCutting){
   const windowArea=sum(openings.filter(o=>o.type==='window').map(o=>numeric(o.width)*numeric(o.height)));
   const doorCount=openings.filter(o=>o.type==='door').length;
   const pileCount=Array.isArray(result.piles)?result.piles.length:numeric(bom.pileCount);
-  add('sheathing','Обшивка стен и перекрытий','м²',sheathing,'sheathingM2',true,'Один слой: наружные стены без проёмов + площадь перекрытий.');
+  const wallPanels=result.bracingModel?.method==='sheathing'||project.bracing?.method==='sheathing'&&result.bracingModel;
+  add('sheathing',wallPanels?'Обшивка перекрытий':'Обшивка стен и перекрытий','м²',wallPanels?floorArea:sheathing,'sheathingM2',true,wallPanels?'Один слой перекрытий. Структурные плиты стен посчитаны отдельно по листам.':'Один слой: наружные стены без проёмов + площадь перекрытий.');
+  if(wallPanels){const q=result.bracingModel.quantities??{};add('structural-panels','Структурная обшивка стен · листы','м² листа',q.purchasedSheetArea??q.sheetArea,'bracingSheetM2',false,`${q.sheets??0} листов по сетке раскладки. Отходы уже в закупочной площади; процентный запас повторно не добавлен. Крепёж и сертифицированная несущая способность уточняются.`);}
+
   add('insulation','Утепление наружных стен','м²',netWall,'insulationM2',true,project.wallThickness?`Расценка за м² при толщине ${fmt(numeric(project.wallThickness)*1000,0)} мм; без вычета древесины.`:'Расценка за м² наружной стены; состав и толщину утепления уточните в цене. Без вычета древесины.');
   add('roof','Кровельное покрытие','м²',roofArea,'roofM2',true,'Площадь скатов модели; свесы и подкладочные слои не добавляются. Водоотвод и примыкания вынесены отдельными строками.');
   const drainage=result.roofModel?.drainage??result.drainage;

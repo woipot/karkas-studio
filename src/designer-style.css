@@ -10,3 +10,5 @@
 .roof-page{display:flex;flex-direction:column;flex:1;min-height:0;border:1px solid #dfe7d3;border-radius:8px;overflow:hidden}.roof-page-tabs{display:flex;gap:5px;padding:9px 14px;background:#edf3e4;border-bottom:1px solid #dae4ce;flex-shrink:0}.roof-page-tabs button{font-size:11px;color:#73895d;border-radius:5px;padding:9px 13px;display:flex;align-items:center;gap:8px}.roof-page-tabs button.active{background:#fff;color:#496b35;box-shadow:0 1px 4px #39561f13}.roof-page-tabs i{height:6px;width:6px;background:#bc654a;border-radius:50%}.roof-page>.designer-scroll{background:#f7faf2}
 
 .roof-page-tabs .drainage-register-export{margin-left:auto;font-size:9px;border:1px solid #d4dfc7;background:#f9fcf5}@media(max-width:700px){.roof-page-tabs{flex-wrap:wrap}.roof-page-tabs button{font-size:10px;padding:8px}.roof-page-tabs .drainage-register-export{margin-left:0}}
+
+.designer-v2 .rail-nav{gap:5px}.designer-v2 .rail-nav>button{height:48px}.designer-v2 .draw-settings{overflow-x:auto;scrollbar-width:thin}.designer-v2 .draw-settings>button{flex-shrink:0}

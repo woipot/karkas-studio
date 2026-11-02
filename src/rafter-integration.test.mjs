@@ -10,7 +10,9 @@ const clone=x=>JSON.parse(JSON.stringify(x));
 function project(framing='auto',section='50x150'){
   const p=clone(defaultDesignerProject);p.openings=[];const points=[{x:0,y:0},{x:6,y:0},{x:6,y:4},{x:0,y:4}];
   p.walls=points.map((a,i)=>({id:'w'+i,a,b:points[(i+1)%4],kind:'exterior',level:1,section:'50x150',studStep:.6}));
-  p.roof.zones=[{id:'mono',name:'Четыре метра по горизонтали',polygon:points,shape:'mono',ridgeAngle:180,pitchLeft:25,pitchRight:25,levelIndex:1,elevation:null,trussType:'mono',spacing:.6,chordSection:section,webSection:'50x100',framing,deflectionRatio:300}];
+  // This suite retains the explicit stacked-support mode. Continuous wall
+  // profiles have their own integration suite and different wall quantities.
+  p.roof.wallFraming='stacked';p.roof.zones=[{id:'mono',name:'Четыре метра по горизонтали',polygon:points,shape:'mono',ridgeAngle:180,pitchLeft:25,pitchRight:25,levelIndex:1,elevation:null,trussType:'mono',spacing:.6,chordSection:section,webSection:'50x100',framing,deflectionRatio:300}];
   p.prices={...Object.fromEntries(Object.keys(defaultPrices).filter(k=>k!=='sectionPrices').map(k=>[k,0])),timberM3:1000,sectionPrices:{}};return p;
 }
 function calculate(p){const base=calculateDesigner(p),roof=calculateRoofZones(p,base),result=calculateDesigner(p,{roofModel:roof}),cutting=calculateCutting(p,result),estimate=calculateEstimate(p,result,cutting);return {p,base,roof,result,zone:roof.zones[0],cutting,estimate};}

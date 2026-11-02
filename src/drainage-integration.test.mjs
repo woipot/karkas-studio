@@ -64,7 +64,7 @@ test('drainage fix updates real roof mass, six-metre stock map and foundation lo
   for(const s of stock.stocks)assert.ok(s.consumed<=6+1e-7);
   const expected=(result.timber.mass-old.result.timber.mass)*9.80665/1000*p.loads.gammaG
     +(roof.area-old.roof.area)*p.loads.roofDead*p.loads.gammaG
-    +(roof.gableArea-old.roof.gableArea)*p.loads.wallDead*p.loads.gammaG
+    +((result.geometry.netWallArea-old.result.geometry.netWallArea)+(result.geometry.innerWallArea-old.result.geometry.innerWallArea))*p.loads.wallDead*p.loads.gammaG
     +(roof.snowEffectiveArea-old.roof.snowEffectiveArea)*p.loads.snow*p.loads.gammaQ;
   near(result.loads.totalDesign-old.result.loads.totalDesign,expected);
   near(result.foundation.reactionSum,result.loads.totalDesign);

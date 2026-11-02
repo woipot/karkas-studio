@@ -3,6 +3,7 @@ import {autoRoofZones} from './roof-zones.js';
 import {trussTypes} from './trusses.js';
 import TrussDiagram from './truss-panel.jsx';
 import RafterPanel from './rafter-panel.jsx';
+import WallProfilePanel from './wall-profile-panel.jsx';
 import {SectionSelect} from './estimate.jsx';
 
 const fmt=(n,d=2)=>Number.isFinite(n)?n.toLocaleString('ru-RU',{maximumFractionDigits:d}):'—';
@@ -177,6 +178,7 @@ export default function RoofWorkspace({project,result,roofModel,selectedZone,onS
       </div>
       <div className="roof-editor-section"><button className="roof-point-toggle" onClick={()=>setShowPoints(!showPoints)}>{showPoints?'Скрыть':'Редактировать'} вершины полигона {showPoints?'−':'+'}</button>{showPoints&&<><p className="roof-control-note">Координаты в метрах. Порядок точек идёт по границе зоны; пересечения недопустимы.</p>{zone.polygon.map((p,i)=><div className="roof-points-table" key={`${zone.id}-${i}`}><b>{i+1}</b><RoofNumber label={`Вершина ${i+1} · X`} value={p.x} min={-1000} max={1000} unit="м" onCommit={x=>updateZone({polygon:zone.polygon.map((q,j)=>j===i?{...q,x}:q)})}/><RoofNumber label={`Вершина ${i+1} · Y`} value={p.y} min={-1000} max={1000} unit="м" onCommit={y=>updateZone({polygon:zone.polygon.map((q,j)=>j===i?{...q,y}:q)})}/><button aria-label={`Удалить вершину ${i+1}`} disabled={zone.polygon.length<=3} onClick={()=>updateZone({polygon:zone.polygon.filter((_,j)=>j!==i)})}>×</button></div>)}</>}</div>
     </div>}
+    <WallProfilePanel project={project} result={result} roofModel={roofModel} onModeChange={wallFraming=>onRoofChange?.({...roof,wallFraming})}/>
     {computed?.warnings?.length>0&&<div className="roof-zone-warning">{computed.warnings.map((w,i)=><p key={i} style={{margin:i?'7px 0 0':0}}>{typeof w==='string'?w:w.message??w.note}</p>)}</div>}
     {zone&&<><h3 className="roof-analysis-heading">{useRafters?'Балочная проверка стропила':computed?.analysisApplicable?'Расчёт фермы выбранной зоны':'Типовая схема для выбранной зоны'}</h3>
       {!useRafters&&computed?.analysisApplicable===false&&<div className="roof-zone-warning"><strong>К обрезанным или нерегулярным элементам типовой расчёт не применяется.</strong> Опирание, пересечения зон, ендовы и соединения требуют отдельного расчёта. Геометрия в 3D и ведомости формируется по контуру.</div>}

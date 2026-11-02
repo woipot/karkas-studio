@@ -1,3 +1,4 @@
+import {deriveWallProfiles} from './wall-profiles.js';
 import {calculateRafter} from './rafters.js';
 import {buildRafterSupports} from './rafter-supports.js';
 import {timberSections} from './catalog.js';
@@ -90,7 +91,7 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true}={}){
       z.levelIndex=level?.index??z.levelIndex??last?.index??1;
       if(allowed.length&&!contained(z.polygon,allowed))throw Error('Зона выходит за контур своего этажа или перекрывает внешний вырез. Разделите её по реальным крыльям дома.');
       for(const q of out.zones){const overlappingArea=overlapArea(z.polygon,q.polygon);if(overlappingArea>1e-5)throw Error(`Зона перекрывает ${q.name??q.id} на ${overlappingArea.toFixed(2)} м². Перекрытие не учитывается повторно; разделите полигоны.`);}
-      const theta=z.ridgeAngle*Math.PI/180,c=Math.cos(theta),s=Math.sin(theta),toLocal=q=>({x:q.x*c+q.y*s,y:-q.x*s+q.y*c}),toWorld=(u,v,h)=>[u*c-v*s,z.eave+h,u*s+v*c];
+      const theta=z.ridgeAngle*Math.PI/180,c=Math.cos(theta),s=Math.sin(theta),toLocal=q=>({x:q.x*c+q.y*s,y:-q.x*s+q.y*c}),toWorld=(u,v,h)=>[u*c-v*s,z.eave+(z.rafterAxisLift??0)+h,u*s+v*c];
       const poly=z.polygon.map(toLocal),u0=Math.min(...poly.map(q=>q.x)),u1=Math.max(...poly.map(q=>q.x)),v0=Math.min(...poly.map(q=>q.y)),v1=Math.max(...poly.map(q=>q.y)),S=v1-v0,L=u1-u0;
       if(S<.1||L<.1)throw Error('Нулевая ширина или длина зоны.');
       if(Math.ceil((L-EPS)/z.spacing)>600)throw Error('Слишком много поперечных рам: разделите зону или увеличьте шаг.');
@@ -132,6 +133,10 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true}={}){
           z.framingReason=z.framing==='truss'?'Фермы выбраны вручную.':requestedAnalysis.slopeLength>6+EPS?'Цельное стропило длиннее 6 м. Авто предлагает ферму; альтернативы — промежуточная опора или рассчитанное наращивание.':'В выбранном диапазоне досок стропила не проходят частные проверки. Авто предлагает ферму; можно изменить сечение, шаг или добавить опору.';
         }
       }
+      if(z.effectiveFraming==='rafters'){
+        z.rafterAxisLift=chord.h/2000/Math.cos(z.pitchLeft*Math.PI/180);
+        for(const surface of out.surfaces.filter(q=>q.zoneId===z.id))for(const point of surface.points)point[1]+=z.rafterAxisLift;
+      }
       z.effectiveSection=z.selectedSection;
       z.analysis=z.shape==='hip'||z.effectiveFraming==='rafters'?null:buildTruss({type:z.shape==='mono'?'mono':(['king','queen','fink'].includes(z.trussType)?z.trussType:'fink'),span:S,rise,crestRatio:z.shape==='mono'?.5:z.crestRatio,chordB:chord.b,chordH:chord.h,webB:web.b,webH:web.h,spacing:z.actualSpacing,roofDead:p.loads?.roofDead??.5,snow:p.loads?.snow??1.5,mu:.8,muLeft:mu(z.pitchLeft),muRight:mu(z.pitchRight),gammaG:p.loads?.gammaG??1.1,gammaQ:p.loads?.gammaQ??1.4,E,tensionDesign:p.material?.Ft??8,compressionDesign:p.material?.Fc??12,timberDensity:density});
       z.analysisApplicable=rectangle&&(z.effectiveFraming==='rafters'?!!z.rafterAnalysis&&!z.rafterAnalysis.errors?.length:z.shape!=='hip'&&z.analysis?.stable===true);
@@ -151,13 +156,7 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true}={}){
           }
         }
       }
-      if(z.effectiveFraming==='rafters'){
-        const supports=buildRafterSupports(p,r,z,out.instances.slice(zoneMemberStart));z.rafterSupports=supports.supports;z.supportAssumptions=supports.assumptions;
-        for(const b of supports.instances??[])add(z,b.role,b.b,b.h,b.start,b.end,{...b,id:`${z.id}-SUP-${out.instances.length+1}`,zoneId:z.id});
-        out.checks.push(...(supports.checks??[]));z.warnings.push(...(supports.warnings??[]));
-        if(supports.checks?.some(c=>c.status==='fail'))out.complete=false;
-        out.checks.push(...(z.rafterAnalysis?.checks??[]).map(q=>({...q,id:`${z.id}-${q.id}`,zoneId:z.id})));
-      }
+      if(z.effectiveFraming==='rafters')out.checks.push(...(z.rafterAnalysis?.checks??[]).map(q=>({...q,id:`${z.id}-${q.id}`,zoneId:z.id})));
       z.partialFrames=partialFrames;if(partialFrames){z.analysisApplicable=false;z.warnings.push('Часть элементов обрезана по контуру. Их узлы и опирание требуют отдельной схемы; типовой расчёт к ним не применяется.');out.complete=false;}
       if(!rectangle)z.warnings.push('Косой или непрямоугольный контур: скаты и доски ограничены полигоном, кромки и пространственная схема не рассчитаны.');
       if(z.analysisApplicable&&z.analysis)out.checks.push(...z.analysis.checks.map(q=>({...q,id:`${z.id}-${q.id}`,zoneId:z.id})));
@@ -177,6 +176,19 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true}={}){
   }
   // Shared boundaries are joins, not automatically engineered valleys.
   if(out.zones.length>1)out.warnings.push('Несколько зон: сток, перепады и общие кромки проверяются по скатам. Конструктивное исполнение узлов и пространственная работа требуют отдельного решения.');
+  out.wallProfiles=deriveWallProfiles(p,r,out);
+  const supportBase={...r,wallProfiles:out.wallProfiles};
+  for(const z of out.zones.filter(z=>z.effectiveFraming==='rafters')){
+    const supports=buildRafterSupports(p,supportBase,z,out.instances.filter(b=>b.zoneId===z.id&&b.role==='rafter'));
+    z.rafterSupports=supports.supports;z.supportAssumptions=supports.assumptions;
+    for(const b of supports.instances??[])add(z,b.role,b.b,b.h,b.start,b.end,{...b,id:`${z.id}-SUP-${out.instances.length+1}`,zoneId:z.id});
+    out.checks.push(...(supports.checks??[]));out.warnings.push(...(supports.warnings??[]));
+    if(supports.checks?.some(c=>c.status==='fail'))out.complete=false;
+  }
+  const profileAreaGain=out.wallProfiles.filter(q=>q.mode==='continuous'&&p.walls.find(w=>w.id===q.wallId)?.kind==='exterior').reduce((sum,q)=>sum+q.topSamples.slice(1).reduce((a,b,i)=>a+(b.s-q.topSamples[i].s)*((b.topY+q.topSamples[i].topY)/2-q.nominalTopY),0),0);
+  out.profileAreaGain=profileAreaGain;out.unprofiledGableArea=out.gableArea;
+  out.gableArea=Math.max(0,out.gableArea-profileAreaGain);
+  for(const profile of out.wallProfiles)if(profile.mode==='blocked')out.checks.push({id:`${profile.wallId}-profile`,label:'Профиль стены под скатом',wallId:profile.wallId,status:'fail',note:profile.reason});
   out.mass=sum(out.instances.map(b=>b.mass));out.volume=sum(out.instances.map(b=>b.volume));
   out.status=out.checks.some(c=>c.status==='fail')?'fail':'unverified';
   out.assumptions=['Кровля задана отдельными полигонами зон; габаритный прямоугольник дома не используется как готовая крыша. Автоматическое разбиение ортогонального контура покрывает его точно, без перекрытия крыльев.','Высоты и координаты абсолютные, включая основание 0,72 м и этажные платформы. Автоматически покрываются открытые сверху части закрытых этажей; второй свет не вырезает внешний скат.','Двускатная асимметрия: h=S×tan(αL)×tan(αR)/(tan(αL)+tan(αR)); положение конька h/tan(αL). Односкатная высота S×tan(αL).','Скаты триангулированы и ограничены полигоном. Оси досок клиппируются по действительным поперечным интервалам, наружные вырезы не перекрываются. Длины по осям, рабочие запилы и узлы не назначены.','Форма скатов отделена от несущей схемы. Односкатный режим Авто сначала проверяет стропильные балки и сечения той же толщины до 250 мм; фермы предлагаются при отсутствии подходящего цельного стропила. Ручной выбор сохраняется.','FEM типовой фермы применён только к полным прямоугольным зонам, согласованным с направлением конька. Обрезанные рамы, вальмы, ендовы и пространственная устойчивость не подтверждены.','Возвращаются неразрезные идеальные доски. Закупочные 6 м и физическое наращивание выполняет геометрическое ядро отдельно; стык не создаёт опору и не уменьшает расчётный пролёт.','Вес кровельных слоёв должен считаться по area (фактические скаты), снег по projectedArea. Древесина mass/volume включается в общий вес один раз.'];

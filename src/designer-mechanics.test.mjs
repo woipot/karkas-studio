@@ -43,11 +43,10 @@ test('a stud has full unsupported length without an explicit restraint; K and le
   p.material.columnK=2;const c=run(p);near(c.stud.eulerWeak,b.stud.eulerWeak/4);
   assert.ok(a.stud.capacity<=a.stud.crushing);assert.ok(a.stud.capacity<=a.stud.euler);
 });
-test('wind load and elastic brace extension scale linearly; connection result stays unverified',()=>{
-  const p=make(),a=run(p);p.loads.wind*=2;const b=run(p);assert.ok(a.bracing.tension);
-  near(b.bracing.tension.force,a.bracing.tension.force*2);near(b.bracing.tension.extension,a.bracing.tension.extension*2);
-  near(a.bracing.tension.stress,a.bracing.tension.force*1000/(a.bracing.tension.b*a.bracing.tension.h));
-  assert.ok(a.checks.some(c=>c.id==='designerMemberSystem'&&c.status==='unverified'));
+test('modern bracing demand scales with wind while unknown shear capacity and anchors remain unverified',()=>{
+  const p=make(),ra=calculateDesigner(p),a=checkDesignerMembers(p,ra);p.loads.wind*=2;const rb=calculateDesigner(p),b=checkDesignerMembers(p,rb);
+  assert.ok(ra.bracingModel.wallLines.length);for(const line of ra.bracingModel.wallLines){const next=rb.bracingModel.wallLines.find(l=>l.wallId===line.wallId&&l.level===line.level);assert.ok(next);near(next.demandShear,line.demandShear*2);assert.equal(line.capacity,null);assert.equal(next.capacity,null);assert.ok(line.checks.some(c=>c.id.endsWith('shear-capacity')&&c.status==='unverified'));assert.ok(line.checks.some(c=>c.id.endsWith('load-path')&&c.status==='unverified'));}
+  assert.equal(a.bracing.tension,null);assert.equal(b.bracing.tension,null);assert.equal(a.checks.some(c=>c.id==='designerBraceTension'),false);assert.ok(a.checks.some(c=>c.id==='designerMemberSystem'&&c.status==='unverified'));
 });
 test('open geometry never fabricates floor or axial wall load results',()=>{
   const p=make();p.walls=p.walls.slice(0,3);const m=run(p);assert.equal(m.joist,null);assert.equal(m.stud,null);assert.equal(m.status,'unverified');

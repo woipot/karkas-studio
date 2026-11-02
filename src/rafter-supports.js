@@ -1,3 +1,4 @@
+import {wallProfileTop} from './wall-profiles.js';
 /** Explicit concept-stage support geometry for standalone rafters.
  * Coordinates [X,Y,Z] in metres; sections mm; mass kg. No connection design.
  */
@@ -17,7 +18,7 @@ function wallRecords(project,base){
   const levels=base?.geometry?.levels??[],out=[];
   for(const w of project.walls??[]){if(!w?.a||!w?.b||w.kind==='partition')continue;const section=parse(w.section);if(!section)continue;
     const applicable=w.level===undefined?levels:levels.filter(l=>l.index===w.level);
-    for(const l of applicable){const bottom=l.wallBaseY??l.elevation,top=l.topY??bottom+l.height;if(finite(bottom)&&finite(top))out.push({...w,section,level:l.index,bottom,top});}
+    for(const l of applicable){const bottom=l.wallBaseY??l.elevation,top=l.topY??bottom+l.height;if(finite(bottom)&&finite(top))out.push({...w,section,level:l.index,bottom,top,profile:base?.wallProfiles?.find(p=>p.wallId===w.id&&p.level===l.index&&p.mode==='continuous')});}
   }return out;
 }
 
@@ -63,21 +64,22 @@ export function buildRafterSupports(project,base,zone,rawRafters){
     if(!xyz(rafter?.start)||!xyz(rafter?.end)||!finite(rafter.h)||!finite(rafter.b)||rafter.h<=0||rafter.b<=0){unsupported.push({rafterId:rafter?.id??i,reason:'Некорректная геометрия стропила.'});continue;}
     const L=Math.hypot(...rafter.end.map((v,j)=>v-rafter.start[j])),horizontal=Math.hypot(rafter.end[0]-rafter.start[0],rafter.end[2]-rafter.start[2]);
     if(L<EPS||horizontal<EPS){unsupported.push({rafterId:rafter.id??i,reason:'Нулевая горизонтальная длина стропила.'});continue;}
-    const low=rafter.start[1]<=rafter.end[1]?rafter.start:rafter.end,high=low===rafter.start?rafter.end:rafter.start,depthProjection=rafter.h/2000*horizontal/L;
+    const low=rafter.start[1]<=rafter.end[1]?rafter.start:rafter.end,high=low===rafter.start?rafter.end:rafter.start,depthProjection=rafter.h/2000*L/horizontal;
     const planDirection={x:(rafter.end[0]-rafter.start[0])/horizontal,y:(rafter.end[2]-rafter.start[2])/horizontal};
     const alignment=w=>{const d=sub(w.b,w.a),length=dist(w.a,w.b);return Math.abs(dot(d,planDirection)/length);};
     for(const [end,axis] of [['low',low],['high',high]]){
       const q={x:axis[0],y:axis[2]},bearingY=axis[1]-depthProjection,s={id:`${zoneId}-seat-${i}-${end}`,zoneId,rafterId:rafter.id??`rafter-${i}`,end,axis:[...axis],axisY:axis[1],bearingY,contactY:bearingY,mode:'unsupported',verified:false,status:'unverified'};
       const explicit=existingObject(q,bearingY);
       if(explicit){Object.assign(s,explicit);result.supports.push(s);continue;}
-      const matches=walls.filter(w=>onWall(q,w)&&w.bottom<=axis[1]+HEIGHT_TOL).sort((a,b)=>Math.abs(b.top-a.top)>HEIGHT_TOL?b.top-a.top:alignment(a)-alignment(b)||a.id.localeCompare(b.id));
+      const matches=walls.map(w=>w.profile?{...w,top:wallProfileTop(w.profile,wallParameter(q,w))}:w).filter(w=>onWall(q,w)&&w.bottom<=axis[1]+HEIGHT_TOL).sort((a,b)=>Math.abs(b.top-a.top)>HEIGHT_TOL?b.top-a.top:alignment(a)-alignment(b)||a.id.localeCompare(b.id));
       const covering=matches.find(w=>w.top>=bearingY-HEIGHT_TOL&&w.bottom<=bearingY+HEIGHT_TOL),below=matches.find(w=>w.top<bearingY-HEIGHT_TOL);
       // Existing wall top at the rafter axis is an intended eave seat. The
       // necessary birdsmouth / bearing cut is explicitly left unverified.
-      const axisSeat=matches.find(w=>Math.abs(w.top-axis[1])<=HEIGHT_TOL);
-      if(axisSeat){Object.assign(s,{mode:'wallBearing',wallId:axisSeat.id,wallLevel:axisSeat.level,level:axisSeat.level,seatDepthRequired:depthProjection,note:'Нижняя кромка пересекает верх стены: требуется расчёт опорного запила/седла, смятия и анкеров.'});result.supports.push(s);continue;}
+      const axisSeat=matches.find(w=>Math.abs(w.top-bearingY)<=HEIGHT_TOL||Math.abs(w.top-axis[1])<=HEIGHT_TOL);
+      if(axisSeat){Object.assign(s,{mode:'wallBearing',wallId:axisSeat.id,wallLevel:axisSeat.level,level:axisSeat.level,seatDepthRequired:Math.max(0,axisSeat.top-bearingY),note:'Нижняя плоскость стропила совпадает с верхом стены. Опирание, смятие и анкеры требуют проверки.'});result.supports.push(s);continue;}
       const wall=covering??below;
       if(!wall){s.status='fail';s.note='Под концом стропила нет заданной несущей стены, балки или стойки; новая скрытая опора не создаётся.';unsupported.push(s);result.supports.push(s);continue;}
+      if(!covering&&Array.isArray(base.wallProfiles)&&(project.roof?.wallFraming??'auto')!=='stacked'){s.status='fail';s.note='Цельная стена здесь не сформирована: разрежьте стену по границе ската или задайте отдельную опору. Автоматическая составная надстройка отключена.';unsupported.push(s);result.supports.push(s);continue;}
       const offset=wallParameter(q,wall),opening=covering?openingAt(wall,offset,bearingY,rafter.b):null;
       if(opening){Object.assign(s,{mode:'openingConflict',wallId:wall.id,wallLevel:wall.level,openingId:opening.id,status:'fail',note:'Опорная линия стропила попадает в оконный или дверной проём.'});openingConflicts.push(s);result.supports.push(s);continue;}
       const mode=covering?'ledger':'wallExtension';Object.assign(s,{mode,wallId:wall.id,wallLevel:wall.level,level:wall.level});
@@ -111,7 +113,7 @@ export function buildRafterSupports(project,base,zone,rawRafters){
   check('rafter-support-connections','Соединения и передача усилий опор','unverified','Ledger, надстройки стен, опорные запилы, смятие, отрыв, анкеры и передача нагрузки до фундамента требуют отдельного расчёта.');
   result.assumptions=[
     'Это геометрия опор, не расчёт крепежа или пространственной устойчивости. Все supports.verified=false.',
-    'bearingY=ось стропила−половина высоты доски×cos(уклона). Новая опорная доска расположена под нижней кромкой; примыкание к плоскости стены и узел запила требуют рабочего чертежа.',
+    'bearingY=ось стропила−половина высоты доски/cos(уклона). Новая опорная доска расположена под нижней кромкой; примыкание к плоскости стены и узел запила требуют рабочего чертежа.',
     'Если существующая стена заканчивается ниже высокой опоры, стойки надстройки и пояс добавляются явно и входят в массу. Новые стойки на свободной внутренней линии без стены не изобретаются.',
     'Существующая высокая стена позволяет только предположить крепление ledger к её стойкам. Окна и двери на этой высоте блокируют автоматическое опирание и прерывают опорную доску.',
     'Все добавленные опорные доски имеют category roof и отдельные роли rafterLedger/rafterSupport/rafterPlate; это не решётка фермы и не нижний пояс.',

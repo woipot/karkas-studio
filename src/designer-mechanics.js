@@ -28,6 +28,8 @@ export function checkDesignerMembers(p,r){
     'X-связи: в каждом направлении работает одна растянутая диагональ; сжатая диагональ показана диагностически, её сопротивление не засчитывается. Сила ветра поделена максимум на две имеющиеся параллельные наружные стены; жёсткость диафрагм, узлов и анкеров не проверена.',
     'Древесина из единой ведомости учитывается в весе перекрытия. В расчёте балки используется полное номинальное сечение идеального неразрезного элемента; наращивание не подтверждает ни передачу силы, ни жёсткость этого элемента.',
   ];
+  const modernBracing=r.bracingModel;
+  if(modernBracing){const i=assumptions.findIndex(a=>a.startsWith('X-'));if(i>=0)assumptions.splice(i,1);}
   const checks=[],instances=r?.timber?.instances??[],area=r?.geometry?.area,F=p.floors??1,E=p.material?.E,Fb=p.material?.Fb,Ft=p.material?.Ft,Fc=p.material?.Fc,Fv=p.material?.Fv??1.5,K=p.material?.columnK??1;
   if(![E,Fb,Ft,Fc,Fv,K].every(x=>finite(x)&&x>0)||(p.material.studRestraint!==undefined&&(!finite(p.material.studRestraint)||p.material.studRestraint<=0))||!finite(p.loads?.gammaG)||!finite(p.loads?.gammaQ))return {joist:null,stud:null,bracing:null,checks:[{id:'memberInputs',label:'Материал и коэффициенты элементов',status:'unverified',note:'Нужны положительные E, Fb, Ft, Fc, Fv, K и заданная длина раскрепления.'}],assumptions,status:'unverified'};
   const gammaG=p.loads.gammaG,gammaQ=p.loads.gammaQ,wallMap=new Map((p.walls??[]).map(w=>[w.id,w]));
@@ -55,7 +57,8 @@ export function checkDesignerMembers(p,r){
     {id:'designerJoistShear',label:'Балки: сдвиг',value:joist.shearStress,limit:Fv,unit:'МПа',utilization:joist.shearUtilization,status:safeStatus(joist.shearUtilization)},
   );
   else checks.push({id:'designerJoists',label:'Балки перекрытия',status:'unverified',note:'Нет замкнутой площади или сформированных балок.'});
-  const bearingWalls=(p.walls??[]).filter(w=>w.kind!=='partition'),bounds=r?.geometry?.bounds??{};
+  const measuredWalls=(r.fullHeightWalls?.walls??[]).filter(w=>w.mode==='continuous'&&w.studs?.length),measuredIds=new Set(measuredWalls.map(w=>w.wallId));
+  const bearingWalls=(p.walls??[]).filter(w=>w.kind!=='partition'&&!measuredIds.has(w.id)),bounds=r?.geometry?.bounds??{};
   const supportLength=Math.min(bounds.width??0,bounds.height??0);
   let stud=null;
   if(hasArea&&r.loads&&supportLength>0&&bearingWalls.length){
@@ -66,9 +69,9 @@ export function checkDesignerMembers(p,r){
     const wallWeight=(r.timber?.totals?.walls?.weight??0)+(r.timber?.totals?.bracing?.weight??0)+wallLayers;
     const line=(roofDesign+upperFloor+wallWeight*gammaG)/(2*supportLength);
     const studs=bearingWalls.map(w=>{
-      const sec=section(w.section);if(!sec)return null;
-      const A=sec.b*sec.h,Iweak=sec.h*sec.b**3/12,Istrong=sec.b*sec.h**3/12,length=Math.max(p.height,...levels.map(l=>l.height??p.height))-3*sec.b/1000;
-      const restraint=finite(p.material.studRestraint)&&p.material.studRestraint>0?p.material.studRestraint:length;
+      const profile=r.geometry?.wallProfiles?.find(q=>q.wallId===w.id&&q.mode==='continuous'),sec=section(profile?.section??w.section);if(!sec)return null;
+      const A=sec.b*sec.h,Iweak=sec.h*sec.b**3/12,Istrong=sec.b*sec.h**3/12,length=profile?profile.studMaxLength:Math.max(p.height,...levels.map(l=>l.height??p.height))-3*sec.b/1000;
+      const restraint=!profile&&finite(p.material.studRestraint)&&p.material.studRestraint>0?p.material.studRestraint:length;
       const weakLength=Math.min(length,restraint),openings=(p.openings??[]).filter(o=>o.wallId===w.id);
       const tributaryWidth=Math.max(w.studStep??.6,...openings.map(o=>o.width/2+(w.studStep??.6))),force=line*tributaryWidth;
       const eulerWeak=Math.PI**2*E*Iweak/(K*weakLength*1000)**2/1000,eulerStrong=Math.PI**2*E*Istrong/(K*length*1000)**2/1000,euler=Math.min(eulerWeak,eulerStrong),crushing=Fc*A/1000,capacity=Math.min(euler,crushing);
@@ -76,11 +79,12 @@ export function checkDesignerMembers(p,r){
     }).filter(Boolean);
     if(studs.length)stud={...studs.reduce((a,b)=>a.utilization>b.utilization?a:b),walls:studs,equivalentLineLoad:line,supportLength,note:'Представительная стойка по консервативной эквивалентной погонной нагрузке, а не решение каждого простенка.'};
   }
-  if(stud)checks.push({id:'designerStudCompression',label:'Представительная стойка: сжатие / Euler',value:stud.force,limit:stud.capacity,unit:'кН',utilization:stud.utilization,status:stud.status});
+  if(measuredWalls.length){const actual=measuredWalls.flatMap(w=>w.studs.map(s=>({...s,wallId:w.wallId,area:s.A,capacity:s.force>=0?s.compressionCapacity:s.tensionCapacity,stress:s.force*1000/s.A,unbracedLength:s.length,strongLength:s.length,shortening:s.force*1000*s.length*1000/(E*s.A),utilization:Math.max(s.compressionUtilization,s.tensionUtilization),status:s.compressionUtilization>1||s.tensionUtilization>1?'fail':'unverified',measured:true}))),worst=actual.reduce((a,b)=>a.utilization>b.utilization?a:b);if(!stud||worst.utilization>stud.utilization)stud={...worst,walls:actual,note:'Фактическая стойка полной высоты, реакция кровли и собственный вес стены. Распределение по габаритному прямоугольнику для неё не применяется.'};}
+  if(stud)checks.push({id:'designerStudCompression',label:stud.measured?'Фактическая цельная стойка: сжатие / Euler':'Представительная стойка: сжатие / Euler',value:stud.force,limit:stud.capacity,unit:'кН',utilization:stud.utilization,status:stud.status});
   else checks.push({id:'designerStuds',label:'Сжатие стоек',status:'unverified',note:'Путь вертикальной нагрузки не задан для открытой или неполной модели.'});
   const floorT=(section(p.floor?.section)?.h??250)/1000+.035,facadeH=(levels.length?sum(levels.map(l=>l.height??p.height)):F*p.height)+Math.max(0,F-1)*floorT;
   const forceX=hasArea?(p.loads.wind??0)*(bounds.height??0)*facadeH:0,forceY=hasArea?(p.loads.wind??0)*(bounds.width??0)*facadeH:0;
-  const bays=hasArea?(r.timber?.braceBays??[]).filter(b=>b.available&&wallMap.get(b.wallId)?.kind==='exterior'):[];
+  const bays=modernBracing?[]:hasArea?(r.timber?.braceBays??[]).filter(b=>b.available&&wallMap.get(b.wallId)?.kind==='exterior'):[];
   const braceMembers=logicalMembers(instances,'brace');
   const braced=bays.map(bay=>{
     const w=wallMap.get(bay.wallId),len=Math.hypot(w.b.x-w.a.x,w.b.y-w.a.y),ux=(w.b.x-w.a.x)/len,uy=(w.b.y-w.a.y)/len;
@@ -100,5 +104,5 @@ export function checkDesignerMembers(p,r){
   checks.push({id:'designerMemberSystem',label:'Стыки, местные узлы и пространственная работа',status:'unverified',note:'Частные проверки не подтверждают передачу усилий через физические стыки, опорные узлы и диафрагмы.'});
   if(levels.some(l=>(l.voidArea??0)>0)){checks.push({id:'designerVoidLoadPath',label:'Обрамление второго света и проёмов перекрытия',status:'unverified',note:'Обрезка балки у проёма не подтверждает её опирание. Несущая способность обрамления, подвесов и передача нагрузки на соседние балки требуют отдельной модели.'});assumptions.push('Средний вес древесины перекрытия делится на фактическую сумму netFloorArea всех этажей. Для второго света пролёты обрезанных балок показаны геометрически; опирание на обрамление и усиление проёмов не подтверждены.');}
   if(levels.length>1)assumptions.push('Этажи имеют независимую геометрию. Представительная стойка использует суммарную площадь верхних перекрытий и максимальную высоту стен, но не рассчитывает каждый вертикальный путь нагрузки между несовпадающими этажами.');
-  return {joist,stud,bracing,checks,assumptions,status:checks.some(c=>c.status==='fail')?'fail':'unverified'};
+  return {joist,stud,bracing:modernBracing?{...modernBracing,tension:null,compression:null,missing:[],bays:[]}:bracing,checks,assumptions,status:checks.some(c=>c.status==='fail')?'fail':'unverified'};
 }

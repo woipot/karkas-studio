@@ -27,7 +27,7 @@ test('different left/right slopes move the crest and produce weighted snow and a
   near(z.analysis.nodes.find(n=>n.id==='R').x,left);near(z.analysis.analysis.balanceMoment,0);
 });
 test('mono keeps the real full-span pitch and has a genuinely different truss geometry',()=>{
-  const p=project();p.roof.zones=[{id:'mono',polygon:P,shape:'mono',pitchLeft:15,pitchRight:40}];const r=run(p),z=r.zones[0];near(z.rise,8*Math.tan(15*Math.PI/180));near(r.area,96/Math.cos(15*Math.PI/180));assert.equal(z.analysis.type,'mono');assert.equal(z.analysisApplicable,true);
+  const p=project();p.roof.zones=[{id:'mono',polygon:P,shape:'mono',framing:'truss',pitchLeft:15,pitchRight:40}];const r=run(p),z=r.zones[0];near(z.rise,8*Math.tan(15*Math.PI/180));near(r.area,96/Math.cos(15*Math.PI/180));assert.equal(z.analysis.type,'mono');assert.equal(z.analysisApplicable,true);
 });
 test('L plan auto roofing never emits surfaces or framing across the missing rectangle',()=>{
   const r=run(project(),L);near(r.projectedArea,80);assert.ok(r.zones.length>1);

@@ -252,7 +252,7 @@
       },
       {
         "id": "w6",
-        "wallId": "L2-W2",
+        "wallId": "L2-W4",
         "offset": 1.2,
         "width": 1.5,
         "height": 1.4,
@@ -298,7 +298,9 @@
           "trussType": "mono",
           "spacing": 0.6,
           "chordSection": "50x150",
-          "webSection": "50x100"
+          "webSection": "50x100",
+          "framing": "auto",
+          "deflectionRatio": 300
         },
         {
           "id": "roof-level-1-2",
@@ -330,7 +332,9 @@
           "trussType": "mono",
           "spacing": 0.6,
           "chordSection": "50x150",
-          "webSection": "50x100"
+          "webSection": "50x100",
+          "framing": "auto",
+          "deflectionRatio": 300
         },
         {
           "id": "roof-level-2-1",
@@ -362,7 +366,9 @@
           "trussType": "fink",
           "spacing": 0.6,
           "chordSection": "50x150",
-          "webSection": "50x100"
+          "webSection": "50x100",
+          "framing": "auto",
+          "deflectionRatio": 300
         }
       ]
     },

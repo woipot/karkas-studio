@@ -150,7 +150,7 @@ function makeSuggestions(project,base,roof,audit){
 
 export function orientRoofsAwayFromWalls(project,baseResult,roofModel){
   const audit=calculateRoofDrainage(project,baseResult,roofModel),suggestions=audit.suggestions,source=Array.isArray(project.roof?.zones)?project.roof.zones:roofModel?.zones??[];
-  const fields=['id','name','polygon','shape','ridgeAngle','pitchLeft','pitchRight','elevation','levelIndex','trussType','spacing','chordSection','webSection'];
+  const fields=['framing','deflectionRatio','id','name','polygon','shape','ridgeAngle','pitchLeft','pitchRight','elevation','levelIndex','trussType','spacing','chordSection','webSection'];
   const zones=source.map(z=>{if(!z||typeof z!=='object')return z;const out=Object.fromEntries(fields.filter(k=>z[k]!==undefined).map(k=>[k,k==='polygon'?z[k].map(q=>({...q})):z[k]]));const suggestion=suggestions.find(q=>q.zoneId===z.id);return suggestion?{...out,...suggestion.changes}:out;});
   const appliedZoneIds=suggestions.map(s=>s.zoneId),blockedZoneIds=[...new Set([...audit.arrows.filter(f=>f.status==='wallBlock').map(f=>f.zoneId),...audit.issues.filter(i=>i.code==='interior-roof-wall-crossing').map(i=>i.zoneId)])];
   return {zones,suggestions,appliedZoneIds,unresolved:blockedZoneIds.filter(id=>!appliedZoneIds.includes(id))};

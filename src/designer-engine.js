@@ -128,6 +128,8 @@ export function validateDesignerProject(input){
   for(const key of ['roof','material','loads','foundation','joints','prices'])if(!object(p[key]))error(key,`${key}: требуется объект параметров.`);
   if(object(p.roof)){
     if(!['king','queen','fink','mono','gable','none'].includes(p.roof.type))error('roof.type','Тип кровли: king, queen, fink, mono или none.');
+    if(p.roof.framing!==undefined&&!['auto','rafters','truss'].includes(p.roof.framing))error('roof.framing','Несущая схема кровли: auto, rafters или truss.');
+    if(p.roof.deflectionRatio!==undefined)range(p.roof.deflectionRatio,150,600,'roof.deflectionRatio');
     range(p.roof.pitch,0,60,'roof.pitch');range(p.roof.spacing,.2,1.5,'roof.spacing');
     for(const k of ['chordSection','webSection'])if(!parseSection(p.roof[k]))error('roof.'+k,'Некорректное сечение доски.');
     if(p.roof.zones!==undefined){
@@ -138,6 +140,8 @@ export function validateDesignerProject(input){
         if(typeof z.id!=='string'||!z.id||z.id.length>100||ids.has(z.id))error(f+'.id','ID зон должны быть непустыми и уникальными, до 100 символов.');ids.add(z.id);
         if(typeof z.name!=='string'||z.name.length>160)error(f+'.name','Название зоны: строка до 160 символов.');
         if(!['gable','mono','hip'].includes(z.shape))error(f+'.shape','Форма зоны: gable, mono или hip.');
+        if(z.framing!==undefined&&!['auto','rafters','truss'].includes(z.framing))error(f+'.framing','Несущая схема: auto, rafters или truss.');
+        if(z.deflectionRatio!==undefined)range(z.deflectionRatio,150,600,f+'.deflectionRatio');
         if(!finite(z.ridgeAngle))error(f+'.ridgeAngle','Азимут конька должен быть конечным числом.');
         range(z.pitchLeft,2,60,f+'.pitchLeft');range(z.pitchRight,2,60,f+'.pitchRight');range(z.spacing,.2,3,f+'.spacing');
         for(const key of ['chordSection','webSection'])if(!parseSection(z[key]))error(f+'.'+key,'Некорректное сечение доски зоны.');
@@ -407,7 +411,7 @@ function timberModel(p,graph,corners,bounds,truss,warnings,roofModel){
   let roofVerified=false;
   if(roofModel&&Array.isArray(roofModel.instances)){
     let accepted=0;
-    for(const board of roofModel.instances){const a=board.start,z=board.end;if(!Array.isArray(a)||!Array.isArray(z)||a.length!==3||z.length!==3||![...a,...z,board.b,board.h].every(finite)||board.b<=0||board.h<=0)continue;add(board.name||'Доска кровли','roof',board.role||'truss',board.b,board.h,a,z,{zoneId:board.zoneId,barId:board.barId,trussRow:board.trussRow,level:board.level??board.floor,floor:board.floor??board.level,crossAxis:board.crossAxis||[1,0,0],cutStart:board.cutStart,cutEnd:board.cutEnd});accepted++;}
+    for(const board of roofModel.instances){const a=board.start,z=board.end;if(!Array.isArray(a)||!Array.isArray(z)||a.length!==3||z.length!==3||![...a,...z,board.b,board.h].every(finite)||board.b<=0||board.h<=0)continue;add(board.name||'Доска кровли','roof',board.role||'truss',board.b,board.h,a,z,{zoneId:board.zoneId,barId:board.barId,trussRow:board.trussRow,rafterRow:board.rafterRow,supportGeometry:board.supportGeometry,wallId:board.wallId,connectionVerified:board.connectionVerified,reason:board.reason,sourceBoardId:board.id,level:board.level??board.floor,floor:board.floor??board.level,crossAxis:board.crossAxis||[1,0,0],cutStart:board.cutStart,cutEnd:board.cutEnd});accepted++;}
     roofVerified=accepted>0&&accepted===roofModel.instances.length;
     if(accepted!==roofModel.instances.length)warnings.push('Некорректные доски зонной кровли пропущены: её масса неполна.');
   }else if(graph.closed&&p.roof.type!=='none'&&truss){

@@ -70,7 +70,10 @@ test('drainage fix updates real roof mass, six-metre stock map and foundation lo
   near(result.foundation.reactionSum,result.loads.totalDesign);
   const zones=new Map(roof.zones.map(z=>[z.id,z]));
   for(const board of result.timber.instances.filter(b=>b.category==='roof')){
-    assert.ok(zones.has(board.zoneId));assert.equal(board.level,zones.get(board.zoneId).levelIndex,'Lower-wing boards must keep their actual floor tag');
+    assert.ok(zones.has(board.zoneId));const zone=zones.get(board.zoneId);
+    if(['rafterLedger','rafterSupport','rafterPlate'].includes(board.role)){
+      const mode=board.role==='rafterLedger'?'ledger':'wallExtension';const support=(zone.rafterSupports??[]).find(s=>s.mode===mode&&s.wallLevel===board.level);assert.ok(support,'Support boards must keep the level of the actual receiving wall');assert.ok(p.walls.some(w=>w.id===support.wallId&&(w.level??1)===board.level));
+    }else assert.equal(board.level,zone.levelIndex,'Rafters and truss bars must keep their roof-zone floor tag');
   }
 });
 

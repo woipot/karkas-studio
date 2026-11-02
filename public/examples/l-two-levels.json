@@ -1,0 +1,468 @@
+{
+  "app": "КАРКАС Studio",
+  "version": 2,
+  "project": {
+    "version": 2,
+    "name": "Г-образный дом · 2 этажа · второй свет",
+    "height": 2.8,
+    "floors": 2,
+    "grid": 0.25,
+    "walls": [
+      {
+        "id": "L1-W1",
+        "level": 1,
+        "a": {
+          "x": 0,
+          "y": 0
+        },
+        "b": {
+          "x": 12,
+          "y": 0
+        },
+        "kind": "exterior",
+        "section": "50x150",
+        "studStep": 0.6
+      },
+      {
+        "id": "L1-W2",
+        "level": 1,
+        "a": {
+          "x": 12,
+          "y": 0
+        },
+        "b": {
+          "x": 12,
+          "y": 5
+        },
+        "kind": "exterior",
+        "section": "50x150",
+        "studStep": 0.6
+      },
+      {
+        "id": "L1-W3",
+        "level": 1,
+        "a": {
+          "x": 12,
+          "y": 5
+        },
+        "b": {
+          "x": 8,
+          "y": 5
+        },
+        "kind": "exterior",
+        "section": "50x150",
+        "studStep": 0.6
+      },
+      {
+        "id": "L1-W4",
+        "level": 1,
+        "a": {
+          "x": 8,
+          "y": 5
+        },
+        "b": {
+          "x": 8,
+          "y": 9
+        },
+        "kind": "exterior",
+        "section": "50x150",
+        "studStep": 0.6
+      },
+      {
+        "id": "L1-W5",
+        "level": 1,
+        "a": {
+          "x": 8,
+          "y": 9
+        },
+        "b": {
+          "x": 0,
+          "y": 9
+        },
+        "kind": "exterior",
+        "section": "50x150",
+        "studStep": 0.6
+      },
+      {
+        "id": "L1-W6",
+        "level": 1,
+        "a": {
+          "x": 0,
+          "y": 9
+        },
+        "b": {
+          "x": 0,
+          "y": 0
+        },
+        "kind": "exterior",
+        "section": "50x150",
+        "studStep": 0.6
+      },
+      {
+        "id": "L2-W1",
+        "level": 2,
+        "a": {
+          "x": 0,
+          "y": 0
+        },
+        "b": {
+          "x": 8,
+          "y": 0
+        },
+        "kind": "exterior",
+        "section": "50x150",
+        "studStep": 0.6
+      },
+      {
+        "id": "L2-W2",
+        "level": 2,
+        "a": {
+          "x": 8,
+          "y": 0
+        },
+        "b": {
+          "x": 8,
+          "y": 5
+        },
+        "kind": "exterior",
+        "section": "50x150",
+        "studStep": 0.6
+      },
+      {
+        "id": "L2-W3",
+        "level": 2,
+        "a": {
+          "x": 8,
+          "y": 5
+        },
+        "b": {
+          "x": 0,
+          "y": 5
+        },
+        "kind": "exterior",
+        "section": "50x150",
+        "studStep": 0.6
+      },
+      {
+        "id": "L2-W4",
+        "level": 2,
+        "a": {
+          "x": 0,
+          "y": 5
+        },
+        "b": {
+          "x": 0,
+          "y": 0
+        },
+        "kind": "exterior",
+        "section": "50x150",
+        "studStep": 0.6
+      },
+      {
+        "id": "L1-bearing1",
+        "level": 1,
+        "a": {
+          "x": 0,
+          "y": 4
+        },
+        "b": {
+          "x": 12,
+          "y": 4
+        },
+        "kind": "bearing",
+        "section": "50x150",
+        "studStep": 0.6
+      },
+      {
+        "id": "L1-bearing2",
+        "level": 1,
+        "a": {
+          "x": 8,
+          "y": 0
+        },
+        "b": {
+          "x": 8,
+          "y": 5
+        },
+        "kind": "bearing",
+        "section": "50x150",
+        "studStep": 0.6
+      }
+    ],
+    "openings": [
+      {
+        "id": "w1",
+        "wallId": "L1-W1",
+        "offset": 1.2,
+        "width": 1.8,
+        "height": 1.4,
+        "sill": 0.8,
+        "type": "window",
+        "floor": 1
+      },
+      {
+        "id": "w2",
+        "wallId": "L1-W1",
+        "offset": 8.4,
+        "width": 1.8,
+        "height": 1.4,
+        "sill": 0.8,
+        "type": "window",
+        "floor": 1
+      },
+      {
+        "id": "d1",
+        "wallId": "L1-W2",
+        "offset": 1.5,
+        "width": 1,
+        "height": 2.1,
+        "sill": 0,
+        "type": "door",
+        "floor": 1
+      },
+      {
+        "id": "w3",
+        "wallId": "L1-W5",
+        "offset": 2.5,
+        "width": 1.8,
+        "height": 1.4,
+        "sill": 0.8,
+        "type": "window",
+        "floor": 1
+      },
+      {
+        "id": "w4",
+        "wallId": "L1-W6",
+        "offset": 3.5,
+        "width": 1.5,
+        "height": 1.4,
+        "sill": 0.8,
+        "type": "window",
+        "floor": 1
+      },
+      {
+        "id": "w5",
+        "wallId": "L2-W1",
+        "offset": 2,
+        "width": 1.8,
+        "height": 1.4,
+        "sill": 0.8,
+        "type": "window",
+        "floor": 2
+      },
+      {
+        "id": "w6",
+        "wallId": "L2-W2",
+        "offset": 1.2,
+        "width": 1.5,
+        "height": 1.4,
+        "sill": 0.8,
+        "type": "window",
+        "floor": 2
+      }
+    ],
+    "roof": {
+      "type": "fink",
+      "pitch": 25,
+      "spacing": 0.6,
+      "chordSection": "50x150",
+      "webSection": "50x100",
+      "zones": [
+        {
+          "id": "roof-level-1-1",
+          "name": "Нижнее крыло 1",
+          "polygon": [
+            {
+              "x": 0,
+              "y": 5
+            },
+            {
+              "x": 8,
+              "y": 5
+            },
+            {
+              "x": 8,
+              "y": 9
+            },
+            {
+              "x": 0,
+              "y": 9
+            }
+          ],
+          "shape": "gable",
+          "ridgeAngle": 0,
+          "pitchLeft": 30,
+          "pitchRight": 20,
+          "levelIndex": 1,
+          "elevation": null,
+          "trussType": "queen",
+          "spacing": 0.6,
+          "chordSection": "50x150",
+          "webSection": "50x100"
+        },
+        {
+          "id": "roof-level-1-2",
+          "name": "Нижнее крыло 2",
+          "polygon": [
+            {
+              "x": 8,
+              "y": 0
+            },
+            {
+              "x": 12,
+              "y": 0
+            },
+            {
+              "x": 12,
+              "y": 5
+            },
+            {
+              "x": 8,
+              "y": 5
+            }
+          ],
+          "shape": "gable",
+          "ridgeAngle": 90,
+          "pitchLeft": 30,
+          "pitchRight": 20,
+          "levelIndex": 1,
+          "elevation": null,
+          "trussType": "queen",
+          "spacing": 0.6,
+          "chordSection": "50x150",
+          "webSection": "50x100"
+        },
+        {
+          "id": "roof-level-2-1",
+          "name": "Верхний этаж",
+          "polygon": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 8,
+              "y": 0
+            },
+            {
+              "x": 8,
+              "y": 5
+            },
+            {
+              "x": 0,
+              "y": 5
+            }
+          ],
+          "shape": "gable",
+          "ridgeAngle": 0,
+          "pitchLeft": 25,
+          "pitchRight": 35,
+          "levelIndex": 2,
+          "elevation": null,
+          "trussType": "fink",
+          "spacing": 0.6,
+          "chordSection": "50x150",
+          "webSection": "50x100"
+        }
+      ]
+    },
+    "floor": {
+      "section": "50x250",
+      "spacing": 0.6,
+      "axis": "y"
+    },
+    "material": {
+      "density": 500,
+      "E": 10000,
+      "Fb": 13,
+      "Ft": 8,
+      "Fc": 12,
+      "Fv": 1.5,
+      "studRestraint": 2.8,
+      "columnK": 1
+    },
+    "loads": {
+      "floorDead": 0.6,
+      "live": 1.5,
+      "roofDead": 0.5,
+      "wallDead": 0.5,
+      "openingDead": 0.3,
+      "snow": 1.5,
+      "wind": 0.3,
+      "gammaG": 1.1,
+      "gammaQ": 1.4
+    },
+    "foundation": {
+      "spacing": 2,
+      "capacity": 40
+    },
+    "joints": {
+      "defaultCorner": "california2",
+      "defaultCut": "butt",
+      "overrides": {},
+      "spliceScheme": "halfLap",
+      "spliceLength": 0.4
+    },
+    "cutting": {
+      "stockLength": 6,
+      "kerf": 3,
+      "minReusable": 0.3
+    },
+    "objects": [],
+    "boardCuts": {},
+    "levels": [
+      {
+        "id": "level-1",
+        "index": 1,
+        "name": "1 этаж",
+        "height": 2.8
+      },
+      {
+        "id": "level-2",
+        "index": 2,
+        "name": "2 этаж",
+        "height": 2.6
+      }
+    ],
+    "voids": [
+      {
+        "id": "second-light",
+        "level": 2,
+        "polygon": [
+          {
+            "x": 2,
+            "y": 1
+          },
+          {
+            "x": 5,
+            "y": 1
+          },
+          {
+            "x": 5,
+            "y": 3
+          },
+          {
+            "x": 2,
+            "y": 3
+          }
+        ],
+        "kind": "doubleHeight",
+        "edgeSection": "50x250"
+      }
+    ],
+    "prices": {
+      "timberM3": 34000,
+      "sheathingM2": 600,
+      "insulationM2": 900,
+      "roofM2": 1200,
+      "pileEach": 6500,
+      "windowsM2": 14000,
+      "doorsEach": 18000,
+      "fastenersM3": 4500,
+      "laborPercent": 35,
+      "wastePercent": 10,
+      "contingencyPercent": 10,
+      "sectionPrices": {}
+    }
+  }
+}

@@ -289,13 +289,13 @@
               "y": 9
             }
           ],
-          "shape": "gable",
-          "ridgeAngle": 0,
-          "pitchLeft": 30,
-          "pitchRight": 20,
-          "levelIndex": 1,
+          "shape": "mono",
+          "ridgeAngle": 180,
+          "pitchLeft": 25,
+          "pitchRight": 25,
           "elevation": null,
-          "trussType": "queen",
+          "levelIndex": 1,
+          "trussType": "mono",
           "spacing": 0.6,
           "chordSection": "50x150",
           "webSection": "50x100"
@@ -321,13 +321,13 @@
               "y": 5
             }
           ],
-          "shape": "gable",
+          "shape": "mono",
           "ridgeAngle": 90,
-          "pitchLeft": 30,
-          "pitchRight": 20,
-          "levelIndex": 1,
+          "pitchLeft": 25,
+          "pitchRight": 25,
           "elevation": null,
-          "trussType": "queen",
+          "levelIndex": 1,
+          "trussType": "mono",
           "spacing": 0.6,
           "chordSection": "50x150",
           "webSection": "50x100"
@@ -357,8 +357,8 @@
           "ridgeAngle": 0,
           "pitchLeft": 25,
           "pitchRight": 35,
-          "levelIndex": 2,
           "elevation": null,
+          "levelIndex": 2,
           "trussType": "fink",
           "spacing": 0.6,
           "chordSection": "50x150",

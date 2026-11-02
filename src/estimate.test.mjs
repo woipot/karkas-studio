@@ -47,3 +47,12 @@ test('CSV quotes text, includes units and uses real line breaks',()=>{
   const csv=estimateRowsToCSV(calculateEstimate(project,result),'Дом; "Лес"');
   assert.ok(csv.startsWith('\uFEFF'));assert.ok(csv.includes('"Дом; ""Лес"""'));assert.ok(csv.includes('"м³"'));assert.ok(csv.includes('\r\n'));
 });
+
+// Drainage quantities are geometric takeoffs and must remain editable in the estimate.
+test('prices roof drainage separately from cover and does not purchase it as timber',()=>{
+ const p={...project,prices:{...zeroPrices,gutterM:100,downpipeM:200,flashingM:300,valleyM:400,wastePercent:10}};
+ const r={...result,roofModel:{drainage:{quantities:{gutterLength:12,downpipeLength:8,flashingLength:6,valleyLength:3,downpipeCount:2}}}};
+ const e=calculateEstimate(p,r),get=id=>e.rows.find(x=>x.id===id);
+ near(get('roof-gutters').quantity,13.2);near(get('roof-downpipes').total,1760);near(get('roof-flashing').netQuantity,6);near(get('roof-valleys').total,1320);
+ near(e.materialTotal,6380);near(e.procurementTimberVolume,.045);assert.match(get('roof-downpipes').note,/2 шт/);
+});

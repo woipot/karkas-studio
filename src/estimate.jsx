@@ -90,7 +90,14 @@ export function calculateEstimate(project={},result={},precomputedCutting){
   const pileCount=Array.isArray(result.piles)?result.piles.length:numeric(bom.pileCount);
   add('sheathing','Обшивка стен и перекрытий','м²',sheathing,'sheathingM2',true,'Один слой: наружные стены без проёмов + площадь перекрытий.');
   add('insulation','Утепление наружных стен','м²',netWall,'insulationM2',true,project.wallThickness?`Расценка за м² при толщине ${fmt(numeric(project.wallThickness)*1000,0)} мм; без вычета древесины.`:'Расценка за м² наружной стены; состав и толщину утепления уточните в цене. Без вычета древесины.');
-  add('roof','Кровельное покрытие','м²',roofArea,'roofM2',true,'Площадь скатов модели; свесы, доборные элементы и подкладочные слои не добавляются.');
+  add('roof','Кровельное покрытие','м²',roofArea,'roofM2',true,'Площадь скатов модели; свесы и подкладочные слои не добавляются. Водоотвод и примыкания вынесены отдельными строками.');
+  const drainage=result.roofModel?.drainage??result.drainage;
+  if(drainage){const q=drainage.quantities??{};
+    add('roof-gutters','Карнизные желоба','м',q.gutterLength,'gutterM',true,'По схеме стока. Профиль, кронштейны и пропускная способность подбираются отдельно.');
+    add('roof-downpipes','Водосточные трубы','м',q.downpipeLength,'downpipeM',true,`Геометрические трассы: ${q.downpipeCount??0} шт. Отвод от основания и ливневая сеть оцениваются отдельно.`);
+    add('roof-flashing','Фартуки примыкания к стенам','м',q.flashingLength,'flashingM',true,'Развёртка, нахлёсты и крепление по системе кровли. Длина линии примыкания из 3D.');
+    add('roof-valleys','Ендовы','м',q.valleyLength,'valleyM',true,'Длина по пересечению скатов. Рабочая ширина, гидроизоляция и подогрев уточняются.');
+  }
   add('piles','Сваи','шт.',pileCount,'pileEach',false,'Количество опор из свайного поля. Тип, длина и состав единичной расценки уточняются.');
   add('windows','Окна','м²',windowArea,'windowsM2',false,'Сумма площадей оконных проёмов; конфигурация и монтаж отдельно не моделируются.');
   add('doors','Двери','шт.',doorCount,'doorsEach',false,'Количество дверных проёмов модели.');

@@ -1,3 +1,4 @@
+import {calculateRoofDrainage,orientRoofsAwayFromWalls} from './roof-drainage.js';
 import {buildTruss,trussSources} from './trusses.js';
 const EPS=1e-7,G=9.80665;
 const sum=a=>a.reduce((s,x)=>s+x,0),finite=Number.isFinite;
@@ -50,7 +51,7 @@ function contained(poly,building){
   return true;
 }
 
-export function calculateRoofZones(p,baseResult){
+export function calculateRoofZones(p,baseResult,{autoOrient=true}={}){
   const r=baseResult??{},geometry=r.geometry??{},levels=(geometry.levels??[]).filter(l=>l.closed&&l.polygon?.length>=3),platform=r.timber?.platformHeight??((sec(p.floor?.section)?.h??250)/1000+.035);
   const levelTop=l=>finite(l.topY)?l.topY:l.elevation+l.height;
   const fallbackEave=.72+(p.floors??1)*((p.height??2.8)+platform),last=levels.at(-1),defaultEave=last?levelTop(last):fallbackEave;
@@ -122,7 +123,7 @@ export function calculateRoofZones(p,baseResult){
       z.partialFrames=partialFrames;if(partialFrames){z.analysisApplicable=false;z.warnings.push('Часть поперечных рам обрезана по контуру. Их узлы и опирание требуют отдельной схемы; типовая FEM-ферма к ним не применяется.');out.complete=false;}
       if(!rectangle)z.warnings.push('Косой или непрямоугольный контур: скаты и доски ограничены полигоном, кромки и пространственная схема не рассчитаны.');
       if(z.analysisApplicable)out.checks.push(...z.analysis.checks.map(q=>({...q,id:`${z.id}-${q.id}`,zoneId:z.id})));
-      out.checks.push({id:`${z.id}-junctions`,label:`${z.name??z.id}: примыкания и раскрепление`,status:'unverified',note:'Ендовы, примыкания соседних зон, опоры и связь из плоскости не рассчитаны.'});
+      out.checks.push({id:`${z.id}-junctions`,label:`${z.name??z.id}: примыкания и раскрепление`,status:'unverified',note:'Опоры, крепление примыканий и связь из плоскости не рассчитаны. Геометрический сток проверяется отдельно.'});
       out.zones.push(z);closures.push({z,toLocal,height,planes});out.area+=z.surfaceArea;out.projectedArea+=z.area;out.snowEffectiveArea+=z.snowEffectiveArea;out.warnings.push(...z.warnings.map(w=>`${z.name??z.id}: ${w}`));
     }catch(error){out.warnings.push(`${z.name??z.id}: ${error.message}`);out.checks.push({id:`${z.id}-geometry`,label:`${z.name??z.id}: геометрия кровли`,status:'fail',note:error.message});out.complete=false;}
   }
@@ -137,9 +138,25 @@ export function calculateRoofZones(p,baseResult){
     }out.gableArea+=z.gableArea;
   }
   // Shared boundaries are joins, not automatically engineered valleys.
-  if(out.zones.length>1)out.warnings.push('Несколько зон: их общие границы показаны как отдельные скаты. Ендовы, перепады высот, водоотвод и узлы примыкания требуют отдельного решения.');
+  if(out.zones.length>1)out.warnings.push('Несколько зон: сток, перепады и общие кромки проверяются по скатам. Конструктивное исполнение узлов и пространственная работа требуют отдельного решения.');
   out.mass=sum(out.instances.map(b=>b.mass));out.volume=sum(out.instances.map(b=>b.volume));
   out.status=out.checks.some(c=>c.status==='fail')?'fail':'unverified';
   out.assumptions=['Кровля задана отдельными полигонами зон; габаритный прямоугольник дома не используется как готовая крыша. Автоматическое разбиение ортогонального контура покрывает его точно, без перекрытия крыльев.','Высоты и координаты абсолютные, включая основание 0,72 м и этажные платформы. Автоматически покрываются открытые сверху части закрытых этажей; второй свет не вырезает внешний скат.','Двускатная асимметрия: h=S×tan(αL)×tan(αR)/(tan(αL)+tan(αR)); положение конька h/tan(αL). Односкатная высота S×tan(αL).','Скаты триангулированы и ограничены полигоном. Оси досок клиппируются по действительным поперечным интервалам, наружные вырезы не перекрываются. Длины по осям, рабочие запилы и узлы не назначены.','FEM типовой фермы применён только к полным прямоугольным зонам, согласованным с направлением конька. Обрезанные рамы, вальмы, ендовы и пространственная устойчивость не подтверждены.','Возвращаются неразрезные идеальные доски. Закупочные 6 м и физическое наращивание выполняет геометрическое ядро отдельно; стык не создаёт опору и не уменьшает расчётный пролёт.','Вес кровельных слоёв должен считаться по area (фактические скаты), снег по projectedArea. Древесина mass/volume включается в общий вес один раз.'];
+  const drainage=calculateRoofDrainage(p,r,out);
+  if(autoOrient&&p.roof?.zones===undefined&&drainage.suggestions?.length){
+    const fixed=orientRoofsAwayFromWalls(p,r,out);
+    if(fixed.suggestions?.length&&fixed.zones?.length){
+      const corrected=calculateRoofZones({...p,roof:{...p.roof,zones:fixed.zones}},r,{autoOrient:false});
+      corrected.autoDrainageAdjusted=true;
+      corrected.assumptions.unshift('Автоматические нижние крылья ориентированы односкатно от высоких стен. Ручные зоны меняются только по команде пользователя.');
+      return corrected;
+    }
+  }
+  out.drainage=drainage;
+  out.valleys=(drainage.junctions??[]).filter(q=>q.type==='valley');
+  out.checks.push(...drainage.checks);out.warnings.push(...drainage.warnings);
+  out.assumptions.push(...drainage.assumptions);
+  out.sources.push({title:'PNNL · Водоотвод и фартуки примыкания кровли к стенам',url:'https://basc.pnnl.gov/resource-guides/step-and-kick-out-flashing-roof-wall-intersections'});
+  if(drainage.checks.some(c=>c.status==='fail')){out.status='fail';out.complete=false;}
   return out;
 }

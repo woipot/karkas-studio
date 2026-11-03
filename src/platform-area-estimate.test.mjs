@@ -21,3 +21,13 @@ test('an invalid physical platform makes procurement explicitly incomplete',()=>
  const e=calculateEstimate({floors:1,openings:[]},{geometry:{closed:true,area:20,totalFloorArea:20,totalPlatformArea:0,platformAreaComplete:false},timber:{instances:[]},piles:[]});
  assert.equal(e.complete,false);
 });
+
+test('annex procurement adds actual roofing, glass and drainage once without extending main envelope or duplicating deck timber and piles',()=>{
+ const p={floors:1,openings:[],prices:{wastePercent:0,pileEach:100,roofM2:10,windowsM2:20,gutterM:30,downpipeM:40,flashingM:50},envelope:{costItems:[{id:'floor',name:'House floor layer',basis:'allFloors',rate:1}]}};
+ const result={geometry:{closed:true,totalFloorArea:20,totalPlatformArea:21,roofArea:22,netWallArea:30},timber:{instances:[]},piles:Array.from({length:12},(_,id)=>({id})),annexes:{items:[{id:'OPEN',quantities:{floorArea:8,roofArea:0,glazingArea:0}},{id:'COVER',name:'Covered',quantities:{floorArea:10,roofArea:12,gutterLength:4,downpipeLength:3,flashingLength:4}},{id:'GLASS',quantities:{floorArea:6,roofArea:7,glazingArea:14,gutterLength:3,downpipeLength:2,flashingLength:3}}]}};
+ const e=calculateEstimate(p,result),row=id=>e.rows.find(r=>r.id===id);
+ near(row('roof').netQuantity,22);near(row('sheathing').netQuantity,51);near(row('envelope-floor').netQuantity,21);near(row('piles').quantity,12);near(row('piles').total,1200);
+ near(row('annex-COVER-roof').quantity,12);near(row('annex-GLASS-glazing').quantity,14);near(row('annex-GLASS-glazing').total,280);
+ assert.ok(!e.rows.some(r=>r.id.startsWith('annex-OPEN-')));assert.ok(!e.rows.some(r=>/annex.*(deck|pile|insulation)/.test(r.id)));
+ assert.ok(e.rows.filter(r=>r.id.startsWith('annex-')).every(r=>r.annexId===r.id.split('-')[1]));
+});

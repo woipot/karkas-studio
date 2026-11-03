@@ -75,3 +75,13 @@ test('joist screen carries full deck dead load and exposes physical end consoles
  near(j.floorDeadPressure,p.loads.floorDead*1.1);
  const c=m.checks.find(c=>c.id==='floorJoistEndConsoles');assert.equal(c.status,'unverified');assert.ok(c.memberIds.includes(b.id));assert.ok(c.logicalMemberIds.includes(j.id));
 });
+
+test('independent annex wood and roof loads do not alter the house member checks',()=>{
+ const p=make(),r=calculateDesigner(p),a=checkDesignerMembers(p,r),q=structuredClone(r);
+ q.houseLoads=structuredClone(r.loads);
+ for(const [i,category]of ['floor','walls','roof','bracing'].entries())q.timber.instances.push({id:'ANNEX-'+i,annexId:'A',role:category==='floor'?'joist':'post',category,b:50,h:200,length:2,mass:500,start:[20,1,0],end:[22,1,0],crossAxis:[0,0,1],floor:1});
+ for(const category of ['floor','walls','bracing'])q.timber.totals[category].weight+=500*9.80665/1000;
+ q.loads.snow+=1000;q.loads.roofWeight+=1000;
+ const b=checkDesignerMembers(p,q);
+ near(b.joist.moment,a.joist.moment);near(b.joist.deflection,a.joist.deflection);near(b.stud.force,a.stud.force);assert.equal(b.joist.logicalCount,a.joist.logicalCount);
+});

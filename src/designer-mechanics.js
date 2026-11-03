@@ -30,12 +30,12 @@ export function checkDesignerMembers(p,r){
   ];
   const modernBracing=r.bracingModel;
   if(modernBracing){const i=assumptions.findIndex(a=>a.startsWith('X-'));if(i>=0)assumptions.splice(i,1);}
-  const checks=[],instances=r?.timber?.instances??[],area=r?.geometry?.area,F=p.floors??1,E=p.material?.E,Fb=p.material?.Fb,Ft=p.material?.Ft,Fc=p.material?.Fc,Fv=p.material?.Fv??1.5,K=p.material?.columnK??1;
+  const checks=[],allInstances=r?.timber?.instances??[],instances=allInstances.filter(b=>!b.annexId),hasAnnex=allInstances.some(b=>b.annexId),memberLoads=hasAnnex?(r.houseLoads??r.loads):r.loads,houseTotals=hasAnnex?(r.houseTimberTotals??Object.fromEntries(['floor','walls','bracing'].map(k=>[k,{weight:sum(instances.filter(b=>b.category===k).map(b=>b.mass??0))*9.80665/1000}]))):r.timber?.totals,area=r?.geometry?.area,F=p.floors??1,E=p.material?.E,Fb=p.material?.Fb,Ft=p.material?.Ft,Fc=p.material?.Fc,Fv=p.material?.Fv??1.5,K=p.material?.columnK??1;
   if(![E,Fb,Ft,Fc,Fv,K].every(x=>finite(x)&&x>0)||(p.material.studRestraint!==undefined&&(!finite(p.material.studRestraint)||p.material.studRestraint<=0))||!finite(p.loads?.gammaG)||!finite(p.loads?.gammaQ))return {joist:null,stud:null,bracing:null,checks:[{id:'memberInputs',label:'Материал и коэффициенты элементов',status:'unverified',note:'Нужны положительные E, Fb, Ft, Fc, Fv, K и заданная длина раскрепления.'}],assumptions,status:'unverified'};
   const gammaG=p.loads.gammaG,gammaQ=p.loads.gammaQ,wallMap=new Map((p.walls??[]).map(w=>[w.id,w]));
   const hasArea=finite(area)&&area>0;
   const levels=r?.geometry?.levels??[],netFloorArea=finite(r?.geometry?.totalFloorArea)?r.geometry.totalFloorArea:area*F;
-  const floorWoodPressure=hasArea&&netFloorArea>0?(r.timber?.totals?.floor?.weight??0)/netFloorArea:0;
+  const floorWoodPressure=hasArea&&netFloorArea>0?(houseTotals?.floor?.weight??0)/netFloorArea:0;
   const spacing=p.floor?.spacing??.6;
   const floorPressureFor=m=>{const level=levels.find(l=>l.index===m.floor);return level&&level.netFloorArea>0?sum(instances.filter(b=>b.category==='floor'&&b.floor===m.floor).map(b=>b.mass??0))*9.80665/1000/level.netFloorArea:floorWoodPressure;};
   const floorDeadPressureFor=m=>{const l=levels.find(l=>l.index===m.floor);return (p.loads.floorDead??0)*(l?.netFloorArea>0&&finite(l.platformNetArea)?l.platformNetArea/l.netFloorArea:1);};
@@ -68,13 +68,13 @@ export function checkDesignerMembers(p,r){
   const bearingWalls=(p.walls??[]).filter(w=>w.kind!=='partition'&&!measuredIds.has(w.id)),bounds=r?.geometry?.bounds??{};
   const supportLength=Math.min(bounds.width??0,bounds.height??0);
   let stud=null;
-  if(hasArea&&r.loads&&supportLength>0&&bearingWalls.length){
-    const roofDesign=(r.loads.roofWeight??0)*gammaG+(r.loads.snow??0)*gammaQ;
+  if(hasArea&&memberLoads&&supportLength>0&&bearingWalls.length){
+    const roofDesign=(memberLoads.roofWeight??0)*gammaG+(memberLoads.snow??0)*gammaQ;
     const upperArea=levels.length?sum(levels.slice(1).map(l=>l.closed?(l.netFloorArea??l.area??0):0)):area*Math.max(0,F-1);
     const upperDeadArea=levels.length?sum(levels.slice(1).map(l=>l.closed?(l.platformNetArea??l.netFloorArea??l.area??0):0)):upperArea;
     const upperFloor=(upperDeadArea*(p.loads.floorDead??0)+upperArea*floorWoodPressure)*gammaG+upperArea*(p.loads.live??0)*gammaQ;
-    const wallLayers=(r.loads.rows??[]).filter(row=>['wall-layers','inner-layers','openings','walls-layers','wallLayers','opening-layers','openings-layers'].includes(row.id)).reduce((s,row)=>s+(row.characteristic??0),0);
-    const wallWeight=(r.timber?.totals?.walls?.weight??0)+(r.timber?.totals?.bracing?.weight??0)+wallLayers;
+    const wallLayers=(memberLoads.rows??[]).filter(row=>['wall-layers','inner-layers','openings','walls-layers','wallLayers','opening-layers','openings-layers'].includes(row.id)).reduce((s,row)=>s+(row.characteristic??0),0);
+    const wallWeight=(houseTotals?.walls?.weight??0)+(houseTotals?.bracing?.weight??0)+wallLayers;
     const line=(roofDesign+upperFloor+wallWeight*gammaG)/(2*supportLength);
     const studs=bearingWalls.map(w=>{
       const profile=r.geometry?.wallProfiles?.find(q=>q.wallId===w.id&&q.mode==='continuous'),sec=section(profile?.section??w.section);if(!sec)return null;

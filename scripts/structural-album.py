@@ -265,7 +265,7 @@ def dimension(c, a, b, offset=15, label=None):
     c.restoreState()
 
 
-ROLE = {'stud': 'Стойка', 'plate': 'Обвязка', 'corner': 'Угол', 'joist': 'Лага', 'rim': 'Бортовая доска', 'rimJoist': 'Обвязка перекрытия', 'floorBlocking': 'Поперечные распорки', 'voidHeader': 'Ригель проёма', 'voidTrimmer': 'Обрамление проёма', 'openingHeader': 'Поперечная балка проёма', 'openingTrimmer': 'Продольная балка проёма', 'rafter': 'Стропило', 'truss': 'Ферма', 'letInBrace': 'Врезная укосина', 'blocking': 'Распорка', 'grillage': 'Ростверк', 'beam': 'Балка', 'header': 'Перемычка', 'kingStud': 'Стойка проёма', 'jackStud': 'Опорная стойка', 'sill': 'Подоконная доска'}
+ROLE = {'stud': 'Стойка', 'plate': 'Обвязка', 'corner': 'Угол', 'joist': 'Лага', 'rim': 'Бортовая доска', 'rimJoist': 'Обвязка перекрытия', 'floorBlocking': 'Поперечные распорки', 'voidHeader': 'Ригель проёма', 'voidTrimmer': 'Обрамление проёма', 'openingHeader': 'Поперечная балка проёма', 'openingTrimmer': 'Продольная балка проёма', 'rafter': 'Стропило', 'truss': 'Ферма', 'letInBrace': 'Врезная укосина', 'blocking': 'Распорка', 'grillage': 'Ростверк', 'beam': 'Балка', 'header': 'Перемычка', 'kingStud': 'Стойка проёма', 'jackStud': 'Опорная стойка', 'sill': 'Подоконная доска', 'annexRim': 'Обвязка настила пристройки', 'annexJoist': 'Лага пристройки', 'annexBlocking': 'Распорки пристройки', 'annexPostBearingBlock': 'Опорные вкладыши стоек', 'stairTread': 'Доска ступени', 'stairRiser': 'Подступенок', 'stairStringer': 'Пильный косоур', 'stairHandrail': 'Поручень марша', 'stairBaluster': 'Заполнение марша', 'guardPost': 'Стойка ограждения', 'guardRail': 'Пояс ограждения', 'guardBaluster': 'Заполнение ограждения'}
 STATUSES = {'pass': 'Частная проверка выполнена', 'fail': 'Не выполнено', 'warning': 'Требует уточнения', 'unverified': 'Не проверено', 'blocked': 'Заблокировано', 'complete': 'Сформировано'}
 
 
@@ -283,6 +283,8 @@ class Album:
         self.roof = self.r.get('roofModel') or {}
         self.gr = self.r.get('grillageModel') or {}
         self.members = (self.r.get('timber') or {}).get('instances') or []
+        self.spatial = self.r.get('spatialLayout') or {}
+        self.annexes = (self.r.get('annexes') or {}).get('items') or []
         self.fabrication = report.get('fabrication') or {}
         self.part_groups = self.fabrication.get('partGroups') or []
         self.pattern_groups = self.fabrication.get('patternGroups') or []
@@ -336,6 +338,17 @@ class Album:
                 self.table_pages('Фундамент · исходные выбора и исследования', [('Параметр / вариант', .35), ('Данные исходного отчёта', .65)], self.flatten_fields(remaining), 'Данные задания и сравнения систем, не подтверждённый геотехнический расчёт.', 8)
         for level in self.levels:
             self.add(f'План этажа {level.get("index", 1)}', 'floorplan', level, 'Размерные цепи - между осями стен; зелёный контур - наружная грань платформы. Размеры в мм, координаты и отметки в м.')
+        for space in self.spatial.get('doubleHeightSpaces') or []:
+            self.add('Второй свет · лестница, галерея и верхний ярус', 'spatial', space, 'Единый пространственный объём и проекции фактических деревянных элементов. Узлы лестницы и ограждений требуют проверки.')
+        if self.annexes:
+            self.add('Пристройки · конструктивные варианты', 'annexcatalog', self.annexes, 'Поддерживаемые варианты MCP и фактический состав текущей модели. Пристройки не включены в отапливаемую площадь дома.')
+            for annex in self.annexes:
+                self.add('Пристройка · ' + clean(annex.get('name', annex.get('id'))), 'annex', annex, 'Геометрия, опоры, кровля и остекление из отчёта. Древесина включена в общие FG / FP и раскрой ровно один раз.')
+                rows = []
+                for q in annex.get('checks') or []:
+                    rows.append([q.get('label', q.get('id')), STATUSES.get(q.get('status'), q.get('status')), self.check_value(q), q.get('note', '')])
+                if rows:
+                    self.table_pages('Пристройка · проверки · ' + clean(annex.get('name', annex.get('id'))), [('Проверка', .25), ('Статус', .13), ('Значение / предел', .17), ('Пояснение', .45)], rows, 'Частные проверки из модели; геотехника, крепёж и пространственная устойчивость не подтверждены.', 7.8)
         openings = self.p.get('openings') or []
         if openings:
             self.table_pages('Проёмы · ведомость окон и дверей', [('ID проёма', .2, 'mono'), ('Стена', .12), ('Тип / этаж', .12), ('От A, мм', .12), ('Ширина, мм', .12), ('Высота, мм', .12), ('Низ от основания стены, мм', .2)], [[o.get('id'), self.wall_names.get(str(o.get('wallId')), o.get('wallId')), ('Дверь' if o.get('type') == 'door' else 'Окно') + f' / {o.get("floor", o.get("level", "-"))}', number(finite(o.get('offset')) * 1000, 0), number(finite(o.get('width')) * 1000, 0), number(finite(o.get('height')) * 1000, 0), number(finite(o.get('sill')) * 1000, 0)] for o in openings], 'Отступ измеряется вдоль локальной оси стены A → B. Конструктивные перемычки и опорные стойки - на фасадах каркаса.', 8)
@@ -362,7 +375,8 @@ class Album:
         if isinstance(floor_openings, dict):
             rows, remarks = [], []
             support_labels = {'lowerWallEnds': 'Концы на стенах нижнего этажа', 'continuousWall': 'Непрерывная опора на стену', 'trimmerFaces': 'Торцы у продольных балок'}
-            for board in floor_openings.get('instances') or []:
+            logical_members = [m for opening in floor_openings.get('openings') or [] for m in (opening.get('trimmers') or []) + (opening.get('headers') or [])]
+            for board in logical_members or floor_openings.get('instances') or []:
                 if not isinstance(board, dict):
                     continue
                 check = board.get('check') if isinstance(board.get('check'), dict) else {}
@@ -376,10 +390,14 @@ class Album:
                         support_rows.append('Балка\n' + clean(support['memberId']))
                 mode = clean(board.get('supportMode'))
                 status = STATUSES.get(check.get('status'), clean(check.get('status'))) if check else 'Балочная проверка не передана'
-                mark = self.marks.get(str(board.get('id')))
-                rows.append([(mark + '\n' if mark else '') + clean(board.get('id')), board.get('voidId'), f'{board.get("b", "-")} × {board.get("h", "-")}', number(board.get('analyticalSpan'), 3) + ' / ' + number(board.get('clearSpan'), 3), '\n'.join(support_rows) or '-', number(check.get('maxMoment'), 4), number(check.get('maxShear'), 4), number(check.get('deflection'), 3) + ' / ' + number(check.get('deflectionLimit'), 3), number(check.get('utilization'), 4), support_labels.get(mode, mode) + '\n' + mode + '\n' + status])
+                marks = list(dict.fromkeys(self.marks.get(str(mid)) for mid in board.get('memberIds') or [board.get('id')] if self.marks.get(str(mid))))
+                section = board.get('boardSection') or {}
+                section_label = f'{board.get("plies")} × {section.get("b")} × {section.get("h")}' if board.get('analysisOnly') and board.get('plies') else f'{board.get("b", "-")} × {board.get("h", "-")}'
+                rows.append([(', '.join(marks) + '\n' if marks else '') + clean(board.get('id')), board.get('voidId'), section_label, number(board.get('analyticalSpan'), 3) + ' / ' + number(board.get('clearSpan'), 3), '\n'.join(support_rows) or '-', number(check.get('maxMoment'), 4), number(check.get('maxShear'), 4), number(check.get('deflection'), 3) + ' / ' + number(check.get('deflectionLimit'), 3), number(check.get('utilization'), 4), support_labels.get(mode, mode) + '\n' + mode + '\n' + status])
                 loads = board.get('loads') if isinstance(board.get('loads'), dict) else {}
                 notes = ['Роль: ' + clean(board.get('role')) + '; опорная схема: ' + mode + '.']
+                if board.get('analysisOnly') and board.get('plies'):
+                    notes.append('Пакет ' + section_label + ' мм. Это расчётная ось, не одна широкая доска. В физической модели ' + str(len(board.get('memberIds') or [])) + ' отдельных досок; равномерная передача нагрузки между ними и крепёж не подтверждены.')
                 if loads:
                     notes.append('Грузовая модель: ' + clean(loads.get('method')) + '; qd / qk = ' + number(loads.get('designLineLoad'), 4) + ' / ' + number(loads.get('serviceLineLoad'), 4) + ' кН/м.')
                     for reaction in loads.get('headerReactions') or []:
@@ -397,7 +415,7 @@ class Album:
                 remarks.append([board.get('id'), '\n'.join(notes)])
             for i, assumption in enumerate(floor_openings.get('assumptions') or []):
                 remarks.append([f'Допущение обрамления {i + 1:02d}', clean(assumption)])
-            self.table_pages('Обрамление второго света и лестницы · опоры и проверки', [('Доска / марка', .18, 'mono'), ('ID проёма', .12, 'mono'), ('b × h, мм', .06), ('Lрасч. / Lчист., м', .09), ('Опорные стены / балки', .14), ('Mmax, кНм', .065), ('Vmax, кН', .065), ('δ / δlim, мм', .09), ('η', .055), ('Опорная схема / статус', .135)], rows, 'Нагрузки и частные проверки фактического обрамления. «-» означает отсутствие значения, не нулевое усилие.', 7)
+            self.table_pages('Обрамление второго света и лестницы · опоры и проверки', [('Балка / марки досок', .18, 'mono'), ('ID проёма', .11, 'mono'), ('n × b × h, мм', .075), ('Lрасч. / Lчист., м', .085), ('Опорные стены / балки', .14), ('Mmax, кНм', .065), ('Vmax, кН', .065), ('δ / δlim, мм', .09), ('η', .055), ('Опорная схема / статус', .135)], rows, 'Пакеты подписаны n × b × h одной доски. Нагрузки и частные проверки - по расчётной оси пакета; все отдельные доски сохранены в раскрое. «-» - значение не передано.', 7)
             self.table_pages('Обрамление проёмов · передача нагрузок и допущения', [('Доска / раздел', .23, 'mono'), ('Данные модели и границы расчёта', .77)], remarks, 'Конструктивные соединения, ползучесть, вибрация, смятие и пространственная работа не подтверждены.', 7.3)
         walls = self.p.get('walls') or []
         # Two walls per sheet keeps IDs, openings and high/raked profiles readable.
@@ -466,6 +484,8 @@ class Album:
                 ends = self.ends(shape.get('cutStart'), shape.get('cutEnd'))
                 if shape.get('notches'):
                     ends += '\nВыборок: ' + str(len(shape['notches'])) + '; локальная геометрия в JSON.'
+                if (shape.get('shape') or {}).get('type') == 'stairStringer':
+                    ends += '\nПильный профиль косоура: контур в JSON; не прямоугольная доска.'
                 rows.append([clean(group.get('id')) + '\n', group.get('count'), f'{group.get("b")} × {group.get("h")}', number(group.get('axisLength'), 3) + ' / ' + number(group.get('cutLength'), 3), ends, self.application_summary(group)])
             columns = [('Группа / схема', .12, 'mono'), ('Шт.', .05), ('Сечение, мм', .1), ('Ось / заготовка, м', .12), ('Торцы / выборки', .26), ('Применение · конструкция × количество', .35)]
             self.table_pages('Изготовление · одинаковые детали и применение', columns, rows, 'Одна FG - одна геометрия, включая торцы и выборки. Полные физические ID и точное применение: fabrication-parts.csv / JSON.', 7.5)
@@ -525,7 +545,7 @@ class Album:
             if not place and app.get('rimEdge') is not None:
                 place = 'Ребро контура ' + clean(app['rimEdge'])
             if not place:
-                for key, label in [('zoneId', 'Кровля'), ('beamId', 'Балка'), ('voidId', 'Проём'), ('objectId', 'Объект')]:
+                for key, label in [('annexId', 'Пристройка'), ('staircaseId', 'Лестница'), ('guardId', 'Ограждение'), ('zoneId', 'Кровля'), ('beamId', 'Балка'), ('voidId', 'Проём'), ('objectId', 'Объект')]:
                     if app.get(key):
                         place = label + ' ' + clean(app[key]); break
             place = place or clean(app.get('name') or app.get('role') or 'Общие детали')
@@ -814,9 +834,22 @@ class Album:
         platform_pts = self.platform_polygon(level)
         walls = [w for w in self.p.get('walls', []) if int(w.get('level', w.get('floor', 1))) == int(level_index)]
         axispts = pts + [xy(w[k]) for w in walls for k in ('a', 'b')]
-        allpts = axispts + platform_pts
+        annexes = [a for a in self.annexes if int(a.get('level', 1)) == int(level_index)]
+        allpts = axispts + platform_pts + [xy(p) for a in annexes for p in a.get('polygon') or []]
         fn, scale = transform(allpts, box, 54)
         polygon(c, [fn(p) for p in platform_pts], PAPER, GREEN, .9)
+        for annex in annexes:
+            ap = [xy(p) for p in annex.get('polygon') or []]
+            polygon(c, [fn(p) for p in ap], colors.HexColor('#ebe4d2'), GREEN, .8)
+            for m in self.members:
+                if m.get('annexId') == annex.get('id') and m.get('category') in ('floor', 'foundation'):
+                    line(c, fn(xy(m['start'])), fn(xy(m['end'])), WOOD_DARK, max(.5, finite(m.get('b')) / 1000 * scale))
+            for pile in self.r.get('piles') or []:
+                if pile.get('annexId') == annex.get('id'):
+                    xx, yy = fn(xy(pile)); c.setFillColor(GREEN); c.circle(xx, yy, 2.2, fill=1, stroke=0)
+            if ap:
+                a, b, d, e = bounds(ap)
+                text(c, annex.get('name', annex.get('id')), *fn(((a + d) / 2, (b + e) / 2)), 7.5, 'Bold', GREEN, width=100)
         c.setDash([5, 3]); polygon(c, [fn(p) for p in pts], None, MUTED, .55); c.setDash([])
         if axes:
             xs = sorted(set(round(p[0], 4) for p in axispts))
@@ -878,7 +911,14 @@ class Album:
             vp = [xy(p) for p in void.get('polygon', [])]
             polygon(c, [fn(p) for p in vp], colors.white, ORANGE, 1)
             a, b, d, e = bounds(vp)
-            detailed_stair = void.get('kind') in ('stair', 'staircase') and bool(self.p.get('staircase'))
+            space = next((s for s in self.spatial.get('doubleHeightSpaces') or [] if s.get('voidId') == void.get('id')), None)
+            detailed_stair = (void.get('kind') in ('stair', 'staircase') and bool(self.p.get('staircase'))) or bool(space)
+            if space:
+                stair = next((s for s in self.spatial.get('staircases') or [] if s.get('id') == space.get('staircaseId')), {})
+                stair_min = bounds([xy(p) for p in stair.get('polygon') or []])[0] if stair.get('polygon') else d
+                xx, yy = fn(((a + max(a, min(d, stair_min))) / 2, (b + e) / 2))
+                text(c, 'ВТОРОЙ СВЕТ', xx - 43, yy + 7, 8, 'Bold', ORANGE)
+                text(c, 'единый объём двух этажей', xx - 56, yy - 8, 6.5, color=MUTED)
             if not detailed_stair:
                 line(c, fn((a, b)), fn((d, e)), ORANGE, .5, [3, 3])
                 line(c, fn((a, e)), fn((d, b)), ORANGE, .5, [3, 3])
@@ -921,9 +961,79 @@ class Album:
             for wall in walls:
                 line(c, fn(xy(wall['a'])), fn(xy(wall['b'])), MUTED, .5, [5, 3])
         stair = self.p.get('staircase') or {}
-        if stair and int(level_index) in (int(stair.get('levelFrom', 1)), int(stair.get('levelTo', 2))):
+        actual_stairs = self.spatial.get('staircases') or []
+        if actual_stairs:
+            self.draw_actual_stair_plan(c, fn, level_index, False)
+        elif stair and int(level_index) in (int(stair.get('levelFrom', 1)), int(stair.get('levelTo', 2))):
             self.draw_stair_plan(c, stair, fn, show_note=stair_note)
         return fn, scale
+
+    def draw_actual_stair_plan(self, c, fn, level_index=None, note=False):
+        """Physical tread/landing polygons and guard axes, not invented step divisions."""
+        stairs = [s for s in self.spatial.get('staircases') or [] if level_index is None or int(level_index) in (int(s.get('levelFrom', 1)), int(s.get('levelTo', 2)))]
+        source_ids = {str(v) for stair in stairs for v in stair.get('boardIds') or []}
+        for surface in self.spatial.get('surfaces') or []:
+            if surface.get('kind') not in ('stairTread', 'stairLanding'):
+                continue
+            ids = set(map(str, surface.get('sourceBoardIds') or []))
+            if ids and not ids.intersection(source_ids):
+                continue
+            points = surface.get('pointsXYZ') or surface.get('points') or []
+            polygon(c, [fn(xy(p)) for p in points], WOOD, WOOD_DARK, .45)
+        for guard in self.spatial.get('guards') or []:
+            if guard.get('kind') == 'levelGuard' and level_index is not None and int(guard.get('level', 2)) != int(level_index):
+                continue
+            line(c, fn(xy(guard.get('start'))), fn(xy(guard.get('end'))), GREEN, 1.6)
+        for stair in stairs:
+            flights = stair.get('flights') or []
+            for flight in flights:
+                poly = [xy(p) for p in flight.get('polygon') or []]
+                if not poly:
+                    continue
+                a, b, d, e = bounds(poly)
+                direction = xyz(flight.get('direction'))
+                center = ((a + d) / 2, (b + e) / 2)
+                arrow(c, fn((center[0] - direction[0] * .65, center[1] - direction[2] * .65)), fn((center[0] + direction[0] * .65, center[1] + direction[2] * .65)), BLUE, 1.1)
+            if note and stair.get('polygon'):
+                a, b, d, e = bounds([xy(p) for p in stair['polygon']])
+                text(c, str(stair.get('risers', '-')) + ' подъёмов · h=' + number(finite(stair.get('riser')) * 1000, 1) + ' мм', *fn((a, b - .25)), 6.5, color=BLUE)
+
+    def projected_member(self, m, project):
+        """Projection of the real blank/profile; no connection or strength assumptions."""
+        a, b = xyz(m.get('start')), xyz(m.get('end'))
+        delta = tuple(b[i] - a[i] for i in range(3)); length = math.sqrt(sum(v * v for v in delta))
+        if length < 1e-9:
+            return []
+        u = tuple(v / length for v in delta)
+        raw = xyz(m.get('crossAxis') or [1, 0, 0]); dot = sum(raw[i] * u[i] for i in range(3))
+        cross = tuple(raw[i] - dot * u[i] for i in range(3)); norm = math.sqrt(sum(v * v for v in cross))
+        if norm < 1e-9:
+            cross = (u[2], 0, -u[0]); norm = math.sqrt(sum(v * v for v in cross))
+        if norm < 1e-9:
+            cross, norm = (1, 0, 0), 1
+        cross = tuple(v / norm for v in cross)
+        depth = (cross[1] * u[2] - cross[2] * u[1], cross[2] * u[0] - cross[0] * u[2], cross[0] * u[1] - cross[1] * u[0])
+        center = tuple((a[i] + b[i]) / 2 for i in range(3))
+        shape = m.get('shape') or {}
+        profile = shape.get('points') if shape.get('type') in ('stairStringer', 'rippedBoard') else None
+        if profile:
+            return [project(tuple(center[i] + u[i] * finite(p[0]) + depth[i] * finite(p[1]) for i in range(3))) for p in profile]
+        # Convex hull of the actual rectangular section's eight projected corners.
+        points = sorted(set(project(tuple(center[i] + u[i] * s + depth[i] * h + cross[i] * w for i in range(3))) for s in (-length / 2, length / 2) for h in (-finite(m.get('h')) / 2000, finite(m.get('h')) / 2000) for w in (-finite(m.get('b')) / 2000, finite(m.get('b')) / 2000)))
+        if len(points) < 3:
+            return points
+        def turn(a, b, c):
+            return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        lower, upper = [], []
+        for p in points:
+            while len(lower) > 1 and turn(lower[-2], lower[-1], p) <= 0:
+                lower.pop()
+            lower.append(p)
+        for p in reversed(points):
+            while len(upper) > 1 and turn(upper[-2], upper[-1], p) <= 0:
+                upper.pop()
+            upper.append(p)
+        return lower[:-1] + upper[:-1]
 
     def draw_floorplan(self, c, level, index):
         self.draw_plan_base(c, level, (45, 145, 800, H - 265), wall_faces=True)
@@ -942,6 +1052,10 @@ class Album:
             text(c, 'Разбивка помещений отсутствует в исходном отчёте.', x, y - 6, 8, color=ORANGE, width=245)
         if not self.p.get('staircase'):
             text(c, 'Геометрия лестницы в отчёте не задана.', x, y - 48, 8, color=ORANGE, width=245)
+        stair = next((s for s in self.spatial.get('staircases') or [] if int(level.get('index', 1)) in (int(s.get('levelFrom', 1)), int(s.get('levelTo', 2)))), None)
+        if stair:
+            text(c, 'ЛЕСТНИЦА ПО МОДЕЛИ', x, y - 4, 8, 'Bold', BLUE)
+            text(c, str(stair.get('risers')) + ' подъёмов\nh=' + number(finite(stair.get('riser')) * 1000, 1) + ' мм · b=' + number(finite(stair.get('tread')) * 1000, 0) + ' мм', x, y - 25, 8.3, color=BLUE, width=245)
         self.note(c, 'О - окно; Д - дверь. Размеры между осями стен; платформа по наружным граням. Отметки относительно единого нуля модели. Лестница требует отдельного расчёта.', y=103)
 
     def draw_piles(self, c, data, index):
@@ -1171,7 +1285,7 @@ class Album:
         grouped = collections.Counter((m.get('b'), m.get('h'), m.get('role')) for m in members)
         for (b, h, role), count in grouped.items():
             y = text(c, f'{ROLE.get(role, role)}\n{b} × {h} мм · {count} шт.', x, y, 8.5, width=190) - 18
-        stair = self.p.get('staircase') or {}
+        stair = next(iter(self.spatial.get('staircases') or []), None) or self.p.get('staircase') or {}
         if stair and int(level.get('index', 1)) in (int(stair.get('levelFrom', 1)), int(stair.get('levelTo', 2))):
             y = text(c, f'Лестница: {clean(stair.get("risers", "-"))} подъёмов; h={number(finite(stair.get("riser")) * 1000, 1)} мм; проступь {number(finite(stair.get("tread")) * 1000, 0)} мм.', x, y - 5, 7.5, color=BLUE, width=190) - 18
         y = min(y - 10, 280)
@@ -1344,6 +1458,182 @@ class Album:
                 analysis = zone.get('analysis') or {}
                 sy = text(c, 'Типовая ферма: ' + clean(zone.get('trussType')) + '\nСтатус: ' + clean(analysis.get('status')) + '\nПрименимость: ' + ('типовая схема применима' if zone.get('analysisApplicable') else 'к обрезанным/частичным элементам не подтверждена'), sx, sy, 8, width=w * .31)
             text(c, 'Разрез - проекция повторяющихся рам зоны; совпадающие линии показаны один раз. Опорные узлы не рассчитаны.', sx, y + 40, 7.4, color=ORANGE, width=w * .31)
+
+    def draw_spatial(self, c, space, index):
+        poly = [xy(p) for p in space.get('polygon') or []]
+        if not poly:
+            self.note(c, 'Геометрия пространственного объёма не передана.'); return
+        stair = next((s for s in self.spatial.get('staircases') or [] if s.get('id') == space.get('staircaseId')), {})
+        gallery_ids = set(map(str, space.get('galleryIds') or []))
+        galleries = [g for g in self.spatial.get('galleries') or [] if str(g.get('id')) in gallery_ids]
+        a, b, d, e = bounds(poly)
+        text(c, 'ВЕРХНИЙ УРОВЕНЬ · ПРОЁМ И ПУТИ ДВИЖЕНИЯ', 48, H - 135, 9, 'Bold', GREEN)
+        gallery_points = [xy(p) for g in galleries for p in g.get('polygon') or []]
+        fn, scale = transform(poly + gallery_points, (48, 300, 405, 355), 28)
+        polygon(c, [fn(p) for p in poly], colors.HexColor('#f3ecdb'), ORANGE, 1)
+        for gallery in galleries:
+            gp = [xy(p) for p in gallery.get('polygon') or []]
+            polygon(c, [fn(p) for p in gp], colors.HexColor('#dce7d1'), GREEN, .8)
+        self.draw_actual_stair_plan(c, fn, space.get('upperLevel'), False)
+        stair_min = bounds([xy(p) for p in stair.get('polygon') or []])[0] if stair.get('polygon') else d
+        label = fn(((a + max(a, min(stair_min, d))) / 2, (b + e) / 2))
+        text(c, 'ВТОРОЙ СВЕТ', label[0] - 45, label[1] + 6, 8, 'Bold', ORANGE)
+        text(c, 'вид в нижнее помещение', label[0] - 50, label[1] - 9, 6.5, color=MUTED)
+        dimension(c, fn((a, b)), fn((d, b)), -24, number((d - a) * 1000, 0))
+        lower = next((r for r in self.planning.get('rooms') or [] if r.get('id') == space.get('lowerRoomId')), {})
+        facts = [
+            ('Нижнее помещение', lower.get('name', space.get('lowerRoomId'))),
+            ('Общий проём', clean(space.get('voidId'))),
+            ('Этажи / отметки', clean(space.get('lowerLevel')) + ' → ' + clean(space.get('upperLevel')) + '; +' + number(space.get('baseY'), 3) + '…+' + number(space.get('topY'), 3) + ' м'),
+            ('Лестница', clean(stair.get('risers')) + ' подъёмов; h=' + number(finite(stair.get('riser')) * 1000, 1) + ' мм; b=' + number(finite(stair.get('tread')) * 1000, 0) + ' мм'),
+            ('Ширина марша по модели', number(stair.get('actualClearWidth'), 3) + ' м'),
+            ('Галереи / верхние окна', str(len(gallery_ids)) + ' / ' + str(len(space.get('daylightOpeningIds') or [])))
+        ]
+        yy = 258
+        for name, value in facts:
+            text(c, name, 48, yy, 7.7, color=MUTED)
+            yy = text(c, value, 210, yy, 7.7, 'Bold', width=245) - 12
+        text(c, 'ПРОДОЛЬНАЯ ПРОЕКЦИЯ ФАКТИЧЕСКОЙ ЛЕСТНИЦЫ', 493, H - 135, 9, 'Bold', GREEN)
+        # Both U-flights are projected onto X/elevation; this is expressly not
+        # a cut through the flight gap and does not invent a continuous slab.
+        stair_ids = set(map(str, stair.get('boardIds') or []))
+        relevant_guards = [g for g in self.spatial.get('guards') or [] if g.get('spatialId') in (stair.get('id'), space.get('id')) or a - .3 <= xyz(g.get('start'))[0] <= d + .3 and b - .4 <= xyz(g.get('start'))[2] <= e + .4]
+        guard_ids = {str(v) for g in relevant_guards for v in g.get('boardIds') or []}
+        members = [m for m in self.members if str(m.get('id')) in stair_ids | guard_ids]
+        project = lambda p: (p[0], p[1])
+        profiles = [(m, self.projected_member(m, project)) for m in members]
+        low, upper, top = finite(space.get('baseY')), finite(space.get('upperFloorY')), finite(space.get('topY'))
+        points = [(x, y) for x in (a - .2, d + .7) for y in (low - .25, top + .3)]
+        points += [p for _, shape in profiles for p in shape]
+        sf, _ = transform(points, (488, 164, W - 535, 475), 26)
+        polygon(c, [sf((a, low)), sf((d, low)), sf((d, top)), sf((a, top))], colors.HexColor('#fbf8ef'), ORANGE, .6)
+        # Actual floor section at the report's recommended plane.
+        cut_y = finite((space.get('sectionSuggestion') or {}).get('value'), (b + e) / 2)
+        for level in self.levels:
+            intervals = scan_intervals(self.platform_polygon(level), cut_y)
+            holes = [interval for v in self.p.get('voids') or [] if int(v.get('level', 2)) == int(level.get('index', 1)) for interval in scan_intervals([xy(p) for p in v.get('polygon') or []], cut_y)]
+            for left, right in subtract_intervals(intervals, holes):
+                left, right = max(left, a - .2), min(right, d + .7)
+                if right <= left: continue
+                bot, deck = finite(level.get('platformBase')), finite(level.get('wallBaseY'))
+                polygon(c, [sf((left, bot)), sf((right, bot)), sf((right, deck)), sf((left, deck))], colors.HexColor('#dce7d1'), GREEN, .6)
+        for member, shape in profiles:
+            is_guard = bool(member.get('guardId')) or str(member.get('role', '')).startswith('guard')
+            polygon(c, [sf(p) for p in shape], colors.HexColor('#9d9a71') if is_guard else WOOD, GREEN if is_guard else WOOD_DARK, .45)
+        opening_ids = set(map(str, space.get('daylightOpeningIds') or []))
+        for opening in self.p.get('openings') or []:
+            if str(opening.get('id')) not in opening_ids: continue
+            wall = self.wall_map.get(str(opening.get('wallId')), {})
+            wa, wb = xy(wall.get('a')), xy(wall.get('b')); L = math.dist(wa, wb)
+            if L < 1e-9: continue
+            ox = wa[0] + (wb[0] - wa[0]) * finite(opening.get('offset')) / L
+            ex = ox + (wb[0] - wa[0]) * finite(opening.get('width')) / L
+            level = next((v for v in self.levels if int(v.get('index', 1)) == int(opening.get('floor', wall.get('level', 1)))), {})
+            bottom = finite(level.get('wallBaseY')) + finite(opening.get('sill')); high = bottom + finite(opening.get('height'))
+            if abs(ex - ox) > .03:
+                polygon(c, [sf((ox, bottom)), sf((ex, bottom)), sf((ex, high)), sf((ox, high))], colors.HexColor('#d9e9e6'), BLUE, .8)
+                text(c, 'Верхний ярус окон', *sf((min(ox, ex), high + .12)), 6.5, color=BLUE)
+        for elevation, label in [(low, 'Нижний пол'), (upper, 'Галерея'), (top, 'Верх объёма')]:
+            aa, bb = sf((a - .1, elevation)), sf((d + .65, elevation)); line(c, aa, bb, LINE, .5, [4, 3])
+            text(c, label + ' +' + number(elevation, 3), bb[0] - 95, bb[1] + 6, 7, color=MUTED)
+        text(c, 'ВТОРОЙ СВЕТ', *sf((a + .2, low + (upper - low) * .56)), 11, 'Bold', ORANGE)
+        self.note(c, 'Ступени, косоуры с пильным профилем и ограждения взяты из физических досок. Проекция показывает оба марша; это не новый расчёт лестницы. Крепёж, поручни, анкеры и нагрузки ограждений не подтверждены.', y=103)
+
+    def draw_annexcatalog(self, c, data, index):
+        variants = [('openTerrace', '01 · Открытая терраса', 'Настил на независимом свайном основании. Кровля и остекление отсутствуют.'), ('coveredTerrace', '02 · Крытая открытая веранда', 'Настил, стойки и односкатная кровля на собственных опорах. Сток направлен от дома.'), ('glazedVeranda', '03 · Холодная остеклённая веранда', 'Независимый каркас и кровля; остекление неотапливаемого объёма. Тепловой контур дома сохраняется.')]
+        for i, (kind, title, description) in enumerate(variants):
+            x, y, width = 47 + i * 367, H - 164, 348
+            c.setFillColor(PAPER); c.setStrokeColor(LINE); c.roundRect(x, 390, width, 270, 9, fill=1, stroke=1)
+            text(c, title, x + 17, y, 13, 'Bold', GREEN, width=310)
+            text(c, description, x + 17, y - 46, 10, width=310)
+            actual = [a for a in data if a.get('kind') == kind]
+            yy = y - 127
+            if actual:
+                badge(c, 'ЕСТЬ В ТЕКУЩЕЙ МОДЕЛИ', x + 17, yy, GREEN); yy -= 30
+                for item in actual:
+                    text(c, clean(item.get('name', item.get('id'))) + ' · ' + number(item.get('area'), 2) + ' м²', x + 17, yy, 10, 'Bold', width=310); yy -= 23
+            else:
+                text(c, 'Поддерживается движком MCP.\nВ текущем выпуске геометрия этого варианта не задана.', x + 17, yy, 9, color=MUTED, width=310)
+        text(c, 'ФАКТИЧЕСКИЙ СОСТАВ ВЫПУСКА', 47, 347, 11, 'Bold', GREEN)
+        y = 312
+        for item in data:
+            members = [m for m in self.members if m.get('annexId') == item.get('id')]
+            piles = [p for p in self.r.get('piles') or [] if p.get('annexId') == item.get('id')]
+            row = clean(item.get('name', item.get('id'))) + ': ' + number(item.get('area'), 2) + ' м²; ' + str(len(piles)) + ' свай; ' + str(len(members)) + ' физических досок; ' + str(len(item.get('glazing') or [])) + ' панелей остекления.'
+            y = text(c, row, 47, y, 10, width=W - 100) - 21
+        self.note(c, 'Количество и стоимость берутся только из заданной геометрии текущего проекта. Варианты без геометрии не получают вымышленные размеры, материалы или цену. Общие планы дома и отапливаемая площадь сохраняют самостоятельные границы.', y=157)
+
+    def draw_annex(self, c, annex, index):
+        aid = annex.get('id'); members = [m for m in self.members if m.get('annexId') == aid]
+        piles = [p for p in self.r.get('piles') or [] if p.get('annexId') == aid]
+        poly = [xy(p) for p in annex.get('polygon') or []]
+        text(c, 'ПЛАН · НАСТИЛ, НЕЗАВИСИМОЕ ОСНОВАНИЕ И КРОВЛЯ', 48, H - 135, 9, 'Bold', GREEN)
+        fn, scale = transform(poly + [(p.get('x', 0), p.get('y', 0)) for p in piles], (48, 345, 495, 309), 35)
+        polygon(c, [fn(p) for p in poly], PAPER, GREEN, 1)
+        marks = set()
+        occupied = [(fn(xy(p))[0] - 5, fn(xy(p))[1] - 5, fn(xy(p))[0] + 25, fn(xy(p))[1] + 16) for p in piles]
+        for m in members:
+            if m.get('category') not in ('floor', 'foundation'): continue
+            role = str(m.get('role', '')); color = GREEN if 'Rim' in role else WOOD_DARK
+            line(c, fn(xy(m['start'])), fn(xy(m['end'])), color, max(.6, finite(m.get('b')) / 1000 * scale))
+            fg = self.marks.get(str(m.get('id')))
+            if fg and fg not in marks:
+                marks.add(fg); aa, bb = fn(xy(m['start'])), fn(xy(m['end']))
+                center = ((aa[0] + bb[0]) / 2, (aa[1] + bb[1]) / 2)
+                tw = pdfmetrics.stringWidth(fg, 'Body', 6)
+                for ox, oy in [(7, 13), (7, -15), (-tw - 7, 13), (-tw - 7, -15), (18, 25), (-tw - 18, -26)]:
+                    label_box = (center[0] + ox - 2, center[1] + oy - 3, center[0] + ox + tw + 2, center[1] + oy + 8)
+                    if not any(label_box[0] < q[2] and label_box[2] > q[0] and label_box[1] < q[3] and label_box[3] > q[1] for q in occupied):
+                        occupied.append(label_box); text(c, fg, center[0] + ox, center[1] + oy, 6, color=color); break
+        for i, pile in enumerate(piles):
+            xx, yy = fn(xy(pile)); c.setFillColor(GREEN); c.circle(xx, yy, 3.3, fill=1, stroke=0)
+            text(c, 'A' + str(i + 1), xx + 5, yy + 5, 6.5, 'Bold', GREEN)
+        for face in (annex.get('roof') or {}).get('surfaces') or []:
+            polygon(c, [fn(xy(p)) for p in face.get('points') or []], None, BLUE, .9)
+        if poly:
+            a, b, d, e = bounds(poly)
+            dimension(c, fn((a, b)), fn((d, b)), -24, number((d - a) * 1000, 0))
+            dimension(c, fn((d, b)), fn((d, e)), -24, number((e - b) * 1000, 0))
+        text(c, 'ПРОЕКЦИЯ ПО НАПРАВЛЕНИЮ ОТ СТЕНЫ ДОМА', 600, H - 135, 9, 'Bold', GREEN)
+        frame = annex.get('frame') or {}; origin = xy(frame.get('origin')); normal = xy(frame.get('outward') or {'x': 0, 'y': 1})
+        project = lambda p: ((p[0] - origin[0]) * normal[0] + (p[2] - origin[1]) * normal[1], p[1])
+        profiles = [(m, self.projected_member(m, project)) for m in members]
+        surfaces = [(s, [project(xyz(p)) for p in s.get('points') or []]) for s in (annex.get('roof') or {}).get('surfaces') or []]
+        glazing = [(s, [project(xyz(p)) for p in s.get('polygon') or []]) for s in annex.get('glazing') or []]
+        points = [p for _, shape in profiles + surfaces + glazing for p in shape]
+        points += [project((finite(p.get('x')), -.12, finite(p.get('y')))) for p in piles]
+        sf, _ = transform(points or [(0, 0), (1, 1)], (600, 345, W - 650, 310), 35)
+        for p in piles:
+            low = project((finite(p.get('x')), -.12, finite(p.get('y')))); top = project((finite(p.get('x')), finite(p.get('capTopY', p.get('headY')), .72), finite(p.get('y'))))
+            line(c, sf(low), sf(top), GREEN, 3)
+        for m, shape in profiles:
+            polygon(c, [sf(p) for p in shape], WOOD, WOOD_DARK, .5)
+        for _, shape in surfaces:
+            polygon(c, [sf(p) for p in shape], None, BLUE, 1)
+            if shape:
+                high, low = max(shape, key=lambda p: p[1]), min(shape, key=lambda p: p[1])
+                arrow(c, sf((high[0], high[1] + .3)), sf((low[0], low[1] + .3)), BLUE, .8)
+                text(c, 'Сток от дома', *sf(((high[0] + low[0]) / 2, (high[1] + low[1]) / 2 + .42)), 6.5, color=BLUE)
+        for _, shape in glazing:
+            polygon(c, [sf(p) for p in shape], colors.Color(.65, .8, .8, alpha=.25), BLUE, .6)
+        roof = annex.get('roof') or {}
+        for gutter in roof.get('gutters') or []:
+            path = gutter.get('path') or [gutter.get('start'), gutter.get('end')]
+            for a, b in zip(path, path[1:]):
+                if a and b: line(c, sf(project(xyz(a))), sf(project(xyz(b))), BLUE, 2)
+        text(c, 'ФАКТИЧЕСКИЕ МАТЕРИАЛЫ И ОПОРЫ', 48, 287, 10, 'Bold', GREEN)
+        q = annex.get('quantities') or {}; y = 259
+        sections = collections.Counter((m.get('b'), m.get('h')) for m in members)
+        facts = [('ID / тип', clean(aid) + ' / ' + clean(annex.get('kind'))), ('Площадь настила / отметка', number(annex.get('area'), 2) + ' м² / +' + number(annex.get('deckTopY'), 3) + ' м'), ('Доски / объём физических деталей', str(len(members)) + ' / ' + number(sum(finite(m.get('grossVolume', m.get('volume'))) for m in members), 4) + ' м³'), ('Сечения', '; '.join(f'{b} × {h}: {count} шт.' for (b, h), count in sections.items())), ('Сваи / реакции Fd', str(len(piles)) + ' / ' + '; '.join('A' + str(i + 1) + '=' + number(p.get('reaction'), 2) for i, p in enumerate(piles)) + ' кН')]
+        for name, value in facts:
+            text(c, name, 48, y, 7.5, color=MUTED); y = text(c, value, 222, y, 7.5, width=330) - 13
+        x, y = 600, 287
+        text(c, 'СОСТАВ И ГРАНИЦЫ ПРОВЕРКИ', x, y, 10, 'Bold', GREEN); y -= 28
+        thermal_note = 'Остеклённая веранда остаётся неотапливаемой; тепловой контур дома не расширен.' if annex.get('kind') == 'glazedVeranda' else 'Открытая пристройка не увеличивает отапливаемую площадь дома.'
+        items = ['Кровля: ' + ('есть' if roof.get('surfaces') else 'не задана') + '; остекление: ' + str(len(annex.get('glazing') or [])) + ' панелей.', thermal_note, 'Опоры, примыкание и отвод воды показаны по отчёту. Грунт, крепёж, анкеры, устойчивость и узлы влагоотвода требуют проектирования.']
+        for item in items:
+            y = text(c, item, x, y, 8.3, width=525) - 15
+        self.note(c, 'План и проекция построены только по фактическим деталям и поверхностям. Цифры A1… связывают сваи на этом листе; полные IDs, FG и FP доступны в CSV / JSON. Сваи под домом не заменяются пристройкой.', y=99)
 
     def draw_section(self, c, data, index):
         voids = [v for v in self.p.get('voids', []) if v.get('kind') == 'doubleHeight']
@@ -1754,7 +2044,12 @@ class Album:
             x, yy = 49, y - 24
             skew_a = 4 if (shape.get('cutStart') or {}).get('scheme') == 'miter' else 0
             skew_b = 4 if (shape.get('cutEnd') or {}).get('scheme') == 'miter' else 0
-            polygon(c, [(x, yy), (x + width, yy), (x + width - skew_b, yy + 6), (x + skew_a, yy + 6)], WOOD, WOOD_DARK, .5)
+            profile = (shape.get('shape') or {}).get('points') if (shape.get('shape') or {}).get('type') in ('stairStringer', 'rippedBoard') else None
+            if profile:
+                a, b, d, e = bounds([tuple(p[:2]) for p in profile])
+                polygon(c, [(x + (p[0] - a) / max(1e-9, d - a) * width, yy + (p[1] - b) / max(1e-9, e - b) * 14) for p in profile], WOOD, WOOD_DARK, .5)
+            else:
+                polygon(c, [(x, yy), (x + width, yy), (x + width - skew_b, yy + 6), (x + skew_a, yy + 6)], WOOD, WOOD_DARK, .5)
             length = max(.0001, finite(group.get('cutLength')))
             for end_key, at_start in [('cutStart', True), ('cutEnd', False)]:
                 end = shape.get(end_key) or {}

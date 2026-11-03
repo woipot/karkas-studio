@@ -56,3 +56,9 @@ test('physical bearing contacts remain distinct from an analytical support-line 
  assert.equal(r.supportStartId,'GB003');assert.deepEqual(r.supportStartContactIds,['GB001']);assert.deepEqual(r.supportEndContactIds,['GB004','GB005']);
  const csv=fabricationPartsToCSV(f);for(const v of ['support_start_contact_ids','support_end_contact_ids','GB001','GB004|GB005','analytical crossing'])assert.ok(csv.includes(v));
 });
+
+test('annex and stair trace remains per physical member while identical machining still groups',()=>{
+ const a=board('deck',{annexId:'ANNEX',staircaseId:'S',guardId:'G'}),b=board('house',{wallId:'W'}),f=buildFabricationGroups({result:{timber:{instances:[a,b]}}});
+ assert.equal(f.partGroups.length,1);assert.equal(f.partGroups[0].applications[0].annexId,'ANNEX');assert.equal(f.physicalRows[0].staircaseId,'S');assert.equal(f.physicalRows[0].guardId,'G');
+ const csv=fabricationPartsToCSV(f);for(const v of ['annex_id','staircase_id','guard_id','ANNEX','S','G'])assert.ok(csv.includes('"'+v+'"'));
+});

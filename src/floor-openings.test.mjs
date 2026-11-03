@@ -71,3 +71,26 @@ test('deeper timber keeps the top datum and explicitly leaves bearing-seat detai
 test('input is not mutated and missing mechanical values yield geometry with unverified checks, never NaN',()=>{
   const {p,base}=fixture(),before=JSON.stringify({p,base});buildFloorOpenings(p,base);assert.equal(JSON.stringify({p,base}),before);delete p.material.E;p.loads.live=NaN;const r=buildFloorOpenings(p,base);assert.equal(r.instances.length,4);assert.ok(r.instances.every(b=>b.loads===null));finiteTree(r);assert.ok(r.checks.some(c=>c.id.endsWith('material')&&c.status==='unverified'));
 });
+
+test('a four-board opening package contains sixteen physical standard boards and no overlapping or phantom solid members',()=>{
+ const {p,base}=fixture();p.voids[0].edgeSection='48x248';p.voids[0].edgePlies=4;
+ const r=buildFloorOpenings(p,base),o=r.openings[0];assert.equal(r.instances.length,16);assert.equal(o.frameWidth,192);assert.equal(o.plies,4);
+ assert.ok(r.instances.every(b=>b.b===48&&b.h===248&&!b.analysisOnly&&b.packageId&&b.plyCount===4));
+ const logical=[...o.trimmers,...o.headers];assert.ok(logical.every(b=>b.analysisOnly&&b.memberIds.length===4));
+ near(r.instances.reduce((s,b)=>s+b.mass,0),logical.reduce((s,b)=>s+b.mass,0));
+ for(const b of logical){const pieces=r.instances.filter(p=>p.packageId===b.id);near(pieces.reduce((s,p)=>s+p.volume,0),b.volume);assert.deepEqual(pieces.map(p=>p.plyIndex),[0,1,2,3]);}
+ for(let i=0;i<r.instances.length;i++)for(let j=0;j<i;j++){const a=body(r.instances[i]),b=body(r.instances[j]);assert.ok(Math.min(a.x1,b.x1)-Math.max(a.x0,b.x0)<=1e-8||Math.min(a.z1,b.z1)-Math.max(a.z0,b.z0)<=1e-8);}
+ near(o.headers[0].length,3.2-.192);assert.ok(r.checks.some(c=>c.id.endsWith('package-connections')&&c.status==='unverified'));
+});
+
+test('parallel package stiffness uses the total physical width with explicit equal-sharing assumption',()=>{
+ const {p,base}=fixture();p.voids[0].edgeSection='48x248';p.voids[0].edgePlies=4;const packet=buildFloorOpenings(p,base);
+ p.voids[0].edgeSection='192x248';delete p.voids[0].edgePlies;const equivalent=buildFloorOpenings(p,base);
+ for(let i=0;i<2;i++){near(packet.openings[0].trimmers[i].check.utilization,equivalent.openings[0].trimmers[i].check.utilization);near(packet.openings[0].headers[i].check?.utilization??0,equivalent.openings[0].headers[i].check?.utilization??0);}
+ assert.ok(packet.instances.every(b=>b.equalLoadSharingVerified===false));
+});
+
+test('invalid ply counts and unsupported polygon packages cannot fall back to a fake single contour board',()=>{
+ const {p,base}=fixture();for(const n of [0,1.5,7,null]){p.voids[0].edgePlies=n;const r=buildFloorOpenings(p,base);assert.equal(r.instances.length,0);assert.ok(r.checks.some(c=>c.id.endsWith('plies')&&c.status==='fail'));}
+ p.voids[0].edgePlies=4;p.voids[0].polygon=[{x:1,y:1},{x:4,y:1},{x:3,y:3}];const r=buildFloorOpenings(p,base);assert.equal(r.instances.length,0);assert.equal(r.openings[0].replaceLegacy,true);assert.equal(r.status,'fail');
+});

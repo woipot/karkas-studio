@@ -96,6 +96,16 @@ export function calculateEstimate(project={},result={},precomputedCutting){
     add('roof-flashing','Фартуки примыкания к стенам','м',q.flashingLength,'flashingM',true,'Развёртка, нахлёсты и крепление по системе кровли. Длина линии примыкания из 3D.');
     add('roof-valleys','Ендовы','м',q.valleyLength,'valleyM',true,'Длина по пересечению скатов. Рабочая ширина, гидроизоляция и подогрев уточняются.');
   }
+  for(const annex of result.annexes?.items??[]){
+    const q=annex.quantities??{},prefix='annex-'+annex.id+'-',name=annex.name??annex.id;
+    const start=rows.length;
+    if(numeric(q.roofArea)>0)add(prefix+'roof',name+' · кровельное покрытие','м²',q.roofArea,'roofM2',true,'Фактические скаты крыши пристройки со свесами.');
+    if(numeric(q.glazingArea)>0)add(prefix+'glazing',name+' · остекление','м²',q.glazingArea,'windowsM2',false,'Геометрия холодного остекления. Принятая ставка не подтверждает систему, безопасность стекла и монтаж.');
+    if(numeric(q.gutterLength)>0)add(prefix+'gutters',name+' · желоба','м',q.gutterLength,'gutterM',true,'Независимый водоотвод с низкой стороны ската.');
+    if(numeric(q.downpipeLength)>0)add(prefix+'downpipes',name+' · водосточные трубы','м',q.downpipeLength,'downpipeM',true,'Трассы модели; выпуск в ливневую сеть рассчитывается отдельно.');
+    if(numeric(q.flashingLength)>0)add(prefix+'flashing',name+' · примыкание к дому','м',q.flashingLength,'flashingM',true,'Геометрическая длина примыкания; рабочая конструкция и компенсационный шов уточняются.');
+    for(const row of rows.slice(start))row.annexId=annex.id;
+  }
   add('piles','Сваи','шт.',pileCount,'pileEach',false,'Количество опор из свайного поля. Тип, длина и состав единичной расценки уточняются.');
   add('windows','Окна','м²',windowArea,'windowsM2',false,'Сумма площадей оконных проёмов; конфигурация и монтаж отдельно не моделируются.');
   add('doors','Двери','шт.',doorCount,'doorsEach',false,'Количество дверных проёмов модели.');

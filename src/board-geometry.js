@@ -11,7 +11,8 @@ export function cutGeometry(board){
   for(const n of grooves)if(x>=n.from&&x<=n.to){if(n.faceSign>0)high=Math.min(high,h/2-n.depth);else low=Math.max(low,-h/2+n.depth);}
   return [low,high];
  }
- let points=[...cuts.map(x=>[x-L/2,bounds(x)[0]]),...[...cuts].reverse().map(x=>[x-L/2,bounds(x)[1]])];
+ const profile=['stairStringer','rafterSeats','rippedBoard'].includes(board.shape?.type)&&Array.isArray(board.shape.points)?board.shape.points:null;
+ let points=profile??[...cuts.map(x=>[x-L/2,bounds(x)[0]]),...[...cuts].reverse().map(x=>[x-L/2,bounds(x)[1]])];
  points=points.map(([s,z])=>{if(cs.scheme==='miter'&&cs.plane!=='width'&&Math.abs(s+L/2)<1e-5)s+=z*Math.tan((cs.angle||0)*Math.PI/180)*(cs.tiltSign??1);if(ce.scheme==='miter'&&ce.plane!=='width'&&Math.abs(s-L/2)<1e-5)s-=z*Math.tan((ce.angle||0)*Math.PI/180)*(ce.tiltSign??1);return new THREE.Vector2(s,z)});
  const shape=new THREE.Shape(points),geo=new THREE.ExtrudeGeometry(shape,{depth:b,bevelEnabled:false,steps:1}),pos=geo.attributes.position;
  for(let i=0;i<pos.count;i++){let a=pos.getX(i);const d=pos.getY(i),c=pos.getZ(i),x=c-b/2;

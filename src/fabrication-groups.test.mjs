@@ -49,3 +49,10 @@ test('installation coordinates and support links stay per physical board while r
  const row=f.physicalRows[0];assert.deepEqual(row.start,[-1,3,2]);assert.deepEqual(row.end,[1,3,2]);assert.equal(row.blockingStation,0);assert.equal(row.supportStartId,'wall-A');assert.equal(row.supportEndId,'wall-B');assert.deepEqual(row.supportMemberIds,['J1','J2','J3']);assert.deepEqual(row.sourceMemberIds,['RAW1']);
  const csv=fabricationPartsToCSV(f);for(const header of ['start_x_m','end_z_m','rim_edge','blocking_station_m','support_start_id','support_end_id','support_member_ids','source_member_ids'])assert.ok(csv.includes('"'+header+'"'));for(const value of ['wall-A','wall-B','J1|J2|J3','RAW1','RAW2'])assert.ok(csv.includes(value));assert.ok(csv.includes('"-1"'));assert.ok(!csv.includes('"\'-1"'));
 });
+
+test('physical bearing contacts remain distinct from an analytical support-line alias in CSV',()=>{
+ const b=board('j',{supportStart:{sourceId:'GB003',sourceIdMeaning:'analytical crossing',contactBeamIds:['GB001']},supportEnd:{sourceId:'GB004',contactBeamIds:['GB004','GB005']}});
+ const f=buildFabricationGroups({result:{timber:{instances:[b]}}}),r=f.physicalRows[0];
+ assert.equal(r.supportStartId,'GB003');assert.deepEqual(r.supportStartContactIds,['GB001']);assert.deepEqual(r.supportEndContactIds,['GB004','GB005']);
+ const csv=fabricationPartsToCSV(f);for(const v of ['support_start_contact_ids','support_end_contact_ids','GB001','GB004|GB005','analytical crossing'])assert.ok(csv.includes(v));
+});

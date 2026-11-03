@@ -1,5 +1,6 @@
 import {buildAuxiliaryTimber} from './auxiliary-timber.js';
 import {buildFloorOpenings} from './floor-openings.js';
+import {prepareFloorContours} from './floor-platform-contour.js';
 import {buildFloorPlatform} from './floor-platform.js';
 import {buildGrillage} from './grillage.js';
 import {analyzeGrillageLoads} from './grillage-loads.js';
@@ -474,11 +475,12 @@ function pileField(p,geometry,walls,timber,loads,grillageModel){
   // does not depend on raster resolution. It is an allocation, not grillage FEA.
   const sampleStep=Math.max(.2,Math.min(.75,spacing/2));let sampleCount=0;
   for(const level of geometry.levels.filter(l=>l.closed&&l.netFloorArea>EPS)){
-    const bounds=level.bounds,sx=Math.max(1,Math.ceil(bounds.width/sampleStep)),sy=Math.max(1,Math.ceil(bounds.height/sampleStep)),samples=[];
-    for(let i=0;i<sx;i++)for(let j=0;j<sy;j++){const q={x:bounds.minX+bounds.width*(i+.5)/sx,y:bounds.minY+bounds.height*(j+.5)/sy};if(pointInPolygon(q,level.polygon)&&!level.voids.some(v=>pointInPolygon(q,v.polygon)))samples.push(q);}
-    if(!samples.length){const intervals=interiorIntervals(level.polygon,bounds.minX+Math.min(.01,bounds.width/4),'y');const interval=intervals[0];if(interval)samples.push({x:bounds.minX+.001,y:(interval[0]+interval[1])/2});}
-    if(!samples.length)continue;sampleCount+=samples.length;const da=level.netFloorArea/samples.length;
-    for(const q of samples){distribute(q,da*p.loads.floorDead,p.loads.gammaG,da);distribute(q,da*p.loads.live,p.loads.gammaQ);}
+    for(const surface of [{polygon:level.platformPolygon??level.polygon,bounds:level.platformBounds??level.bounds,area:level.platformNetArea??level.netFloorArea,pressure:p.loads.floorDead,gamma:p.loads.gammaG,countArea:false},{polygon:level.polygon,bounds:level.bounds,area:level.netFloorArea,pressure:p.loads.live,gamma:p.loads.gammaQ,countArea:true}]){
+      const bounds=surface.bounds,sx=Math.max(1,Math.ceil(bounds.width/sampleStep)),sy=Math.max(1,Math.ceil(bounds.height/sampleStep)),points=[];
+      for(let i=0;i<sx;i++)for(let j=0;j<sy;j++){const q={x:bounds.minX+bounds.width*(i+.5)/sx,y:bounds.minY+bounds.height*(j+.5)/sy};if(pointInPolygon(q,surface.polygon)&&!level.voids.some(v=>pointInPolygon(q,v.polygon)))points.push(q);}
+      if(!points.length){const intervals=interiorIntervals(surface.polygon,bounds.minX+Math.min(.01,bounds.width/4),'y'),interval=intervals[0];if(interval)points.push({x:bounds.minX+.001,y:(interval[0]+interval[1])/2});}
+      if(!points.length)continue;sampleCount+=points.length;const da=surface.area/points.length;for(const q of points)distribute(q,da*surface.pressure,surface.gamma,surface.countArea?da:0);
+    }
   }
   const exterior=walls.filter(w=>w.kind==='exterior'),perimeter=sum(exterior.map(w=>w.length));
   // For rectangular standalone rafter zones, transfer vertical gravity at the
@@ -535,6 +537,10 @@ export function calculateDesigner(input,{truss,roofModel}={}){
   const gableArea=finite(roofModel?.gableArea)?roofModel.gableArea:roofModel?0:roofLevel&&roofRect&&!['none','mono'].includes(p.roof.type)?roofLevel.bounds.height**2/2*Math.tan(p.roof.pitch*Math.PI/180):0;
   geometry.gableArea=gableArea;geometry.grossWallArea=sum(walls.filter(w=>w.kind==='exterior').map(w=>w.grossArea))+gableArea;geometry.netWallArea=geometry.grossWallArea-exteriorOpeningArea;geometry.openingArea=openingArea;geometry.exteriorOpeningArea=exteriorOpeningArea;geometry.innerWallArea=innerGross-(openingArea-exteriorOpeningArea);
   const grillageModel=buildGrillage(p,{geometry,walls});
+  geometry.platformContours=prepareFloorContours(p,{geometry,walls});
+  geometry.platformAreaComplete=geometry.platformContours.length===geometry.levels.filter(l=>l.closed).length&&geometry.platformContours.every(c=>c.valid);
+  for(const level of geometry.levels){const c=geometry.platformContours.find(c=>c.index===level.index);if(c?.valid){level.platformPolygon=c.outerPolygon;level.platformGrossArea=c.grossArea;level.platformNetArea=c.netArea;level.platformBounds=c.outerBounds;}}
+  geometry.totalPlatformArea=sum(geometry.platformContours.filter(c=>c.valid).map(c=>c.netArea));geometry.grossPlatformArea=sum(geometry.platformContours.filter(c=>c.valid).map(c=>c.grossArea));
   geometry.platformRimWidth=parseSection(p.floor.rimSection??p.floor.section).b/1000;
   let floorOpenings=buildFloorOpenings(p,{geometry,walls});
   const floorPlatform=buildFloorPlatform(p,{geometry,walls,grillageModel,floorOpenings});
@@ -575,6 +581,7 @@ export function calculateDesigner(input,{truss,roofModel}={}){
     'Второй свет вырезает только платформу выбранного верхнего этажа. Стены и кровля сохраняются; добавлено геометрическое обрамление проёма, но его опирание, сечения и узлы требуют отдельного расчёта.',
     'Каждый timber.instance — отдельная физическая часть доски. length — длина по оси, cutLength — полная заготовка по длинным точкам косых резов; grossVolume нужен для закупки, netVolume и масса учитывают снятую половину нахлёстов halfLap/scarf.',
     'Угловые пакеты, косые углы, Т/X-узлы и угловые врубки показаны условно. Ослабление угловых врубок и крепёж не рассчитаны. Оптимизацию раскроя и пропил выполняет отдельный модуль, не этот геометрический расчёт.',
+    'Площади планировки и полезная нагрузка сохраняются по осевому контуру. Масса слоёв платформы считается по её фактической наружной грани каркаса за вычетом неизменённых проёмов; физическая древесина добавляется отдельно. Передача наружной полосы на оси ростверка — концептуальное вертикальное распределение, не проверка эксцентриситета, смятия или кручения.',
     'Слои перекрытия, кровли и стен вводятся без древесины и отдельно учитываемых плит жёсткости стен. Вес всех сформированных досок добавляется ровно один раз. Площадь проёмов заменяет слои стены заданным весом заполнения.',
     'Треугольные фронтоны добавлены только для прямоугольного плана с симметричной двускатной кровлей. Для односкатной и нерегулярной кровли высоты фасадов и фронтоны требуют отдельного задания.',
     'Сваи стоят на линиях пакетного ростверка. Нагрузка переносится на ближайшие пролёты и через равновесие шарнирно опёртых балок — на концевые сваи. Жёсткость пространственной решётки, осадки, отрыв и грунт не решены.',
@@ -589,12 +596,12 @@ export function calculateDesigner(input,{truss,roofModel}={}){
   if(graph.closed){
     const A=graph.area,F=p.floors,mu=p.roof.pitch<=30?.8:.8*(60-p.roof.pitch)/30,roofArea=p.roof.type==='none'?0:finite(roofModel?.area)?roofModel.area:(roofLevel?.area??A)/Math.cos(p.roof.pitch*Math.PI/180),projectedRoofArea=finite(roofModel?.projectedArea)?roofModel.projectedArea:roofLevel?.area??A;
     const structuralPanelWeight=(bracingModel.quantities?.panelMass??0)*G/1000;
-    const floorLayers=geometry.totalFloorArea*p.loads.floorDead,roofLayers=roofArea*p.loads.roofDead,wallWeight=geometry.netWallArea*p.loads.wallDead,innerWallWeight=geometry.innerWallArea*p.loads.wallDead,openingWeight=openingArea*p.loads.openingDead,gableWeight=gableArea*p.loads.wallDead,live=geometry.totalFloorArea*p.loads.live,snow=p.roof.type==='none'?0:p.loads.snow*(finite(roofModel?.snowEffectiveArea)?roofModel.snowEffectiveArea:projectedRoofArea*mu),dead=floorLayers+roofLayers+wallWeight+innerWallWeight+openingWeight+timber.weight+structuralPanelWeight;
+    const floorLayers=geometry.totalPlatformArea*p.loads.floorDead,roofLayers=roofArea*p.loads.roofDead,wallWeight=geometry.netWallArea*p.loads.wallDead,innerWallWeight=geometry.innerWallArea*p.loads.wallDead,openingWeight=openingArea*p.loads.openingDead,gableWeight=gableArea*p.loads.wallDead,live=geometry.totalFloorArea*p.loads.live,snow=p.roof.type==='none'?0:p.loads.snow*(finite(roofModel?.snowEffectiveArea)?roofModel.snowEffectiveArea:projectedRoofArea*mu),dead=floorLayers+roofLayers+wallWeight+innerWallWeight+openingWeight+timber.weight+structuralPanelWeight;
     const rows=[{id:'structural-panels',label:'Плиты жёсткости стен',characteristic:structuralPanelWeight,kind:'dead'},{id:'floor-layers',label:'Слои перекрытий без древесины',characteristic:floorLayers,kind:'dead'},{id:'roof-layers',label:'Слои кровли без древесины',characteristic:roofLayers,kind:'dead'},{id:'wall-layers',label:'Слои наружных стен без древесины',characteristic:wallWeight,kind:'dead'},{id:'inner-layers',label:'Слои внутренних стен без древесины',characteristic:innerWallWeight,kind:'dead'},{id:'openings',label:'Заполнение проёмов',characteristic:openingWeight,kind:'dead'},...['foundation','walls','floor','roof','bracing','objects'].map(k=>({id:'timber-'+k,label:{foundation:'Древесина пакетного ростверка',walls:'Древесина стен и узлов',floor:'Древесина перекрытий',roof:'Древесина кровли',bracing:'Древесина укосин',objects:'Древесина отдельных объектов'}[k],characteristic:timber.totals[k].weight,kind:'dead'})),{id:'live',label:'Полезная нагрузка',characteristic:live,kind:'variable'},{id:'snow',label:'Снег',characteristic:snow,kind:'variable'}].map(r=>({...r,design:r.characteristic*(r.kind==='dead'?p.loads.gammaG:p.loads.gammaQ)}));
     const wallLineLoads=walls.map(w=>({wallId:w.id,weight:(w.grossArea-w.openingArea)*p.loads.wallDead+w.openingArea*p.loads.openingDead}));
-    const roofMassIncluded=timber.roofGeometryAvailable||p.roof.type==='none',complete=roofMassIncluded&&geometry.areaComplete;
+    const roofMassIncluded=timber.roofGeometryAvailable||p.roof.type==='none',complete=roofMassIncluded&&geometry.areaComplete&&geometry.platformAreaComplete;
     const facadeArea=axis=>Math.max(...[1,-1].map(sign=>sum(walls.filter(w=>w.kind==='exterior').map(w=>{const normal=axis==='x'?(w.b.y-w.a.y)/w.length:-(w.b.x-w.a.x)/w.length;return w.grossArea*Math.max(0,sign*normal);}))))+gableArea;
-    loads={rows,roofZones:roofModel?.zones??[],rawRoofInstances:roofModel?.instances??[],structuralPanelWeight,structuralPanels:bracingModel.panels??[],dead,live,snow,mu,roofArea,projectedRoofArea,floorArea:geometry.totalFloorArea,roofWeight:roofLayers+timber.totals.roof.weight,wallWeight,innerWallWeight,openingWeight,gableWeight,wallLineLoads,timberWeight:timber.weight,totalCharacteristic:dead+live+snow,totalDesign:dead*p.loads.gammaG+(live+snow)*p.loads.gammaQ,windForceX:p.loads.wind*facadeArea('x'),windForceY:p.loads.wind*facadeArea('y'),complete,roofMassIncluded,missingLoads:[...(!roofMassIncluded?['Древесина кровли не сформирована.']:[]),...(!geometry.areaComplete?['Не все контуры этажей замкнуты.']:[])]};
+    loads={rows,roofZones:roofModel?.zones??[],rawRoofInstances:roofModel?.instances??[],structuralPanelWeight,structuralPanels:bracingModel.panels??[],dead,live,snow,mu,roofArea,projectedRoofArea,floorArea:geometry.totalFloorArea,platformArea:geometry.totalPlatformArea,roofWeight:roofLayers+timber.totals.roof.weight,wallWeight,innerWallWeight,openingWeight,gableWeight,wallLineLoads,timberWeight:timber.weight,totalCharacteristic:dead+live+snow,totalDesign:dead*p.loads.gammaG+(live+snow)*p.loads.gammaQ,windForceX:p.loads.wind*facadeArea('x'),windForceY:p.loads.wind*facadeArea('y'),complete,roofMassIncluded,missingLoads:[...(!roofMassIncluded?['Древесина кровли не сформирована.']:[]),...(!geometry.areaComplete?['Не все контуры этажей замкнуты.']:[]),...(!geometry.platformAreaComplete?['Наружный контур платформы пересекается или не подтверждён; физические площади и объёмы платформы неполны.']:[])]};
     ({piles,foundation}=pileField(p,geometry,walls,timber,loads,grillageModel));
     checks.push(...(grillageModel.loadChecks??[]));
     if(loads.roofSupportRoutingIssues?.length)checks.push({id:'roof-uplift-routing',label:'Передача отрыва стропильных опор',status:'unverified',zoneIds:loads.roofSupportRoutingIssues,note:'Есть отрицательная опорная реакция. Положительные нагрузки распределены условно по периметру; отрыв и удерживающие анкеры ростверком не рассчитаны.'});

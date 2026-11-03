@@ -1,4 +1,4 @@
-<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Реальный сеанс MCP · HELSINKI L-146</title><style>body{margin:0;background:#f5f4ec;color:#263322;font:15px/1.6 system-ui}main{max-width:1280px;margin:auto;padding:42px 28px}h1{font-size:40px;line-height:1.1;letter-spacing:-1.5px;max-width:900px}h2{margin-top:42px}a{color:#416234}code,pre{font:12px/1.6 ui-monospace,monospace;overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#f0f1e7;padding:16px}.eyebrow{letter-spacing:2px;font-size:11px;color:#71845b}.cards{display:flex;gap:16px;flex-wrap:wrap}.card{padding:20px;background:white;border:1px solid #d8dfcb;min-width:170px}.card b{font-size:28px;display:block}table{border-collapse:collapse;width:100%;font-size:12px;background:white}td,th{padding:12px;text-align:left;border:1px solid #dbe1d1;vertical-align:top}td:last-child{max-width:500px;word-break:break-word}small{display:block;color:#738369}summary{cursor:pointer}.table{overflow:auto}aside{border-left:3px solid #b3975b;padding:12px 20px;background:#f0eadb}footer{margin-top:40px;color:#738369}</style><main><p class="eyebrow">КАРКАС ENGINE 4.2.0 · РЕАЛЬНЫЙ MCP STDIO · РЕВИЗИЯ 8</p><h1>Нейронка спроектировала Г-образный дом через MCP</h1><p>Два этажа, второй свет, лестничный проём, свайный ростверк из пакетов досок и кровля из двух скатов с общим коньком. Расчётный пример для района Хельсинки.</p><div class="cards"><div class="card">Площадь по осям<b>145.68 м²</b></div><div class="card">Физических деталей<b>1366</b></div><div class="card">Шестиметровых заготовок<b>635</b></div><div class="card">Опор, условная схема<b>45</b></div><div class="card">Примерный бюджет<b>249 243 €</b></div></div><p><a href="./structural-album.pdf">Открыть полный альбом КР PDF</a> · <a href="./">3D и отчёт</a> · <a href="./mcp-calls.jsonl" download>Исходный журнал запросов и полных ответов JSONL</a></p><h2>Как выполнялось подключение</h2><p>Сервер <code>karkas-engine</code> зарегистрирован в Codex. Агент выполнил initialize, tools/list и tools/call через настоящие MCP-соединения по stdio. После изменения кода4.2 запущен свежий MCP-процесс, чтобы расчёт использовал обновлённые алгоритмы. Скрипт <code>scripts/agent-session.mjs</code> использует именно зарегистрированную конфигурацию. Генерация, исправления ревизий, сравнение вариантов, расчёты и экспорт выполнены инструментами MCP.</p><p>Журнал содержит 44 завершённых tools/call, включая ранние повторные запросы при настройке терминала и повторные подключения. Ранние сеансы начинали собственную нумерацию/цепочку хешей; файл сохранён без удаления дублей и не является криптографически удостоверенной внешней записью. Контрольные суммы позволяют сопоставить скачанные артефакты.</p><h2>Изменения сохранённого проекта</h2><div class="table"><table><thead><tr><th>Ревизия</th><th>Детали</th><th>Заготовки</th><th>Сваи</th><th>Превышения</th><th>SHA256 проекта</th></tr></thead><tbody><tr><td>R1</td><td>756</td><td>351</td><td>31</td><td>19</td><td>bee4b2e4a3226e33eac262629196f0bf8342b7fe51083b169aff0409206b7e80</td></tr><tr><td>R2</td><td>766</td><td>372</td><td>31</td><td>1</td><td>462be238b0c84f62088412835676620902af8be23f7ec20a4115eb1af6749d42</td></tr><tr><td>R3</td><td>760</td><td>365</td><td>31</td><td>0</td><td>d3fe4c52fb17fc7fde186834f650fec9b7b60ba4c22ccc57f77c8d0f28cb3997</td></tr><tr><td>R4</td><td>798</td><td>368</td><td>31</td><td>0</td><td>fdc2b577e9aa2be3f1f472c0f3167818dedeaafe0d484e0c3f891bcb7d1fd0aa</td></tr><tr><td>R5</td><td>1124</td><td>593</td><td>31</td><td>6</td><td>13e75f0abf599ac98099bd1e313aa796520992ad61ebcf8628a6616db2287c9a</td></tr><tr><td>R6</td><td>1140</td><td>614</td><td>45</td><td>0</td><td>d347bc8e89a7ec89b387996b4f50625a9fa47404dff3f5e752c9eea9121273a6</td></tr><tr><td>R7</td><td>1365</td><td>631</td><td>45</td><td>19</td><td>4b1b5031598202a0dbafb4dd2c4c373f5a4717cc45fb89b7be9d37c12b14d71a</td></tr><tr><td>R8</td><td>1366</td><td>635</td><td>45</td><td>0</td><td>b7f2515c910bc74252509f6a55463664dc7f86764c84f38aa8f5a6f2f86be57c</td></tr></tbody></table></div><p>При финальной проверке движка также исправлены физические запилы встречных стропил и реек в общем коньке. Хеш относится к сохранённым исходным данным ревизии; отдельные SHA256 экспортов указаны в manifest.json. Исходная sourcePlanning сохранена отдельно от вычисленной планировки.<br><br>Первый вариант имел ошибки пролётов и неразмещённые детали. Агент добавил опорные линии, разделил скаты, исправил лестничный проём и проходы, подобрал сечения, учёл утепление и вспомогательные рейки. После увеличения собственного веса MCP показал перегрузки; сравнение вариантов привело к шагу опор до 1,8 м при балках ростверка до 2 м и шагу стропил до 0,5 м.</p><h2>Снег и тепловлажностный режим</h2><p>Принятый снег на грунте 2,75 кН/м², коэффициент формы 0,8 при 25°, Cₑ=Cₜ=1. Рассчитаны равномерная, две несимметричные схемы и два дополнительных сценария 150% на одном скате с неизменными сечениями. Дополнительные сценарии являются анализом чувствительности, не нормативной локальной эпюрой заноса. Точная снеговая привязка к координатам и полный набор сочетаний остаются задачей рабочего проекта.</p><p>Для стены, крыши и пола над наружным воздухом рассчитаны сопротивления R/U, доля деревянного каркаса, точка росы и профили температуры/давления пара в слоях. Принята стационарная пара +21/−26°C, внутренние RH 40% и дополнительная стена RH 60%. Это условный зимний режим, не климатический год Хельсинки. Годовая влага, дефекты герметичности и пространственные мостики не рассчитаны.</p><h2>Что изменено в4.2</h2><p>Одинаковые детали объединены в 199 марок FG, а 635 исходных досок — в 198 схем FP. Каждая схема показана один раз с количеством и местами применения; точная привязка физических ID остаётся в CSV/JSON. Разные запилы и выборки не сливаются.</p><p>Круговая обвязка обеих платформ: 80.00 м. Поперечные распорки: 191 шт. Максимальные реальные пролёты: этаж1 — 2.00 м; этаж2 — 4.00 м. Распорки не создают вертикальных опор. Опорные линии и пролёты представлены на чертежах.</p><p>Независимые свесы (горизонтальные метры в локальных осях каждой зоны): ROOF-N: {"low":0.6,"high":0,"start":0.35,"end":0.45}; ROOF-S: {"low":0.4,"high":0,"start":0.35,"end":0.35}. Свесы учтены в геометрии досок, консольной работе, снеговой нагрузке, площади кровли, закупке и водоотводе.</p><p><a href="./fabrication-parts.csv">Ведомость применения деталей CSV</a> · <a href="./fabrication-stocks.csv">Привязка заготовок к схемам CSV</a></p><h2>Раскрой и состав сметы</h2><p>Все 1366 деталей размещены; отсутствуют неразмещённые или длиннее допустимого заготовки. Закупка 635 досок по 6 м; нижняя оценка 626, глобальная оптимальность не доказана. Остатки и пропилы 12.87%, из них 430.35 пог. м отмечены как пригодные остатки. Разбивка по сечениям, направления запилов, припуски, стыки и каждая ID заготовки находятся в PDF/CSV/HTML.</p><aside><b>Статус: расчётная проработка КР, не рабочий проект для строительства.</b> В принятых частных проверках 0 превышений; 110 проверок имеют статус частной проверки или «не подтверждено». Геология отсутствует. Сравнены ЖБ-забивные, стальные RR/RD и винтовые сваи; предварительно выбран RD, а 80 кН — условный предел примера, не подтверждённое сопротивление грунта. Узлы крепежа, пространственная жёсткость/ветровой отрыв, лестница/ограждения и годовая влага требуют отдельного инженерного расчёта. Смета основана на примерных ставках в EUR, без рыночных предложений и подтверждённой стоимости свай.</aside><h2>Фактически выполненные вызовы</h2><div class="table"><table><thead><tr><th>№</th><th>UTC</th><th>Инструмент</th><th>Рев.</th><th>Результат</th><th>Подробности</th></tr></thead><tbody><tr><td>1</td><td>2026-11-02T23:44:39.326Z</td><td><b>karkas_catalog</b><small>6 мс · ответ</small></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Реальный сеанс MCP · HELSINKI L-146</title><style>body{margin:0;background:#f5f4ec;color:#263322;font:15px/1.6 system-ui}main{max-width:1280px;margin:auto;padding:42px 28px}h1{font-size:40px;line-height:1.1;letter-spacing:-1.5px;max-width:900px}h2{margin-top:42px}a{color:#416234}code,pre{font:12px/1.6 ui-monospace,monospace;overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#f0f1e7;padding:16px}.eyebrow{letter-spacing:2px;font-size:11px;color:#71845b}.cards{display:flex;gap:16px;flex-wrap:wrap}.card{padding:20px;background:white;border:1px solid #d8dfcb;min-width:170px}.card b{font-size:28px;display:block}table{border-collapse:collapse;width:100%;font-size:12px;background:white}td,th{padding:12px;text-align:left;border:1px solid #dbe1d1;vertical-align:top}td:last-child{max-width:500px;word-break:break-word}small{display:block;color:#738369}summary{cursor:pointer}.table{overflow:auto}aside{border-left:3px solid #b3975b;padding:12px 20px;background:#f0eadb}footer{margin-top:40px;color:#738369}</style><main><p class="eyebrow">КАРКАС ENGINE 4.2.1 · РЕАЛЬНЫЙ MCP STDIO · РЕВИЗИЯ 9</p><h1>Нейронка спроектировала Г-образный дом через MCP</h1><p>Два этажа, второй свет, лестничный проём, свайный ростверк из пакетов досок и кровля из двух скатов с общим коньком. Расчётный пример для района Хельсинки.</p><div class="cards"><div class="card">Площадь по осям<b>145.68 м²</b></div><div class="card">Физических деталей<b>1411</b></div><div class="card">Шестиметровых заготовок<b>649</b></div><div class="card">Опор, условная схема<b>45</b></div><div class="card">Примерный бюджет<b>251 527 €</b></div></div><p><a href="./structural-album.pdf">Открыть полный альбом КР PDF</a> · <a href="./">3D и отчёт</a> · <a href="./mcp-calls.jsonl" download>Исходный журнал запросов и полных ответов JSONL</a></p><h2>Как выполнялось подключение</h2><p>Сервер <code>karkas-engine</code> зарегистрирован в Codex. Агент выполнил initialize, tools/list и tools/call через настоящие MCP-соединения по stdio. После изменения кода 4.2.1 запущен свежий MCP-процесс, чтобы расчёт использовал обновлённые алгоритмы. Скрипт <code>scripts/agent-session.mjs</code> использует именно зарегистрированную конфигурацию. Генерация, исправления ревизий, сравнение вариантов, расчёты и экспорт выполнены инструментами MCP.</p><p>Журнал содержит 54 завершённых tools/call, включая ранние повторные запросы при настройке терминала и повторные подключения. Ранние сеансы начинали собственную нумерацию/цепочку хешей; файл сохранён без удаления дублей и не является криптографически удостоверенной внешней записью. Контрольные суммы позволяют сопоставить скачанные артефакты.</p><h2>Изменения сохранённого проекта</h2><div class="table"><table><thead><tr><th>Ревизия</th><th>Детали</th><th>Заготовки</th><th>Сваи</th><th>Превышения</th><th>SHA256 проекта</th></tr></thead><tbody><tr><td>R1</td><td>756</td><td>351</td><td>31</td><td>19</td><td>bee4b2e4a3226e33eac262629196f0bf8342b7fe51083b169aff0409206b7e80</td></tr><tr><td>R2</td><td>766</td><td>372</td><td>31</td><td>1</td><td>462be238b0c84f62088412835676620902af8be23f7ec20a4115eb1af6749d42</td></tr><tr><td>R3</td><td>760</td><td>365</td><td>31</td><td>0</td><td>d3fe4c52fb17fc7fde186834f650fec9b7b60ba4c22ccc57f77c8d0f28cb3997</td></tr><tr><td>R4</td><td>798</td><td>368</td><td>31</td><td>0</td><td>fdc2b577e9aa2be3f1f472c0f3167818dedeaafe0d484e0c3f891bcb7d1fd0aa</td></tr><tr><td>R5</td><td>1124</td><td>593</td><td>31</td><td>6</td><td>13e75f0abf599ac98099bd1e313aa796520992ad61ebcf8628a6616db2287c9a</td></tr><tr><td>R6</td><td>1140</td><td>614</td><td>45</td><td>0</td><td>d347bc8e89a7ec89b387996b4f50625a9fa47404dff3f5e752c9eea9121273a6</td></tr><tr><td>R7</td><td>1365</td><td>631</td><td>45</td><td>19</td><td>4b1b5031598202a0dbafb4dd2c4c373f5a4717cc45fb89b7be9d37c12b14d71a</td></tr><tr><td>R8</td><td>1366</td><td>635</td><td>45</td><td>0</td><td>b7f2515c910bc74252509f6a55463664dc7f86764c84f38aa8f5a6f2f86be57c</td></tr><tr><td>R9</td><td>1411</td><td>649</td><td>45</td><td>0</td><td>960ddc498bbc902a4c551dff356aaf6531b6663a7b367b69c6f8c91e6fdbf916</td></tr></tbody></table></div><p>При финальной проверке движка также исправлены физические запилы встречных стропил и реек в общем коньке. Хеш относится к сохранённым исходным данным ревизии; отдельные SHA256 экспортов указаны в manifest.json. Исходная sourcePlanning сохранена отдельно от вычисленной планировки.<br><br>Первый вариант имел ошибки пролётов и неразмещённые детали. Агент добавил опорные линии, разделил скаты, исправил лестничный проём и проходы, подобрал сечения, учёл утепление и вспомогательные рейки. После увеличения собственного веса MCP показал перегрузки; сравнение вариантов привело к шагу опор до 1,8 м при балках ростверка до 2 м и шагу стропил до 0,5 м.</p><h2>Снег и тепловлажностный режим</h2><p>Принятый снег на грунте 2,75 кН/м², коэффициент формы 0,8 при 25°, Cₑ=Cₜ=1. Рассчитаны равномерная, две несимметричные схемы и два дополнительных сценария 150% на одном скате с неизменными сечениями. Дополнительные сценарии являются анализом чувствительности, не нормативной локальной эпюрой заноса. Точная снеговая привязка к координатам и полный набор сочетаний остаются задачей рабочего проекта.</p><p>Для стены, крыши и пола над наружным воздухом рассчитаны сопротивления R/U, доля деревянного каркаса, точка росы и профили температуры/давления пара в слоях. Принята стационарная пара +21/−26°C, внутренние RH 40% и дополнительная стена RH 60%. Это условный зимний режим, не климатический год Хельсинки. Годовая влага, дефекты герметичности и пространственные мостики не рассчитаны.</p><h2>Исправление контуров в 4.2.1</h2><p>Координаты стен остаются осями. Наружная грань платформы теперь совпадает с наружной гранью деревянного каркаса, а обвязка 48 мм расположена внутри этого контура. Для стен 198 мм ось обвязки смещена наружу на 75 мм. Ростверк 300 мм сохраняет свои оси и выступает за каркас на 51 мм; это не подтверждение узла отделки и влагозащиты.</p><p>Физическая площадь платформ: 153.678408 м²; площадь по осям: 145.68 м². Постоянная нагрузка слоёв пола и закупка обшивки рассчитаны по физическому контуру. Опирание проверяется по перекрытию реальных полос; крепёж, смятие и передача усилий через настил не подтверждены.</p><h2>Изменения в 4.2</h2><p>Одинаковые детали объединены в 205 марок FG, а 649 исходных досок — в 196 схем FP. Каждая схема показана один раз с количеством и местами применения; точная привязка физических ID остаётся в CSV/JSON. Разные запилы и выборки не сливаются.</p><p>Круговая обвязка обеих платформ: 81.20 м. Поперечные распорки: 221 шт. Максимальные реальные пролёты: этаж1 — 2.00 м; этаж2 — 4.00 м. Распорки не создают вертикальных опор. Опорные линии и пролёты представлены на чертежах.</p><p>Независимые свесы (горизонтальные метры в локальных осях каждой зоны): ROOF-N: {"low":0.6,"high":0,"start":0.35,"end":0.45}; ROOF-S: {"low":0.4,"high":0,"start":0.35,"end":0.35}. Свесы учтены в геометрии досок, консольной работе, снеговой нагрузке, площади кровли, закупке и водоотводе.</p><p><a href="./fabrication-parts.csv">Ведомость применения деталей CSV</a> · <a href="./fabrication-stocks.csv">Привязка заготовок к схемам CSV</a></p><h2>Раскрой и состав сметы</h2><p>Все 1411 деталей размещены; отсутствуют неразмещённые или длиннее допустимого заготовки. Закупка 649 досок по 6 м; нижняя оценка 642, глобальная оптимальность не доказана. Остатки и пропилы 13.58%, из них 460.75 пог. м отмечены как пригодные остатки. Разбивка по сечениям, направления запилов, припуски, стыки и каждая ID заготовки находятся в PDF/CSV/HTML.</p><aside><b>Статус: расчётная проработка КР, не рабочий проект для строительства.</b> В принятых частных проверках 0 превышений; 115 проверок имеют статус частной проверки или «не подтверждено». Геология отсутствует. Сравнены ЖБ-забивные, стальные RR/RD и винтовые сваи; предварительно выбран RD, а 80 кН — условный предел примера, не подтверждённое сопротивление грунта. Узлы крепежа, пространственная жёсткость/ветровой отрыв, лестница/ограждения и годовая влага требуют отдельного инженерного расчёта. Смета основана на примерных ставках в EUR, без рыночных предложений и подтверждённой стоимости свай.</aside><h2>Фактически выполненные вызовы</h2><div class="table"><table><thead><tr><th>№</th><th>UTC</th><th>Инструмент</th><th>Рев.</th><th>Результат</th><th>Подробности</th></tr></thead><tbody><tr><td>1</td><td>2026-11-02T23:44:39.326Z</td><td><b>karkas_catalog</b><small>6 мс · ответ</small></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
   &quot;request&quot;: {
     &quot;name&quot;: &quot;karkas_catalog&quot;,
     &quot;arguments&quot;: {}
@@ -4014,4 +4014,311 @@
       &quot;sha256&quot;: &quot;250a9c607037025d91c3d982637fbe8fa5b9597cf81b3ca25f7c56d335deff5b&quot;
     }
   ]
-}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 d90ddea62bd0de11961e027d4f43c7b64a7b76ecdbcbf5254cb5f292c43f1211.</small></details></td></tr></tbody></table></div><footer>Проект house-feb222a5-b803-4f4d-b79f-158af2904f5a · R8<br>SHA256 проекта b7f2515c910bc74252509f6a55463664dc7f86764c84f38aa8f5a6f2f86be57c<br>SHA256 исходного журнала 0dbee8accc296e3f2a122958f2891606eb1703b1b6956bb76e683f909250dd40</footer></main></html>
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 d90ddea62bd0de11961e027d4f43c7b64a7b76ecdbcbf5254cb5f292c43f1211.</small></details></td></tr><tr><td>45</td><td>2026-11-03T15:56:22.809Z</td><td><b>karkas_catalog</b><small>12 мс · ответ</small></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_catalog&quot;,
+    &quot;arguments&quot;: {}
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 c8a70f799e5eac71d051f6fc2860c2a02b5241457340ebd8a679d22b19298f92.</small></details></td></tr><tr><td>46</td><td>2026-11-03T15:57:01.050Z</td><td><b>karkas_get_project</b><small>10 мс · ответ</small></td><td>8</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_get_project&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;
+    }
+  },
+  &quot;revision&quot;: 8,
+  &quot;hash&quot;: &quot;b7f2515c910bc74252509f6a55463664dc7f86764c84f38aa8f5a6f2f86be57c&quot;
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 25dfcdc1ec6176807175aae5c69d417147f600b457782eab374ca5aab3912045.</small></details></td></tr><tr><td>47</td><td>2026-11-03T16:00:11.423Z</td><td><b>karkas_catalog</b><small>10 мс · ответ</small></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_catalog&quot;,
+    &quot;arguments&quot;: {}
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 ed43c384b6ab042620eae020e00ce0ef30d369ef4bc5c3e3bc2ba8760f78bb4f.</small></details></td></tr><tr><td>48</td><td>2026-11-03T16:00:15.571Z</td><td><b>karkas_apply_patch</b><small>3045 мс · ответ</small></td><td>9</td><td>1411 деталей · 649 заготовок<br>0 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_apply_patch&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;expected_revision&quot;: 8,
+      &quot;operations&quot;: [
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/name&quot;,
+          &quot;value&quot;: &quot;HELSINKI L-146 · КР 4.2.1 · платформы по граням каркаса&quot;
+        }
+      ]
+    }
+  },
+  &quot;revision&quot;: 9,
+  &quot;hash&quot;: &quot;960ddc498bbc902a4c551dff356aaf6531b6663a7b367b69c6f8c91e6fdbf916&quot;,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-146 · КР 4.2.1 · платформы по граням каркаса&quot;,
+    &quot;area&quot;: 145.68,
+    &quot;platformArea&quot;: 153.67840800000005,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 7,
+    &quot;boards&quot;: 1411,
+    &quot;timberVolume&quot;: 35.5620765192342,
+    &quot;timberMass&quot;: 16002.934433655215,
+    &quot;designVerticalLoad&quot;: 1462.531960087693,
+    &quot;piles&quot;: 45,
+    &quot;grillageBoards&quot;: 68,
+    &quot;stockBoards&quot;: 649,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: null,
+    &quot;estimateTotal&quot;: 251526.89,
+    &quot;currency&quot;: &quot;EUR&quot;,
+    &quot;status&quot;: &quot;requires_engineering&quot;,
+    &quot;failedChecks&quot;: 0,
+    &quot;unverifiedOrWarningChecks&quot;: 115,
+    &quot;certified&quot;: false,
+    &quot;partGroups&quot;: 205,
+    &quot;cuttingPatterns&quot;: 196
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 c10c2373b77508d37a262896ed559daadd780024c3501371fbf7f0f9dd69fb32.</small></details></td></tr><tr><td>49</td><td>2026-11-03T16:01:07.548Z</td><td><b>karkas_analyze</b><small>18 мс · ответ</small></td><td>9</td><td>1411 деталей · 649 заготовок<br>0 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_analyze&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 9
+    }
+  },
+  &quot;revision&quot;: 9,
+  &quot;hash&quot;: &quot;960ddc498bbc902a4c551dff356aaf6531b6663a7b367b69c6f8c91e6fdbf916&quot;,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-146 · КР 4.2.1 · платформы по граням каркаса&quot;,
+    &quot;area&quot;: 145.68,
+    &quot;platformArea&quot;: 153.67840800000005,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 7,
+    &quot;boards&quot;: 1411,
+    &quot;timberVolume&quot;: 35.5620765192342,
+    &quot;timberMass&quot;: 16002.934433655215,
+    &quot;designVerticalLoad&quot;: 1462.531960087693,
+    &quot;piles&quot;: 45,
+    &quot;grillageBoards&quot;: 68,
+    &quot;stockBoards&quot;: 649,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: null,
+    &quot;estimateTotal&quot;: 251526.89,
+    &quot;currency&quot;: &quot;EUR&quot;,
+    &quot;status&quot;: &quot;requires_engineering&quot;,
+    &quot;failedChecks&quot;: 0,
+    &quot;unverifiedOrWarningChecks&quot;: 115,
+    &quot;certified&quot;: false,
+    &quot;partGroups&quot;: 205,
+    &quot;cuttingPatterns&quot;: 196
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 5a82ee78b5e435cac938846762ec47d22fd0076aaab62f7854f8c28609387dbd.</small></details></td></tr><tr><td>50</td><td>2026-11-03T16:01:07.620Z</td><td><b>karkas_report</b><small>66 мс · ответ</small></td><td>9</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_report&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 9,
+      &quot;topic&quot;: &quot;floor_platform&quot;
+    }
+  },
+  &quot;revision&quot;: 9,
+  &quot;hash&quot;: &quot;960ddc498bbc902a4c551dff356aaf6531b6663a7b367b69c6f8c91e6fdbf916&quot;
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 8fef4a8f4a0f1aaa279710620ca83f21b4e1a35e5ca75b2c9156e06b52fcedf7.</small></details></td></tr><tr><td>51</td><td>2026-11-03T16:01:07.678Z</td><td><b>karkas_report</b><small>9 мс · ответ</small></td><td>9</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_report&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 9,
+      &quot;topic&quot;: &quot;checks&quot;,
+      &quot;status&quot;: &quot;unverified&quot;,
+      &quot;limit&quot;: 100
+    }
+  },
+  &quot;revision&quot;: 9,
+  &quot;hash&quot;: &quot;960ddc498bbc902a4c551dff356aaf6531b6663a7b367b69c6f8c91e6fdbf916&quot;
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 6a8fe3d5dc1b5209bc261489d1dde932d707e70df37867ee9cbb248ebea1d963.</small></details></td></tr><tr><td>52</td><td>2026-11-03T16:01:17.879Z</td><td><b>karkas_report</b><small>5 мс · ответ</small></td><td>9</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_report&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 9,
+      &quot;topic&quot;: &quot;checks&quot;,
+      &quot;status&quot;: &quot;unverified&quot;,
+      &quot;offset&quot;: 100,
+      &quot;limit&quot;: 100
+    }
+  },
+  &quot;revision&quot;: 9,
+  &quot;hash&quot;: &quot;960ddc498bbc902a4c551dff356aaf6531b6663a7b367b69c6f8c91e6fdbf916&quot;
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 98bfc0350c715a3286a76516b2394e5bd67ff449bcf869ab4ac999bb48e0ab19.</small></details></td></tr><tr><td>53</td><td>2026-11-03T16:02:15.431Z</td><td><b>karkas_export</b><small>410 мс · ответ</small></td><td>9</td><td>report_json, project_json, plan_svg, boards_csv, cutting_csv, estimate_csv, cutting_html, model_obj, fabrication_parts_csv, fabrication_stocks_csv</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_export&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 9,
+      &quot;formats&quot;: [
+        &quot;report_json&quot;,
+        &quot;project_json&quot;,
+        &quot;plan_svg&quot;,
+        &quot;boards_csv&quot;,
+        &quot;cutting_csv&quot;,
+        &quot;estimate_csv&quot;,
+        &quot;cutting_html&quot;,
+        &quot;model_obj&quot;,
+        &quot;fabrication_parts_csv&quot;,
+        &quot;fabrication_stocks_csv&quot;
+      ]
+    }
+  },
+  &quot;revision&quot;: 9,
+  &quot;hash&quot;: &quot;960ddc498bbc902a4c551dff356aaf6531b6663a7b367b69c6f8c91e6fdbf916&quot;,
+  &quot;artifacts&quot;: [
+    {
+      &quot;format&quot;: &quot;report_json&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/report.json&quot;,
+      &quot;bytes&quot;: 15814576,
+      &quot;sha256&quot;: &quot;b8857cddc4996321d4131f1176a4418f849a4785c3f0a86e95a8f9b950d0cee3&quot;
+    },
+    {
+      &quot;format&quot;: &quot;project_json&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/project.json&quot;,
+      &quot;bytes&quot;: 35949,
+      &quot;sha256&quot;: &quot;7a21f298c8a3c1626fe0cc38ce33775ab15172b750a247ddd4572c6693616b5f&quot;
+    },
+    {
+      &quot;format&quot;: &quot;plan_svg&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/plan.svg&quot;,
+      &quot;bytes&quot;: 9297,
+      &quot;sha256&quot;: &quot;b13446b298705ecbe6e948f3efffa1ecce749f5e9230808e85ff4c8bc45ea2e9&quot;
+    },
+    {
+      &quot;format&quot;: &quot;boards_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/boards.csv&quot;,
+      &quot;bytes&quot;: 433151,
+      &quot;sha256&quot;: &quot;9ab1b4d0dc58fb391ce1edf56941f55be3e77eeb91a88967d876b6d885439cd9&quot;
+    },
+    {
+      &quot;format&quot;: &quot;cutting_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/cutting.csv&quot;,
+      &quot;bytes&quot;: 318753,
+      &quot;sha256&quot;: &quot;c557e380fd0223f4f3e17ab07f16144445789a7f12e467eeb434e0895aa44f92&quot;
+    },
+    {
+      &quot;format&quot;: &quot;estimate_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/estimate.csv&quot;,
+      &quot;bytes&quot;: 9199,
+      &quot;sha256&quot;: &quot;3b399729e0de4fff4988690c6a3fe14e8ac80781c929b3ade746866abb466b09&quot;
+    },
+    {
+      &quot;format&quot;: &quot;cutting_html&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/cutting.html&quot;,
+      &quot;bytes&quot;: 451005,
+      &quot;sha256&quot;: &quot;55a87ea8f360b2ce5169ee8747b4429a346e9688398eb6abc1222615f86f183f&quot;
+    },
+    {
+      &quot;format&quot;: &quot;model_obj&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/model.obj&quot;,
+      &quot;bytes&quot;: 1928080,
+      &quot;sha256&quot;: &quot;76235d011c06566c212c2338e64589303bbe5b4d3411652d1d0522c1822087ba&quot;
+    },
+    {
+      &quot;format&quot;: &quot;fabrication_parts_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/fabrication-parts.csv&quot;,
+      &quot;bytes&quot;: 382637,
+      &quot;sha256&quot;: &quot;edb50018c5147ae44e263d36d1963c111cb876141d015591ec5be9f7ae20c3dc&quot;
+    },
+    {
+      &quot;format&quot;: &quot;fabrication_stocks_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/fabrication-stocks.csv&quot;,
+      &quot;bytes&quot;: 83957,
+      &quot;sha256&quot;: &quot;6a39c09a8945a0dcd69cd82afa695ac504c0000a9bf761c8a5561b4ae27f8aa1&quot;
+    }
+  ]
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 75598c7fd31035383f2341506584c32859ae8712a260cbdaa9856621ad3bed6f.</small></details></td></tr><tr><td>54</td><td>2026-11-03T16:06:02.998Z</td><td><b>karkas_export</b><small>3416 мс · ответ</small></td><td>9</td><td>report_json, project_json, plan_svg, boards_csv, cutting_csv, estimate_csv, cutting_html, model_obj, fabrication_parts_csv, fabrication_stocks_csv, structural_pdf</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_export&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 9,
+      &quot;formats&quot;: [
+        &quot;report_json&quot;,
+        &quot;project_json&quot;,
+        &quot;plan_svg&quot;,
+        &quot;boards_csv&quot;,
+        &quot;cutting_csv&quot;,
+        &quot;estimate_csv&quot;,
+        &quot;cutting_html&quot;,
+        &quot;model_obj&quot;,
+        &quot;fabrication_parts_csv&quot;,
+        &quot;fabrication_stocks_csv&quot;,
+        &quot;structural_pdf&quot;
+      ]
+    }
+  },
+  &quot;revision&quot;: 9,
+  &quot;hash&quot;: &quot;960ddc498bbc902a4c551dff356aaf6531b6663a7b367b69c6f8c91e6fdbf916&quot;,
+  &quot;artifacts&quot;: [
+    {
+      &quot;format&quot;: &quot;report_json&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/report.json&quot;,
+      &quot;bytes&quot;: 15814576,
+      &quot;sha256&quot;: &quot;b8857cddc4996321d4131f1176a4418f849a4785c3f0a86e95a8f9b950d0cee3&quot;
+    },
+    {
+      &quot;format&quot;: &quot;project_json&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/project.json&quot;,
+      &quot;bytes&quot;: 35949,
+      &quot;sha256&quot;: &quot;7a21f298c8a3c1626fe0cc38ce33775ab15172b750a247ddd4572c6693616b5f&quot;
+    },
+    {
+      &quot;format&quot;: &quot;plan_svg&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/plan.svg&quot;,
+      &quot;bytes&quot;: 9297,
+      &quot;sha256&quot;: &quot;b13446b298705ecbe6e948f3efffa1ecce749f5e9230808e85ff4c8bc45ea2e9&quot;
+    },
+    {
+      &quot;format&quot;: &quot;boards_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/boards.csv&quot;,
+      &quot;bytes&quot;: 433151,
+      &quot;sha256&quot;: &quot;9ab1b4d0dc58fb391ce1edf56941f55be3e77eeb91a88967d876b6d885439cd9&quot;
+    },
+    {
+      &quot;format&quot;: &quot;cutting_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/cutting.csv&quot;,
+      &quot;bytes&quot;: 318753,
+      &quot;sha256&quot;: &quot;c557e380fd0223f4f3e17ab07f16144445789a7f12e467eeb434e0895aa44f92&quot;
+    },
+    {
+      &quot;format&quot;: &quot;estimate_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/estimate.csv&quot;,
+      &quot;bytes&quot;: 9199,
+      &quot;sha256&quot;: &quot;3b399729e0de4fff4988690c6a3fe14e8ac80781c929b3ade746866abb466b09&quot;
+    },
+    {
+      &quot;format&quot;: &quot;cutting_html&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/cutting.html&quot;,
+      &quot;bytes&quot;: 451005,
+      &quot;sha256&quot;: &quot;55a87ea8f360b2ce5169ee8747b4429a346e9688398eb6abc1222615f86f183f&quot;
+    },
+    {
+      &quot;format&quot;: &quot;model_obj&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/model.obj&quot;,
+      &quot;bytes&quot;: 1928080,
+      &quot;sha256&quot;: &quot;76235d011c06566c212c2338e64589303bbe5b4d3411652d1d0522c1822087ba&quot;
+    },
+    {
+      &quot;format&quot;: &quot;fabrication_parts_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/fabrication-parts.csv&quot;,
+      &quot;bytes&quot;: 382637,
+      &quot;sha256&quot;: &quot;edb50018c5147ae44e263d36d1963c111cb876141d015591ec5be9f7ae20c3dc&quot;
+    },
+    {
+      &quot;format&quot;: &quot;fabrication_stocks_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/fabrication-stocks.csv&quot;,
+      &quot;bytes&quot;: 83957,
+      &quot;sha256&quot;: &quot;6a39c09a8945a0dcd69cd82afa695ac504c0000a9bf761c8a5561b4ae27f8aa1&quot;
+    },
+    {
+      &quot;format&quot;: &quot;structural_pdf&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r9/structural-album.pdf&quot;,
+      &quot;bytes&quot;: 704556,
+      &quot;sha256&quot;: &quot;46ae905119821e125b04491059e0a35636c0b44c9189dc4e1f5ab2bfb1c0977e&quot;
+    }
+  ]
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 6cf7602d064eb7c46d50fe0c2187598ab6cffd776d12165269be8a743f6fe49b.</small></details></td></tr></tbody></table></div><footer>Проект house-feb222a5-b803-4f4d-b79f-158af2904f5a · R9<br>SHA256 проекта 960ddc498bbc902a4c551dff356aaf6531b6663a7b367b69c6f8c91e6fdbf916<br>SHA256 исходного журнала 059470d8ae99d663143e7de5ced905cb4b26fe12e822e8b3fb91da23badeff9c</footer></main></html>

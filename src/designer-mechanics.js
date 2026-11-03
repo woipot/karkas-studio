@@ -14,7 +14,7 @@ export function logicalMembers(instances,role){
   return [...groups].map(([id,parts])=>{
     const first=parts.find(b=>dist(b.start,b.end)>1e-8)||parts[0],L=dist(first.start,first.end),u=first.end.map((x,i)=>(x-first.start[i])/L);
     const points=parts.flatMap(b=>[b.start,b.end]),projections=points.map(p=>sum(p.map((x,i)=>(x-first.start[i])*u[i]))),min=Math.min(...projections),max=Math.max(...projections);
-    return {id,parts,start:first.start.map((x,i)=>x+u[i]*min),end:first.start.map((x,i)=>x+u[i]*max),length:max-min,b:first.b,h:first.h,mass:sum(parts.map(b=>b.mass??0)),spliced:parts.length>1,wallId:first.wallId,floor:first.floor,analyticalSpan:first.analyticalSpan,supportStart:first.supportStart,supportEnd:first.supportEnd,supportStatus:first.supportStatus,actualSpacing:first.actualSpacing,tributaryWidth:first.tributaryWidth,platformSpanId:first.platformSpanId,geometricUnbracedLength:first.geometricUnbracedLength};
+    return {id,parts,start:first.start.map((x,i)=>x+u[i]*min),end:first.start.map((x,i)=>x+u[i]*max),length:max-min,b:first.b,h:first.h,mass:sum(parts.map(b=>b.mass??0)),spliced:parts.length>1,wallId:first.wallId,floor:first.floor,analyticalSpan:first.analyticalSpan,supportStart:first.supportStart,supportEnd:first.supportEnd,supportStatus:first.supportStatus,actualSpacing:first.actualSpacing,tributaryWidth:first.tributaryWidth,platformSpanId:first.platformSpanId,physicalOverhangStart:first.physicalOverhangStart,physicalOverhangEnd:first.physicalOverhangEnd,edgeJoist:first.edgeJoist,supportBearingScreen:first.supportBearingScreen,geometricUnbracedLength:first.geometricUnbracedLength};
   });
 }
 
@@ -22,7 +22,7 @@ export function checkDesignerMembers(p,r){
   const assumptions=[
     'Частные проверки элементов — предварительные модели, не нормативный расчёт дома. Пространственная устойчивость, крепёж, ростверк, грунт и передача усилий через реальные узлы не подтверждены.',
     'Балки: каждая логическая длина объединяет ВСЕ физические части с одинаковым memberId. Шестиметровая заготовка или стык не создаёт опору и не уменьшает расчётный пролёт. Линии реальных несущих стен разделяют пролёты в геометрическом ядре.',
-    'Балки — шарнирно опёртые, равномерно нагруженные. Вес слоёв и фактической древесины перекрытия плюс полезная нагрузка; изгиб qL²/8, прогиб 5qL⁴/(384EI), предел полного мгновенного прогиба L/300, сдвиг 1,5V/A. Ползучесть, вибрации, местная нагрузка и LTB не проверены.',
+    'Балки — шарнирно опёртые, равномерно нагруженные. Вес слоёв по физической площади платформы приведён к осевой площади, фактическая древесина учтена один раз, полезная нагрузка принята по осевой площади; изгиб qL²/8, прогиб 5qL⁴/(384EI), предел полного мгновенного прогиба L/300, сдвиг 1,5V/A. Ползучесть, вибрации, местная нагрузка и LTB не проверены.',
     'Стойка — представительная консервативная оценка: крыша, верхние перекрытия и стены сведены к двум линиям по короткой стороне габаритного прямоугольника. Грузовая ширина учитывает половину соседнего проёма. Фактические усилия каждого простенка и перемычек не определены.',
     'Сжатие стойки: минимум введённого Fc×A и идеального Euler по двум осям. Без явно заданного studRestraint слабая ось имеет полную длину стойки; несущая обшивка автоматически не предполагается. Несовершенства, эксцентриситет и совместный изгиб не учтены.',
     'X-связи: в каждом направлении работает одна растянутая диагональ; сжатая диагональ показана диагностически, её сопротивление не засчитывается. Сила ветра поделена максимум на две имеющиеся параллельные наружные стены; жёсткость диафрагм, узлов и анкеров не проверена.',
@@ -38,10 +38,11 @@ export function checkDesignerMembers(p,r){
   const floorWoodPressure=hasArea&&netFloorArea>0?(r.timber?.totals?.floor?.weight??0)/netFloorArea:0;
   const spacing=p.floor?.spacing??.6;
   const floorPressureFor=m=>{const level=levels.find(l=>l.index===m.floor);return level&&level.netFloorArea>0?sum(instances.filter(b=>b.category==='floor'&&b.floor===m.floor).map(b=>b.mass??0))*9.80665/1000/level.netFloorArea:floorWoodPressure;};
+  const floorDeadPressureFor=m=>{const l=levels.find(l=>l.index===m.floor);return (p.loads.floorDead??0)*(l?.netFloorArea>0&&finite(l.platformNetArea)?l.platformNetArea/l.netFloorArea:1);};
   const joists=hasArea?logicalMembers(instances,'joist').filter(m=>m.length>0&&m.b>0&&m.h>0).map(m=>{
-    const span=finite(m.analyticalSpan)?m.analyticalSpan:m.length,tributaryWidth=m.tributaryWidth??m.actualSpacing??spacing,woodPressure=floorPressureFor(m);
-    const lineService=((p.loads.floorDead??0)+woodPressure+(p.loads.live??0))*tributaryWidth,lineDesign=(((p.loads.floorDead??0)+woodPressure)*gammaG+(p.loads.live??0)*gammaQ)*tributaryWidth;
-    if(m.supportStatus&&m.supportStatus!=='pass')return {...m,span,floorWoodPressure:woodPressure,lineLoadService:lineService,lineLoadDesign:lineDesign,utilization:null,status:'unverified',numericChecksApplicable:false,note:'Не подтверждены обе геометрические опоры; шарнирная модель не выдаётся за проверку этого элемента.'};
+    const span=finite(m.analyticalSpan)?m.analyticalSpan:m.length,tributaryWidth=m.tributaryWidth??m.actualSpacing??spacing,woodPressure=floorPressureFor(m),floorDeadPressure=floorDeadPressureFor(m);
+    const lineService=(floorDeadPressure+woodPressure+(p.loads.live??0))*tributaryWidth,lineDesign=((floorDeadPressure+woodPressure)*gammaG+(p.loads.live??0)*gammaQ)*tributaryWidth;
+    if(m.supportStatus&&m.supportStatus!=='pass')return {...m,span,floorDeadPressure,floorWoodPressure:woodPressure,lineLoadService:lineService,lineLoadDesign:lineDesign,utilization:null,status:'unverified',numericChecksApplicable:false,note:'Не подтверждены обе геометрические опоры; шарнирная модель не выдаётся за проверку этого элемента.'};
     const I=m.b*m.h**3/12,Z=m.b*m.h**2/6,L=span*1000,M=lineDesign*span**2/8,V=lineDesign*span/2;
     const stress=M*1e6/Z,deflection=5*lineService*L**4/(384*E*I),deflectionAllowed=L/300,shearStress=1.5*V*1000/(m.b*m.h);
     const bendingUtilization=stress/Fb,deflectionUtilization=deflection/deflectionAllowed,shearUtilization=shearStress/Fv;
@@ -49,7 +50,7 @@ export function checkDesignerMembers(p,r){
     const maxSpanDeflection=lineService>0?Math.cbrt(384*E*I/(5*lineService*300))/1000:Infinity;
     const maxSpanShear=lineDesign>0?2*Fv*m.b*m.h/(1.5*lineDesign)/1000:Infinity;
     const utilization=Math.max(bendingUtilization,deflectionUtilization,shearUtilization);
-    return {...m,span,I,Z,floorWoodPressure:woodPressure,lineLoadService:lineService,lineLoadDesign:lineDesign,moment:M,shear:V,stress,deflection,deflectionAllowed,shearStress,bendingUtilization,deflectionUtilization,shearUtilization,maxSpanBending,maxSpanDeflection,maxSpanShear,maxSpan:Math.min(maxSpanBending,maxSpanDeflection,maxSpanShear),utilization,status:safeStatus(utilization),numericChecksApplicable:true};
+    return {...m,span,I,Z,floorDeadPressure,floorWoodPressure:woodPressure,lineLoadService:lineService,lineLoadDesign:lineDesign,moment:M,shear:V,stress,deflection,deflectionAllowed,shearStress,bendingUtilization,deflectionUtilization,shearUtilization,maxSpanBending,maxSpanDeflection,maxSpanShear,maxSpan:Math.min(maxSpanBending,maxSpanDeflection,maxSpanShear),utilization,status:safeStatus(utilization),numericChecksApplicable:true};
   }):[];
   const numericJoists=joists.filter(j=>j.numericChecksApplicable),unknownJoists=joists.filter(j=>!j.numericChecksApplicable);
   const worstJoist=numericJoists.length?numericJoists.reduce((a,b)=>a.utilization>b.utilization?a:b):joists[0];
@@ -61,6 +62,8 @@ export function checkDesignerMembers(p,r){
   );
   else checks.push({id:'designerJoists',label:'Балки перекрытия',status:'unverified',note:'Нет замкнутой площади или пролётов с двумя подтверждёнными геометрическими опорами.'});
   if(unknownJoists.length)checks.push({id:'designerJoistSupports',label:'Лаги без подтверждённой опорной схемы',status:'unverified',value:unknownJoists.length,unit:'шт.',memberIds:unknownJoists.map(m=>m.id),note:'Частные шарнирные проверки этих элементов не выполняются. Требуется реальная опора и рабочий узел передачи нагрузки.'});
+  const consoleJoists=joists.filter(m=>(m.physicalOverhangStart??0)>1e-7||(m.physicalOverhangEnd??0)>1e-7);
+  if(consoleJoists.length)checks.push({id:'floorJoistEndConsoles',label:'Концы лаг за осями опирания',status:'unverified',value:consoleJoists.length,unit:'шт.',memberIds:consoleJoists.flatMap(m=>m.parts.map(b=>b.id)),logicalMemberIds:consoleJoists.map(m=>m.id),note:'Наружная обвязка не создаёт новую опору. Площадь постоянной нагрузки всей платформы приведена к осевой площади для частной шарнирной проверки; местные консоли, опорное смятие, эксцентриситет и передача усилий через настил/обвязку не рассчитаны.'});
   const measuredWalls=(r.fullHeightWalls?.walls??[]).filter(w=>w.mode==='continuous'&&w.studs?.length),measuredIds=new Set(measuredWalls.map(w=>w.wallId));
   const bearingWalls=(p.walls??[]).filter(w=>w.kind!=='partition'&&!measuredIds.has(w.id)),bounds=r?.geometry?.bounds??{};
   const supportLength=Math.min(bounds.width??0,bounds.height??0);
@@ -68,7 +71,8 @@ export function checkDesignerMembers(p,r){
   if(hasArea&&r.loads&&supportLength>0&&bearingWalls.length){
     const roofDesign=(r.loads.roofWeight??0)*gammaG+(r.loads.snow??0)*gammaQ;
     const upperArea=levels.length?sum(levels.slice(1).map(l=>l.closed?(l.netFloorArea??l.area??0):0)):area*Math.max(0,F-1);
-    const upperFloor=upperArea*(((p.loads.floorDead??0)+floorWoodPressure)*gammaG+(p.loads.live??0)*gammaQ);
+    const upperDeadArea=levels.length?sum(levels.slice(1).map(l=>l.closed?(l.platformNetArea??l.netFloorArea??l.area??0):0)):upperArea;
+    const upperFloor=(upperDeadArea*(p.loads.floorDead??0)+upperArea*floorWoodPressure)*gammaG+upperArea*(p.loads.live??0)*gammaQ;
     const wallLayers=(r.loads.rows??[]).filter(row=>['wall-layers','inner-layers','openings','walls-layers','wallLayers','opening-layers','openings-layers'].includes(row.id)).reduce((s,row)=>s+(row.characteristic??0),0);
     const wallWeight=(r.timber?.totals?.walls?.weight??0)+(r.timber?.totals?.bracing?.weight??0)+wallLayers;
     const line=(roofDesign+upperFloor+wallWeight*gammaG)/(2*supportLength);

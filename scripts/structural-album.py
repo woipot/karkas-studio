@@ -335,7 +335,7 @@ class Album:
                     remaining = selection
                 self.table_pages('Фундамент · исходные выбора и исследования', [('Параметр / вариант', .35), ('Данные исходного отчёта', .65)], self.flatten_fields(remaining), 'Данные задания и сравнения систем, не подтверждённый геотехнический расчёт.', 8)
         for level in self.levels:
-            self.add(f'План этажа {level.get("index", 1)}', 'floorplan', level, 'Контуры по осям стен. Размеры в миллиметрах, координаты и отметки в метрах.')
+            self.add(f'План этажа {level.get("index", 1)}', 'floorplan', level, 'Размерные цепи - между осями стен; зелёный контур - наружная грань платформы. Размеры в мм, координаты и отметки в м.')
         openings = self.p.get('openings') or []
         if openings:
             self.table_pages('Проёмы · ведомость окон и дверей', [('ID проёма', .2, 'mono'), ('Стена', .12), ('Тип / этаж', .12), ('От A, мм', .12), ('Ширина, мм', .12), ('Высота, мм', .12), ('Низ от основания стены, мм', .2)], [[o.get('id'), self.wall_names.get(str(o.get('wallId')), o.get('wallId')), ('Дверь' if o.get('type') == 'door' else 'Окно') + f' / {o.get("floor", o.get("level", "-"))}', number(finite(o.get('offset')) * 1000, 0), number(finite(o.get('width')) * 1000, 0), number(finite(o.get('height')) * 1000, 0), number(finite(o.get('sill')) * 1000, 0)] for o in openings], 'Отступ измеряется вдоль локальной оси стены A → B. Конструктивные перемычки и опорные стойки - на фасадах каркаса.', 8)
@@ -343,6 +343,9 @@ class Album:
             self.table_pages('Помещения · экспликация', [('ID', .2, 'mono'), ('Этаж', .1), ('Наименование', .45), ('Площадь, м²', .25)], [[room.get('id'), room.get('level', room.get('floor')), room.get('name'), number(room.get('area'), 3)] for room in self.planning['rooms']], 'Экспликация из планировочных данных отчёта; площади помещений не пересчитываются рендерером.', 8)
         self.add('Свайное поле', 'piles', subtitle='Положение и расчётные реакции по модели. Несущая способность грунта не подтверждена геологией.')
         self.add('Ростверк · общий план и уровни', 'grillage')
+        alignment_nodes = self.platform_alignment_nodes()
+        if alignment_nodes:
+            self.add('Платформа, каркас и ростверк · наружные грани', 'platformdetails', alignment_nodes[:2], 'Размеры по фактической геометрии отчёта. Совпадение граней и полоса опирания не подтверждают расчёт соединений.')
         beams = self.gr.get('beams') or []
         for i in range(0, len(beams), 3):
             self.add('Ростверк · раскладка пакетов по слоям', 'beamcards', beams[i:i + 3], 'Только фактические доски и стыки из модели; длина исходной доски 6 000 мм.')
@@ -627,7 +630,7 @@ class Album:
         site = self.p.get('site') or {}
         text(c, site.get('region') or site.get('location') or 'Площадка: в отчёте не задана', x, y, 11, color=MUTED, width=535)
         y -= 35
-        facts = [('Площадь контура', number(self.g.get('area'), 2) + ' м²'), ('Этажи / чистая площадь', f'{len(self.levels)} / {number(self.g.get("totalFloorArea"), 2)} м²'), ('Физические детали', f'{len(self.members)} шт.'), ('Доски закупки 6 м', f'{len(self.cut.get("stocks", []))} шт.'), ('Масса древесины', number((self.r.get('timber') or {}).get('mass'), 0) + ' кг'), ('Расчётная вертикальная нагрузка', number((self.r.get('loads') or {}).get('totalDesign'), 3) + ' кН')]
+        facts = [('Площадь контура по осям', number(self.g.get('area'), 2) + ' м²'), ('Этажи / по осям без проёмов', f'{len(self.levels)} / {number(self.g.get("totalFloorArea"), 2)} м²'), ('Физические детали', f'{len(self.members)} шт.'), ('Доски закупки 6 м', f'{len(self.cut.get("stocks", []))} шт.'), ('Масса древесины', number((self.r.get('timber') or {}).get('mass'), 0) + ' кг'), ('Расчётная вертикальная нагрузка', number((self.r.get('loads') or {}).get('totalDesign'), 3) + ' кН')]
         for label, value in facts:
             text(c, label, x, y, 10, color=MUTED)
             text(c, value, x + 285, y, 11, 'Bold')
@@ -708,6 +711,56 @@ class Album:
     def level_polygon(self, level=None):
         return [xy(p) for p in ((level or {}).get('polygon') or self.g.get('polygon') or [])]
 
+    def platform_polygon(self, level=None):
+        level = level or (self.levels[0] if self.levels else {})
+        model = next((p for p in (self.r.get('floorPlatform') or {}).get('levels', []) if p.get('index') == level.get('index')), {})
+        return [xy(p) for p in (level.get('platformPolygon') or model.get('outerPolygon') or level.get('polygon') or self.g.get('polygon') or [])]
+
+    def wall_section(self, wall):
+        profile = next((p for p in self.g.get('wallProfiles', []) if p.get('wallId') == wall.get('id') and p.get('mode') == 'continuous'), {})
+        return profile.get('section') or wall.get('section', '50x150')
+
+    def platform_alignment_nodes(self):
+        nodes = []
+        floor_section = self.section_size((self.p.get('floor') or {}).get('section', '50x200'))
+        joist_axis = (self.p.get('floor') or {}).get('axis', 'y')
+        for platform in (self.r.get('floorPlatform') or {}).get('levels', []):
+            level = next((l for l in self.levels if l.get('index') == platform.get('index')), {})
+            edges = [e for e in platform.get('rimSegments', []) if e.get('geometryKnown') and optional_number(e.get('wallDepth')) is not None and all(e.get(key) is not None for key in ('axisStart', 'outerStart', 'centerStart', 'rimInnerStart', 'inwardNormal'))]
+            if not edges:
+                continue
+            # Prefer a section transverse to the joists. The source edge still
+            # supplies every alignment dimension and backing reference.
+            edge = min(edges, key=lambda e: abs((e.get('u') or {}).get(joist_axis, 0)))
+            supports = [s for s in (self.r.get('floorPlatform') or {}).get('supports', []) if s.get('level') == platform.get('index') and s.get('id') in (edge.get('bearing') or {}).get('supportIds', [])]
+            normal = xy(edge.get('inwardNormal'))
+            origin = xy(edge.get('axisStart'))
+            def offset(point):
+                px, py = xy(point)
+                return ((px - origin[0]) * normal[0] + (py - origin[1]) * normal[1]) * 1000
+            support = min(supports, key=lambda s: abs(offset(s.get('a')))) if supports else None
+            wall = self.wall_map.get(str(edge.get('wallId')), {})
+            wall_b, _ = self.section_size(edge.get('wallSection') or wall.get('section', '50x150'))
+            backing_width = finite(support.get('width')) * 1000 if support else None
+            backing_center = offset(support.get('a')) if support else None
+            backing_wall = self.wall_map.get(str(support.get('id')), {}) if support else {}
+            backing_b, backing_h = self.section_size(backing_wall.get('section', '50x150'))
+            if platform.get('index') == 1:
+                backing_h = self.section_size(self.gr.get('section') or ((self.p.get('foundation') or {}).get('grillage') or {}).get('section', '50x200'))[1]
+            base_y = optional_number(platform.get('baseY', level.get('baseY')))
+            top_y = optional_number(platform.get('topY'))
+            wall_base = optional_number(level.get('wallBaseY'))
+            deck = (wall_base - top_y) * 1000 if wall_base is not None and top_y is not None else None
+            nodes.append({'level': platform.get('index'), 'edgeId': edge.get('id'), 'wallId': edge.get('wallId'), 'wallDepth': finite(edge.get('wallDepth')) * 1000, 'wallBoard': wall_b,
+                          'outer': offset(edge.get('outerStart')), 'rimCenter': offset(edge.get('centerStart')), 'rimInner': offset(edge.get('rimInnerStart')),
+                          'rimWidth': finite(edge.get('rimWidth')) * 1000, 'rimAxisOffset': finite(edge.get('outwardOffset')) * 1000,
+                          'grillageReveal': optional_number(edge.get('grillageReveal')) * 1000 if optional_number(edge.get('grillageReveal')) is not None else None,
+                          'backingWidth': backing_width, 'backingCenter': backing_center, 'backingHeight': backing_h, 'backingBoard': backing_b,
+                          'backingKind': support.get('kind') if support else None, 'backingId': support.get('id') if support else None,
+                          'floorHeight': (top_y - base_y) * 1000 if top_y is not None and base_y is not None else floor_section[1], 'deckHeight': deck,
+                          'baseY': base_y, 'topY': top_y, 'wallBaseY': wall_base, 'bearing': edge.get('bearing') or {}, 'alignmentError': finite((edge.get('alignments') or {}).get('error')) * 1000})
+        return nodes
+
     def draw_stair_plan(self, c, stair, fn, show_note=True):
         points = [xy(p) for p in stair.get('polygon', [])]
         if len(points) < 3:
@@ -755,17 +808,20 @@ class Album:
                 arrow(c, fn(route[-2]), fn(route[-1]), BLUE, .8)
             text(c, 'ЛЕСТНИЦА · КОНТУР', *fn((a + .05, b + .1)), 6, 'Bold', BLUE)
 
-    def draw_plan_base(self, c, level, box, rooms=True, openings=True, axes=True, stair_note=True):
+    def draw_plan_base(self, c, level, box, rooms=True, openings=True, axes=True, stair_note=True, wall_faces=False):
         level_index = level.get('index', 1)
         pts = self.level_polygon(level)
+        platform_pts = self.platform_polygon(level)
         walls = [w for w in self.p.get('walls', []) if int(w.get('level', w.get('floor', 1))) == int(level_index)]
-        allpts = pts + [xy(w[k]) for w in walls for k in ('a', 'b')]
+        axispts = pts + [xy(w[k]) for w in walls for k in ('a', 'b')]
+        allpts = axispts + platform_pts
         fn, scale = transform(allpts, box, 54)
-        polygon(c, [fn(p) for p in pts], PAPER, LINE)
+        polygon(c, [fn(p) for p in platform_pts], PAPER, GREEN, .9)
+        c.setDash([5, 3]); polygon(c, [fn(p) for p in pts], None, MUTED, .55); c.setDash([])
         if axes:
-            xs = sorted(set(round(p[0], 4) for p in allpts))
-            ys = sorted(set(round(p[1], 4) for p in allpts))
-            a, b, d, e = bounds(allpts)
+            xs = sorted(set(round(p[0], 4) for p in axispts))
+            ys = sorted(set(round(p[1], 4) for p in axispts))
+            a, b, d, e = bounds(axispts)
             for n, xx in enumerate(xs):
                 aa, bb = fn((xx, b)), fn((xx, e))
                 line(c, (aa[0], aa[1] - 22), (bb[0], bb[1] + 22), LINE, .5, [5, 3])
@@ -830,7 +886,8 @@ class Album:
                 text(c, 'ВТОРОЙ СВЕТ' if void.get('kind') == 'doubleHeight' else 'ЛЕСТНИЧНЫЙ ПРОЁМ', xx - 48, yy, 7, 'Bold', ORANGE)
         for wall in walls:
             aa, bb = xy(wall.get('a')), xy(wall.get('b'))
-            line(c, fn(aa), fn(bb), INK, 4)
+            _, thickness = self.section_size(self.wall_section(wall))
+            line(c, fn(aa), fn(bb), INK, max(1, thickness / 1000 * scale) if wall_faces else 1.1, None if wall_faces else [5, 3])
             dx, dy = bb[0] - aa[0], bb[1] - aa[1]
             length = math.hypot(dx, dy)
             if not length:
@@ -848,7 +905,7 @@ class Album:
             if abs(dx) >= abs(dy):
                 text(c, label, mid[0] - label_width / 2, mid[1] - 12, 7, color=GREEN)
             else:
-                left_boundary = abs(aa[0] - bounds(allpts)[0]) < 1e-6 and abs(bb[0] - bounds(allpts)[0]) < 1e-6
+                left_boundary = abs(aa[0] - bounds(axispts)[0]) < 1e-6 and abs(bb[0] - bounds(axispts)[0]) < 1e-6
                 label_x = mid[0] + 6 if left_boundary else mid[0] - label_width - 6
                 text(c, label, label_x, mid[1] - 3, 7, color=GREEN)
             if not openings:
@@ -857,20 +914,27 @@ class Album:
                 start = finite(op.get('offset')); width = finite(op.get('width'))
                 op_a = fn((aa[0] + u[0] * start, aa[1] + u[1] * start))
                 op_b = fn((aa[0] + u[0] * (start + width), aa[1] + u[1] * (start + width)))
-                line(c, op_a, op_b, colors.white, 5)
+                line(c, op_a, op_b, colors.white, max(2.5, thickness / 1000 * scale + 1) if wall_faces else 3)
                 line(c, op_a, op_b, BLUE if op.get('type') != 'door' else ORANGE, 1.1)
                 text(c, ('Д' if op.get('type') == 'door' else 'О') + ' ' + number(width * 1000, 0), (op_a[0] + op_b[0]) / 2 + 2, (op_a[1] + op_b[1]) / 2 + 7, 6.5, color=BLUE)
+        if wall_faces:
+            for wall in walls:
+                line(c, fn(xy(wall['a'])), fn(xy(wall['b'])), MUTED, .5, [5, 3])
         stair = self.p.get('staircase') or {}
         if stair and int(level_index) in (int(stair.get('levelFrom', 1)), int(stair.get('levelTo', 2))):
             self.draw_stair_plan(c, stair, fn, show_note=stair_note)
         return fn, scale
 
     def draw_floorplan(self, c, level, index):
-        self.draw_plan_base(c, level, (45, 145, 800, H - 265))
+        self.draw_plan_base(c, level, (45, 145, 800, H - 265), wall_faces=True)
         x, y = 885, H - 138
         text(c, level.get('name', f'Этаж {level.get("index")}'), x, y, 14, 'Bold')
         y -= 30
-        for label, value in [('Контур', number(level.get('area'), 2) + ' м²'), ('Чистая площадь', number(level.get('netFloorArea'), 2) + ' м²'), ('Проёмы перекрытия', number(level.get('voidArea'), 2) + ' м²'), ('Низ платформы', '+' + number(level.get('platformBase'), 3)), ('Основание стены', '+' + number(level.get('wallBaseY'), 3)), ('Номинальный верх', '+' + number(level.get('topY'), 3))]:
+        facts = [('Контур по осям', number(level.get('area'), 2) + ' м²'), ('По осям без проёмов', number(level.get('netFloorArea'), 2) + ' м²')]
+        if level.get('platformNetArea') is not None:
+            facts.append(('Платформа без проёмов', number(level.get('platformNetArea'), 2) + ' м²'))
+        facts += [('Проёмы перекрытия', number(level.get('voidArea'), 2) + ' м²'), ('Низ платформы', '+' + number(level.get('platformBase'), 3)), ('Основание стены', '+' + number(level.get('wallBaseY'), 3)), ('Номинальный верх', '+' + number(level.get('topY'), 3))]
+        for label, value in facts:
             text(c, label, x, y, 8, color=MUTED)
             text(c, value, x, y - 17, 12, 'Bold')
             y -= 51
@@ -878,7 +942,7 @@ class Album:
             text(c, 'Разбивка помещений отсутствует в исходном отчёте.', x, y - 6, 8, color=ORANGE, width=245)
         if not self.p.get('staircase'):
             text(c, 'Геометрия лестницы в отчёте не задана.', x, y - 48, 8, color=ORANGE, width=245)
-        self.note(c, 'О - окно; Д - дверь. Отметки относительно единого нуля модели. Схема лестницы не подтверждает её конструктивный расчёт.', y=103)
+        self.note(c, 'О - окно; Д - дверь. Размеры между осями стен; платформа по наружным граням. Отметки относительно единого нуля модели. Лестница требует отдельного расчёта.', y=103)
 
     def draw_piles(self, c, data, index):
         level = self.levels[0] if self.levels else {}
@@ -928,6 +992,66 @@ class Album:
         text(c, 'Верх ростверка             +' + number(self.gr.get('topY'), 3), x, 228, 9)
         text(c, 'Совместная работа слоёв и закрепление на оголовке не подтверждены.', x, 190, 8.5, color=ORANGE, width=245)
 
+    def draw_platformdetails(self, c, nodes, index):
+        for i, node in enumerate(nodes or []):
+            x, y, w, h = 43 + i * 567, 165, 535, 540
+            c.setStrokeColor(LINE); c.rect(x, y, w, h, fill=0, stroke=1)
+            title = '1 · Над ростверком' if node['level'] == 1 else f'{node["level"]} · Над нижней стеной'
+            text(c, title, x + 14, y + h - 22, 12, 'Bold', GREEN)
+            text(c, self.wall_names.get(str(node.get('wallId')), clean(node.get('wallId'))) + ' · ' + clean(node.get('edgeId')), x + 14, y + h - 42, 7.5, color=MUTED)
+            outer, inner = node['outer'], node['rimInner']
+            wall_inner = outer + node['wallDepth']
+            floor_h = finite(node.get('floorHeight'))
+            deck_h = max(0, finite(node.get('deckHeight')))
+            deck_top = floor_h + deck_h
+            backing_h = node['backingHeight'] if node['level'] == 1 else 260
+            bwidth = optional_number(node.get('backingWidth'))
+            bcenter = finite(node.get('backingCenter'))
+            left = min(outer - 80, bcenter - (bwidth or node['wallDepth']) / 2 - 40)
+            right = max(wall_inner + 240, 360)
+            fn, scale = transform([(left, -backing_h - 65), (right, deck_top + 350)], (x + 14, y + 92, w - 28, h - 157), 10)
+            if bwidth is not None:
+                blo, bhi = bcenter - bwidth / 2, bcenter + bwidth / 2
+                polygon(c, [fn((blo, -backing_h)), fn((bhi, -backing_h)), fn((bhi, 0)), fn((blo, 0))], WOOD if node['level'] == 1 else colors.HexColor('#eee4d2'), WOOD_DARK, .8)
+                if node['level'] == 1:
+                    plies = max(1, int(finite(self.gr.get('plies'), 1)))
+                    for j in range(1, plies):
+                        xx = blo + bwidth * j / plies
+                        line(c, fn((xx, -backing_h)), fn((xx, 0)), WOOD_DARK, .5)
+                else:
+                    line(c, fn((blo, -node['backingBoard'])), fn((bhi, -node['backingBoard'])), WOOD_DARK, .8)
+                    # Lower frame is an envelope, not a claim of solid corner timber.
+                    for j in range(3):
+                        yy = -backing_h + 35 + j * 60
+                        line(c, fn((blo, yy)), fn((bhi, yy + 35)), LINE, .5)
+                dimension(c, fn((blo, -backing_h)), fn((bhi, -backing_h)), -19, number(bwidth, 0) + ' мм')
+            polygon(c, [fn((inner, 0)), fn((right - 35, 0)), fn((right - 35, floor_h)), fn((inner, floor_h))], colors.HexColor('#e7d9bf'), WOOD_DARK, .7)
+            polygon(c, [fn((outer, 0)), fn((inner, 0)), fn((inner, floor_h)), fn((outer, floor_h))], LIME, GREEN, 1)
+            polygon(c, [fn((outer, floor_h)), fn((right - 35, floor_h)), fn((right - 35, deck_top)), fn((outer, deck_top))], colors.HexColor('#b7caa0'), GREEN, .6)
+            polygon(c, [fn((outer, deck_top)), fn((wall_inner, deck_top)), fn((wall_inner, deck_top + 290)), fn((outer, deck_top + 290))], colors.HexColor('#ead5b1'), WOOD_DARK, .8)
+            line(c, fn((outer, deck_top + node['wallBoard'])), fn((wall_inner, deck_top + node['wallBoard'])), WOOD_DARK, .8)
+            line(c, fn((0, -backing_h - 20)), fn((0, deck_top + 325)), MUTED, .65, [5, 3])
+            line(c, fn((node['rimCenter'], -30)), fn((node['rimCenter'], floor_h + 15)), BLUE, .65, [3, 2])
+            line(c, fn((outer, -15)), fn((outer, deck_top + 300)), GREEN, 1.2)
+            dimension(c, fn((outer, deck_top + 290)), fn((wall_inner, deck_top + 290)), 17, number(node['wallDepth'], 0) + ' мм · каркас')
+            dimension(c, fn((outer, floor_h * .58)), fn((inner, floor_h * .58)), 0, number(node['rimWidth'], 0))
+            dimension(c, fn((node['rimCenter'], -backing_h * .55)), fn((0, -backing_h * .55)), 0, number(node['rimAxisOffset'], 0))
+            if node.get('grillageReveal') is not None and bwidth is not None:
+                dimension(c, fn((bcenter - bwidth / 2, 0)), fn((outer, 0)), 15, number(node['grillageReveal'], 0))
+            axis_point = fn((0, deck_top + 325))
+            text(c, 'Ось стены', axis_point[0] + 4, axis_point[1] + 17, 7, color=MUTED)
+            label_x = x + w - 148
+            label_y = fn((right - 30, floor_h * .45))[1]
+            text(c, 'rim ' + number(node['rimWidth'], 0) + ' × ' + number(floor_h, 0) + ' мм\nЛага: фрагмент\nНастил: +' + number(node.get('wallBaseY'), 3), label_x, label_y, 7.5, width=130)
+            text(c, 'Опорный верх +' + number(node.get('baseY'), 3), x + 14, y + 113, 7.5, 'Bold')
+            text(c, 'Совпадают наружные грани каркаса, платформы и rim.\nОсь rim смещена кнаружи на ' + number(node['rimAxisOffset'], 0) + ' мм. Надбалочный слой по отметкам: ' + number(node.get('deckHeight'), 0) + ' мм.', x + 14, y + 79, 8, width=w - 28)
+            if node.get('grillageReveal') is not None:
+                text(c, 'Выпуск ростверка ' + number(node['grillageReveal'], 0) + ' мм соответствует разнице ширин пакета и каркаса.', x + 14, y + 32, 8, 'Bold', ORANGE, width=w - 28)
+            else:
+                text(c, 'Нижняя стена показана огибающей; угловой контакт не подтверждён.', x + 14, y + 32, 8, 'Bold', ORANGE, width=w - 28)
+        self.note(c, 'Проверена геометрия граней и полосы опирания. Смятие, поперечный момент, крепёж, угловые контакты и влагозащита не рассчитаны. Наружные слои фасада здесь не показаны.', y=124, color=ORANGE)
+        self.note(c, 'Смещение rim и выпуск ростверка читаются от указанных осей/граней. Состав настила - по листам ограждений; капельник и мембраны требуют рабочего узла.', y=105)
+
     def section_size(self, value):
         if isinstance(value, dict):
             return finite(value.get('b'), 50), finite(value.get('h'), 200)
@@ -974,6 +1098,7 @@ class Album:
                 line(c, fn(xy(support['a'])), fn(xy(support['b'])), SUPPORT, 2, [6, 3])
         members = [m for m in self.members if m.get('category') == 'floor' and int(m.get('floor', m.get('level', 1))) == int(level.get('index', 1))]
         labelled_groups = set()
+        group_label_boxes = []
         for j, m in enumerate(members):
             if not m.get('start') or not m.get('end'):
                 continue
@@ -1001,6 +1126,17 @@ class Album:
                             label_x = xx - pdfmetrics.stringWidth(group_id, 'Mono', 6) - 5 if xx <= center[0] else xx + 5
                         else:
                             label_y = yy - 11 if yy <= center[1] else yy + 7
+                label_width = pdfmetrics.stringWidth(group_id, 'Mono', 6)
+                if abs(b[1] - a[1]) >= abs(b[0] - a[0]):
+                    candidates = [(label_x, label_y + delta) for delta in (0, 11, -11, 22, -22)]
+                else:
+                    candidates = [(label_x + delta, label_y) for delta in (0, 25, -25, 50, -50)]
+                for cx, cy in candidates:
+                    rect = (cx - 1, cy - 2, cx + label_width + 1, cy + 7)
+                    if not any(rect[0] < old[2] + 2 and rect[2] + 2 > old[0] and rect[1] < old[3] + 2 and rect[3] + 2 > old[1] for old in group_label_boxes):
+                        label_x, label_y = cx, cy
+                        group_label_boxes.append(rect)
+                        break
                 text(c, group_id, label_x, label_y, 6, 'Mono', color)
         for span in spans:
             for endpoint in ('supportStart', 'supportEnd'):
@@ -1212,7 +1348,7 @@ class Album:
     def draw_section(self, c, data, index):
         voids = [v for v in self.p.get('voids', []) if v.get('kind') == 'doubleHeight']
         vp = [xy(p) for p in (voids[0].get('polygon', []) if voids else [])]
-        basepts = self.level_polygon()
+        basepts = self.platform_polygon()
         cut_y = (bounds(vp)[1] + bounds(vp)[3]) / 2 if vp else (bounds(basepts)[1] + bounds(basepts)[3]) / 2
         visible = []
         # Geometric intersection of each board axis with a section band, not a fictitious frame.
@@ -1258,13 +1394,13 @@ class Album:
                     tt = (station - finite(sa.get('s'))) / max(1e-9, finite(sb.get('s')) - finite(sa.get('s')))
                     top_y = finite(sa.get('topY')) + tt * (finite(sb.get('topY')) - finite(sa.get('topY')))
                     break
-            _, thickness = self.section_size(wall.get('section', '50x150'))
+            _, thickness = self.section_size(self.wall_section(wall))
             width = thickness / 1000 / max(.1, abs((b[1] - a[1]) / max(length, .001)))
             wall_slices.append((xx, base_y, top_y, width))
             pts += [(xx - width / 2, base_y), (xx + width / 2, top_y)]
         platforms = []
         for level in self.levels:
-            intervals = scan_intervals(self.level_polygon(level), cut_y)
+            intervals = scan_intervals(self.platform_polygon(level), cut_y)
             holes = []
             for void in self.p.get('voids') or []:
                 if int(void.get('level', 2)) == int(level.get('index', 1)):
@@ -1305,19 +1441,18 @@ class Album:
         for box, title in zip(cards, titles):
             x, y, w, h = box; c.setStrokeColor(LINE); c.rect(x, y, w, h, fill=0, stroke=1); text(c, title, x + 14, y + h - 22, 10, 'Bold')
         x, y, w, h = cards[0]
-        bx, by = x + 145, y + 63
-        plies = max(1, int(finite(self.gr.get('plies'), 3)))
-        b, hh = self.section_size(((self.p.get('foundation') or {}).get('grillage') or {}).get('section', '50x200'))
-        ss = .35
-        line(c, (bx - 20, by), (bx + plies * b * ss + 20, by), INK, 5)
-        for j in range(plies):
-            c.setFillColor(WOOD); c.setStrokeColor(WOOD_DARK); c.rect(bx + j * b * ss, by + 3, b * ss, hh * ss, fill=1, stroke=1)
-        c.setFillColor(LIME); c.setStrokeColor(GREEN); c.rect(bx - 12, by + hh * ss + 4, plies * b * ss + 24, 48, fill=1, stroke=1)
-        line(c, (bx - 20, by + hh * ss + 55), (bx + plies * b * ss + 35, by + hh * ss + 55), INK, 4)
-        c.setFillColor(WOOD); c.rect(bx + 5, by + hh * ss + 58, 18, 55, fill=1, stroke=0)
-        text(c, f'Пакет {plies} × {number(b, 0)} × {number(hh, 0)} мм', x + 275, by + 75, 8)
-        text(c, 'Лаги и платформа\nСтена по оси\nОголовок: +' + number(self.gr.get('pileHeadY'), 3), x + 275, by + 45, 8, width=240)
         text(c, 'Геометрическая схема слоёв. Крепёж, контактные напряжения и совместная работа пакета не рассчитаны.', x + 14, y + 24, 7.5, color=ORANGE, width=w - 28)
+        nodes = self.platform_alignment_nodes()
+        if nodes:
+            detail_page = next((i + 1 for i, page in enumerate(self.pages) if page['kind'] == 'platformdetails'), None)
+            text(c, 'Размерный узел наружных граней · лист ' + clean(detail_page), x + 15, y + h - 56, 11, 'Bold', GREEN)
+            node = nodes[0]
+            yy = y + h - 87
+            for label, value in [('Пакет ростверка', number(node.get('backingWidth'), 0) + ' мм'), ('Глубина наружного каркаса', number(node.get('wallDepth'), 0) + ' мм'), ('Толщина rim', number(node.get('rimWidth'), 0) + ' мм'), ('Смещение оси rim', number(node.get('rimAxisOffset'), 0) + ' мм'), ('Наружный выпуск пакета', number(node.get('grillageReveal'), 0) + ' мм')]:
+                text(c, label, x + 15, yy, 8.5, color=MUTED); text(c, value, x + 300, yy, 10, 'Bold'); yy -= 22
+            text(c, 'Два опирания: ростверк первого этажа и огибающая каркаса нижней стены второго этажа. Геометрия не подтверждает рабочие узлы.', x + 15, y + 63, 8, width=w - 30)
+        else:
+            text(c, 'Размерный узел наружных граней не передан. Требуются фактический контур платформы, ширина обвязки и геометрия нижних опор.', x + 15, y + h - 70, 10, color=ORANGE, width=w - 30)
         x, y, w, h = cards[1]
         splices = self.r.get('splices') or []
         splice = next((s for s in splices if isinstance(s, dict)), {}) if isinstance(splices, list) else {}

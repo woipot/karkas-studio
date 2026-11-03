@@ -58,3 +58,20 @@ test('independent floor footprints and second-light voids use net floor area for
   const p=make();p.floors=2;const r=calculateDesigner(p);r.geometry.totalFloorArea=152;r.geometry.levels=[{height:2.8,closed:true,netFloorArea:96},{height:3,closed:true,netFloorArea:56,voidArea:8}];r.timber.totals.floor.weight=30;
   const m=checkDesignerMembers(p,r);near(m.joist.floorWoodPressure,30/152);near(m.stud.length,3-.15);assert.ok(m.checks.some(c=>c.id==='designerVoidLoadPath'&&c.status==='unverified'));
 });
+
+test('representative stud includes physical upper deck ring dead load while live area stays axial',()=>{
+  const p=make();p.floors=2;const r=calculateDesigner(p);
+  r.geometry.levels=[{index:1,height:2.8,closed:true,netFloorArea:96,platformNetArea:100},{index:2,height:2.8,closed:true,netFloorArea:80,platformNetArea:80}];
+  const a=checkDesignerMembers(p,r);r.geometry.levels[1].platformNetArea=84;
+  const b=checkDesignerMembers(p,r);
+  near(b.stud.equivalentLineLoad-a.stud.equivalentLineLoad,4*p.loads.floorDead*p.loads.gammaG/(2*a.stud.supportLength));
+});
+
+test('joist screen carries full deck dead load and exposes physical end consoles separately',()=>{
+ const p=make(),r=calculateDesigner(p),l=r.geometry.levels[0];
+ l.platformNetArea=l.netFloorArea*1.1;
+ const b=r.timber.instances.find(b=>b.role==='joist');b.physicalOverhangStart=.051;
+ const m=checkDesignerMembers(p,r),j=m.joist.members.find(j=>j.parts.some(q=>q.id===b.id));
+ near(j.floorDeadPressure,p.loads.floorDead*1.1);
+ const c=m.checks.find(c=>c.id==='floorJoistEndConsoles');assert.equal(c.status,'unverified');assert.ok(c.memberIds.includes(b.id));assert.ok(c.logicalMemberIds.includes(j.id));
+});

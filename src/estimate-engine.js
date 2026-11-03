@@ -76,7 +76,7 @@ export function calculateEstimate(project={},result={},precomputedCutting){
   const resultWalls=Array.isArray(result.walls)?result.walls:[];
   const derivedWallArea=sum(resultWalls.filter(w=>w.kind==='exterior').map(w=>Math.max(0,numeric(w.length)*numeric(w.height,numeric(project.height))*numeric(project.floors,1)-numeric(w.openingArea))));
   const netWall=numeric(geo.netWallArea,derivedWallArea);
-  const floorArea=numeric(geo.totalFloorArea,numeric(geo.area)*numeric(project.floors,1));
+  const floorArea=numeric(geo.totalPlatformArea,numeric(geo.totalFloorArea,numeric(geo.area)*numeric(project.floors,1)));
   const sheathing=numeric(bom.sheathingArea,netWall+floorArea);
   const roofArea=numeric(geo.roofArea,numeric(bom.roofArea));
   const openings=Array.isArray(project.openings)?project.openings:[];
@@ -84,7 +84,7 @@ export function calculateEstimate(project={},result={},precomputedCutting){
   const doorCount=openings.filter(o=>o.type==='door').length;
   const pileCount=Array.isArray(result.piles)?result.piles.length:numeric(bom.pileCount);
   const wallPanels=result.bracingModel?.method==='sheathing'||project.bracing?.method==='sheathing'&&result.bracingModel;
-  add('sheathing',wallPanels?'Обшивка перекрытий':'Обшивка стен и перекрытий','м²',wallPanels?floorArea:sheathing,'sheathingM2',true,wallPanels?'Один слой перекрытий. Структурные плиты стен посчитаны отдельно по листам.':'Один слой: наружные стены без проёмов + площадь перекрытий.');
+  add('sheathing',wallPanels?'Обшивка перекрытий':'Обшивка стен и перекрытий','м²',wallPanels?floorArea:sheathing,'sheathingM2',true,wallPanels?'Один слой по наружным граням платформ за вычетом проёмов. Структурные плиты стен посчитаны отдельно по листам.':'Один слой: наружные стены без проёмов + физическая площадь платформ за вычетом проёмов.');
   if(wallPanels){const q=result.bracingModel.quantities??{};add('structural-panels','Структурная обшивка стен · листы','м² листа',q.purchasedSheetArea??q.sheetArea,'bracingSheetM2',false,`${q.sheets??0} листов по сетке раскладки. Отходы уже в закупочной площади; процентный запас повторно не добавлен. Крепёж и сертифицированная несущая способность уточняются.`);}
 
   add('insulation','Утепление наружных стен','м²',netWall,'insulationM2',true,project.wallThickness?`Расценка за м² при толщине ${fmt(numeric(project.wallThickness)*1000,0)} мм; без вычета древесины.`:'Расценка за м² наружной стены; состав и толщину утепления уточните в цене. Без вычета древесины.');
@@ -102,7 +102,7 @@ export function calculateEstimate(project={},result={},precomputedCutting){
   add('fasteners','Крепёж · укрупнённая оценка','м³ каркаса',netTimber,'fastenersM3',false,'Условная расценка на м³ установленной древесины; состав и расчёт соединений отсутствуют.');
   // Explicit envelope allowances, derived from the same geometry. These do
   // not change structural masses: layer loads remain explicit load inputs.
-  const envelopeAreas={wall:netWall,roof:roofArea,groundFloor:numeric(geo.levels?.[0]?.area,numeric(geo.area)),allFloors:floorArea,wallAndRoof:netWall+roofArea};
+  const envelopeAreas={wall:netWall,roof:roofArea,groundFloor:numeric(geo.levels?.[0]?.platformNetArea,numeric(geo.levels?.[0]?.area,numeric(geo.area))),allFloors:floorArea,wallAndRoof:netWall+roofArea};
   for(const item of project.envelope?.costItems??[]){
     const area=envelopeAreas[item.basis];if(!Number.isFinite(area)||!Number.isFinite(item.rate)||item.rate<0||!Number.isFinite(item.factor??1)||(item.factor??1)<0)throw new Error('Некорректная расценка слоя ограждения.');
     const net=area*(item.factor??1),quantity=net*(item.waste?factor:1);rows.push({id:'envelope-'+item.id,name:item.name,category:'envelope',unit:'м²',netQuantity:net,quantity,unitPrice:item.rate,total:money(quantity*item.rate),note:item.note??'Заданная бюджетная расценка слоя; без рыночной котировки.',wasteQuantity:quantity-net,wasteCost:money((quantity-net)*item.rate)});
@@ -113,7 +113,7 @@ export function calculateEstimate(project={},result={},precomputedCutting){
   const total=money(materialTotal+laborTotal+reserve);
   const procurementTimberVolume=sum(timberGroups.map(g=>g.procurementVolume));
   return {rows,prices,currency:prices.currency,timberGroups,materialTotal,materialsTotal:materialTotal,laborTotal,reserve,contingencyTotal:reserve,total,
-    netTimberVolume:netTimber,procurementTimberVolume,cutting,complete:geo.closed!==false&&(cutting?cutting.summary.complete:true),
+    netTimberVolume:netTimber,procurementTimberVolume,cutting,complete:geo.closed!==false&&geo.platformAreaComplete!==false&&(cutting?cutting.summary.complete:true),
     waste:{percent:prices.wastePercent,timberVolume:procurementTimberVolume-netTimber,materialCost:money(sum(rows.map(r=>r.wasteCost)))},
     wasteTotal:money(sum(rows.map(r=>r.wasteCost))),
     assumptions:[

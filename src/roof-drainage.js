@@ -103,6 +103,12 @@ export function calculateRoofDrainage(project,baseResult,roofModel){
   const candidates=out.edges.filter(e=>e.type==='eave'||(e.stepRole!=='lower'&&e.heightDrop>HEIGHT_TOL&&e.flux.some(f=>f.value>EPS&&f.height>=Math.max(...e.flux.map(q=>q.height))-HEIGHT_TOL)));
   function pipeAt(point){
     if(ground.length<3)return null;const q=xy(point),orientation=signed(ground)>=0?1:-1;
+    if(!inside(q,ground)){
+      // A real overhanging eave is already outside the wall footprint. Keep the
+      // downpipe at that exterior outlet; do not invent a wall at the roof edge.
+      const collision=surfaces.some(s=>inside(q,s.poly)&&s.plane.y(q)<point[1]-CONTACT&&s.plane.y(q)>.1);if(collision)return null;
+      return {start:[q[0],point[1],q[1]],end:[q[0],.1,q[1]],path:[[...point],[q[0],.1,q[1]]],standOffFromWall:true};
+    }
     for(let i=0;i<ground.length;i++){const a=ground[i],b=ground[(i+1)%ground.length];if(!on(q,a,b,.04))continue;const d=sub(b,a),L=len(d),normal=[orientation*d[1]/L,-orientation*d[0]/L],anchor=[q[0]+normal[0]*.18,q[1]+normal[1]*.18];if(inside(anchor,ground))continue;
       const collision=surfaces.some(s=>inside(anchor,s.poly)&&s.plane.y(anchor)<point[1]-CONTACT&&s.plane.y(anchor)>.1);if(collision)continue;
       return {start:[anchor[0],point[1],anchor[1]],end:[anchor[0],.1,anchor[1]],path:[point,[anchor[0],point[1],anchor[1]],[anchor[0],.1,anchor[1]]]};

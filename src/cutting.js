@@ -1,4 +1,5 @@
 import {parseSection} from './catalog.js';
+import {fabricationToPrintHTML} from './fabrication-print.js';
 
 export const STOCK_LENGTH=6;
 export const DEFAULT_KERF_MM=3;
@@ -241,7 +242,8 @@ export function cuttingRowsToCSV(cutting,projectName='Проект КАРКАС'
 }
 
 const escapeHTML=value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
-export function cuttingToPrintHTML(cutting,projectName='Проект КАРКАС'){
+export function cuttingToPrintHTML(cutting,projectName='Проект КАРКАС',fabrication=null){
+  if(fabrication)return fabricationToPrintHTML(cutting,projectName,fabrication,formatEndCut);
   const colors=['#d3e2b5','#d9cead','#c6d9cc','#e4d0ad','#bcccdf','#d5c5d7'];
   const map=cutting.stocks.map(stock=>{
     const segments=stock.pieces.map((p,i)=>`<div class="piece" style="left:${p.cutStart/6*100}%;width:${p.length/6*100}%;background:${colors[i%colors.length]}" title="${escapeHTML(p.id)}"><b>${escapeHTML(p.id)}</b><span>${fmt(p.length,3)} м</span></div>`).join('');

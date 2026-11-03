@@ -13,6 +13,7 @@ const area=p=>Math.abs(signedArea(p));
 const near=(a,b)=>Math.abs(a-b)<EPS;
 const sec=s=>{const m=typeof s==='string'&&s.match(/^(\d+)\s*[x×]\s*(\d+)$/);return m?{b:+m[1],h:+m[2]}:null;};
 const unique=a=>[...a].sort((a,b)=>a-b).filter((v,i,s)=>!i||!near(v,s[i-1]));
+const projectAuxDisabled=p=>p.auxiliaryTimber?.enabled!==true;
 const on=(p,a,b)=>Math.abs(cross(a,b,p))<EPS&&p.x>=Math.min(a.x,b.x)-EPS&&p.x<=Math.max(a.x,b.x)+EPS&&p.y>=Math.min(a.y,b.y)-EPS&&p.y<=Math.max(a.y,b.y)+EPS;
 function inside(p,poly){if(poly.some((a,i)=>on(p,a,poly[(i+1)%poly.length])))return true;let hit=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)hit=!hit;}return hit;}
 function clean(poly){let p=(poly??[]).map(q=>({x:q.x,y:q.y}));if(p.length>1&&Math.hypot(p[0].x-p.at(-1).x,p[0].y-p.at(-1).y)<EPS)p.pop();p=p.filter((q,i)=>i===0||Math.hypot(q.x-p[i-1].x,q.y-p[i-1].y)>EPS);let again=true;while(again&&p.length>3){again=false;for(let i=0;i<p.length;i++)if(Math.abs(cross(p[(i+p.length-1)%p.length],p[i],p[(i+1)%p.length]))<EPS){p.splice(i,1);again=true;break;}}if(signedArea(p)<0)p.reverse();return p;}
@@ -69,6 +70,9 @@ function supportedRidgeCuts(out){
     if(Math.abs(cross(ea.a,ea.b,eb.a))/length>tolerance||Math.abs(cross(ea.a,ea.b,eb.b))/length>tolerance)continue;
     const station=p=>(p.x-ea.a.x)*u.x+(p.y-ea.a.y)*u.y,lo=Math.max(0,Math.min(station(eb.a),station(eb.b))),hi=Math.min(length,Math.max(station(eb.a),station(eb.b)));if(hi-lo<tolerance)continue;
     const highA=a.eave+a.rise+(a.rafterAxisLift??0),highB=b.eave+b.rise+(b.rafterAxisLift??0);if(Math.abs(highA-highB)>tolerance)continue;
+    if((a.overhangs?.high??0)>EPS||(b.overhangs?.high??0)>EPS){out.checks.push({id:`${a.id}-${b.id}-ridge-overhang`,label:'Свес в общем коньке',status:'fail',note:'Высокий свес на общей кромке встречных скатов запрещён: доски и покрытия пересекутся.'});out.complete=false;continue;}
+    const coverEdge=z=>{const theta=z.ridgeAngle*Math.PI/180,v=p=>-p.x*Math.sin(theta)+p.y*Math.cos(theta);const P=z.coverPolygon??z.polygon;for(let i=0;i<P.length;i++)if(Math.abs(v(P[i])-z.bounds.maxV)<tolerance&&Math.abs(v(P[(i+1)%P.length])-z.bounds.maxV)<tolerance)return {a:P[i],b:P[(i+1)%P.length]};return null;},ca=coverEdge(a),cb=coverEdge(b);
+    if(ca&&cb){const from=Math.max(Math.min(station(ca.a),station(ca.b)),Math.min(station(cb.a),station(cb.b))),to=Math.min(Math.max(station(ca.a),station(ca.b)),Math.max(station(cb.a),station(cb.b)));if(to>from+tolerance){const coverId=`COVER-RIDGE-${b.id}-${a.id}`,start=[ea.a.x+u.x*from,highA,ea.a.y+u.y*from],end=[ea.a.x+u.x*to,highA,ea.a.y+u.y*to];(out.coverRidgeJoints??=[]).push({id:coverId,zoneIds:[b.id,a.id],start,end,connectionVerified:false});for(const z of [a,b]){const t=z.ridgeAngle*Math.PI/180;z.coverHighJointId=coverId;z.coverHighPlane={point:start,normal:[-Math.sin(t),0,Math.cos(t)]};}}}
     const members=[a,b].map(z=>out.instances.filter(m=>m.zoneId===z.id&&m.role==='rafter'&&Math.abs(cross(ea.a,ea.b,{x:m.end[0],y:m.end[2]}))/length<tolerance&&station({x:m.end[0],y:m.end[2]})>=lo-tolerance&&station({x:m.end[0],y:m.end[2]})<=hi+tolerance));
     if(members.some(ms=>!ms.length)||members.some((ms,k)=>ms.some(m=>![a,b][k].rafterSupports?.some(s=>s.rafterId===m.id&&s.end==='high'&&s.mode==='wallBearing'&&s.wallId&&s.status!=='fail'))))continue;
     const id=`RIDGE-CUT-${b.id}-${a.id}`,cutIds=[];
@@ -97,11 +101,12 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true,roofExtraDeadBy
   else requested=autoRoofZones(building,p.roof??{});
   if(requested.length>100){out.status='fail';out.complete=false;out.warnings.push('Поддерживается не более 100 зон кровли.');out.checks.push({id:'roof-zones-limit',label:'Количество зон кровли',status:'fail',note:out.warnings[0]});return out;}
   const density=p.material?.density??500,E=p.material?.E??10000;
-  const add=(zone,role,b,h,a,z,extra={})=>{const length=Math.hypot(...z.map((v,i)=>v-a[i]));if(length<EPS)return;const volume=b*h*length/1e6,mass=volume*density;out.instances.push({id:`${zone.id}-B${String(out.instances.length+1).padStart(4,'0')}`,name:role==='web'?'Решётка фермы':role==='bottom'?'Нижний пояс фермы':'Верхний пояс / стропило',category:'roof',role,b,h,section:`${b} × ${h}`,length,volume,mass,start:a,end:z,crossAxis:[Math.cos(zone.ridgeAngle*Math.PI/180),0,Math.sin(zone.ridgeAngle*Math.PI/180)],zoneId:zone.id,level:zone.levelIndex,floor:zone.levelIndex,cutStart:{scheme:'butt',angle:0},cutEnd:{scheme:'butt',angle:0},...extra});};
+  const add=(zone,role,b,h,a,z,extra={})=>{const length=Math.hypot(...z.map((v,i)=>v-a[i]));if(length<EPS)return;const volume=b*h*length/1e6,mass=volume*density,item={id:`${zone.id}-B${String(out.instances.length+1).padStart(4,'0')}`,name:role==='web'?'Решётка фермы':role==='bottom'?'Нижний пояс фермы':'Верхний пояс / стропило',category:'roof',role,b,h,section:`${b} × ${h}`,length,volume,mass,start:a,end:z,crossAxis:[Math.cos(zone.ridgeAngle*Math.PI/180),0,Math.sin(zone.ridgeAngle*Math.PI/180)],zoneId:zone.id,level:zone.levelIndex,floor:zone.levelIndex,cutStart:{scheme:'butt',angle:0},cutEnd:{scheme:'butt',angle:0},...extra};item.cutLength=item.length+[item.cutStart,item.cutEnd].reduce((s,c)=>s+(c?.scheme==='miter'?(c.cutWidthMM??item.h)/2000*Math.tan(Math.abs(c.angle??0)*Math.PI/180):0),0);out.instances.push(item);};
   for(let zi=0;zi<requested.length;zi++){
     const input=requested[zi];
     if(!input||typeof input!=='object'||Array.isArray(input)){out.complete=false;out.warnings.push(`Зона ${zi+1}: требуется объект параметров.`);out.checks.push({id:`roof-zone-${zi}-input`,label:`Зона ${zi+1}: данные`,status:'fail'});continue;}
     const z={framing:p.roof?.framing??'auto',deflectionRatio:p.roof?.deflectionRatio??300,shape:p.roof?.type==='mono'?'mono':'gable',ridgeAngle:0,pitchLeft:p.roof?.pitch??25,pitchRight:p.roof?.pitch??25,trussType:p.roof?.type??'fink',spacing:p.roof?.spacing??.6,chordSection:p.roof?.chordSection??'50x150',webSection:p.roof?.webSection??'50x100',...input,id:input.id??`roof-zone-${zi+1}`,warnings:[]};
+    const surfaceStart=out.surfaces.length,instanceStart=out.instances.length;
     try{
       if(!Array.isArray(z.polygon)||z.polygon.length<3||z.polygon.length>200||z.polygon.some(q=>!q||typeof q!=='object'||!finite(q.x)||!finite(q.y)))throw Error('Нужен полигон от 3 до 200 точек с конечными координатами.');
       if(typeof z.id!=='string'||!z.id||out.zones.some(q=>q.id===z.id))throw Error('ID зоны должен быть непустой уникальной строкой.');
@@ -126,11 +131,16 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true,roofExtraDeadBy
       if(Math.ceil((L-EPS)/z.spacing)>600)throw Error('Слишком много поперечных рам: разделите зону или увеличьте шаг.');
       const tl=Math.tan(z.pitchLeft*Math.PI/180),tr=Math.tan(z.pitchRight*Math.PI/180),rise=z.shape==='mono'?S*tl:S*tl*tr/(tl+tr),ridgeV=z.shape==='mono'?v1:v0+rise/tl;
       if(z.loadSnowFactor!==undefined&&(!finite(z.loadSnowFactor)||z.loadSnowFactor<0||z.loadSnowFactor>4))throw Error('Множитель снега: 0…4.');
-      z.area=area(poly);z.rise=rise;z.crestRatio=(ridgeV-v0)/S;z.bounds={minU:u0,maxU:u1,minV:v0,maxV:v1,length:L,span:S};
+      const overhangs={low:0,high:0,start:0,end:0,...z.overhangs};if(z.overhangs!==undefined&&(!z.overhangs||typeof z.overhangs!=='object'||Array.isArray(z.overhangs)))throw Error('Свесы задаются объектом low/high/start/end.');for(const [key,value]of Object.entries(overhangs))if(!['low','high','start','end'].includes(key)||!finite(value)||value<0||value>2)throw Error('Каждый независимый свес: конечное число от0 до2м.');
+      const hasOverhang=Object.values(overhangs).some(x=>x>EPS),rectangle=poly.length===4&&Math.abs(area(poly)-L*S)<1e-5&&poly.every(q=>(near(q.x,u0)||near(q.x,u1))&&(near(q.y,v0)||near(q.y,v1)));
+      if(hasOverhang&&(!rectangle||z.shape!=='mono'||z.framing==='truss'))throw Error('Свесы поддержаны только у прямоугольных односкатных стропильных зон; для других схем требуется отдельная опорная конструкция.');
+      if((overhangs.start>EPS||overhangs.end>EPS)&&projectAuxDisabled(p))throw Error('Для боковых свесов нужна включённая реальная обрешётка auxiliaryTimber: консольные поперечные доски и торцевые доски.');
+      const coverPoly=hasOverhang?[{x:u0-overhangs.start,y:v0-overhangs.low},{x:u1+overhangs.end,y:v0-overhangs.low},{x:u1+overhangs.end,y:v1+overhangs.high},{x:u0-overhangs.start,y:v1+overhangs.high}]:poly;
+      z.overhangs=overhangs;z.overhangBasis={u:[c,s],v:[-s,c],units:'horizontal metres',low:'minV',high:'maxV',start:'minU',end:'maxU'};z.bearingPolygon=z.polygon.map(q=>({...q}));z.bearingArea=area(poly);z.area=area(coverPoly);z.rise=rise;z.crestRatio=(ridgeV-v0)/S;z.bounds={minU:u0,maxU:u1,minV:v0,maxV:v1,length:L,span:S};z.bearingBounds={...z.bounds};z.coverBounds={minU:u0-overhangs.start,maxU:u1+overhangs.end,minV:v0-overhangs.low,maxV:v1+overhangs.high,length:L+overhangs.start+overhangs.end,span:S+overhangs.low+overhangs.high};z.coverPolygon=coverPoly.map(q=>({x:q.x*c-q.y*s,y:q.x*s+q.y*c}));
       const planes=z.shape==='mono'?[{a:0,b:tl,d:-tl*v0,kind:'left'}]:[{a:0,b:tl,d:-tl*v0,kind:'left'},{a:0,b:-tr,d:tr*v1,kind:'right'}];
       if(z.shape==='hip'){const th=(tl+tr)/2;planes.push({a:th,b:0,d:-th*u0,kind:'hip-start'},{a:-th,b:0,d:th*u1,kind:'hip-end'});z.warnings.push('Вальмовые скаты сформированы геометрически; накосные стропила, узлы и расчётная решётка не определены.');out.complete=false;}
       const height=(u,v)=>Math.min(...planes.map(p=>p.a*u+p.b*v+p.d));
-      const triangles=triangulate(poly);z.surfaceArea=0;z.snowEffectiveArea=0;
+      const triangles=triangulate(coverPoly);z.surfaceArea=0;z.snowEffectiveArea=0;
       for(let pi=0;pi<planes.length;pi++)for(const triangle of triangles){const plane=planes[pi];let part=triangle;for(let pj=0;pj<planes.length&&part.length>=3;pj++)if(pi!==pj){const other=planes[pj];part=clip(part,q=>(other.a-plane.a)*q.x+(other.b-plane.b)*q.y+other.d-plane.d);}if(part.length<3||area(part)<EPS)continue;const projected=area(part),actual=projected*Math.sqrt(1+plane.a**2+plane.b**2);z.surfaceArea+=actual;z.snowEffectiveArea+=projected*(z.loadSnowFactor??1)*mu(Math.atan(Math.hypot(plane.a,plane.b))*180/Math.PI);out.surfaces.push({id:`${z.id}-S${out.surfaces.length+1}`,zoneId:z.id,kind:plane.kind,points:part.map(q=>toWorld(q.x,q.y,height(q.x,q.y))),area:actual,projectedArea:projected});}
       let ridgeSegments=[];
       if(z.shape==='hip'){
@@ -140,19 +150,23 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true,roofExtraDeadBy
       }else if(z.shape!=='mono')ridgeSegments=lineIntervals(poly.map(q=>({x:q.y,y:q.x})),ridgeV).map(([a,b])=>({start:toWorld(a,ridgeV,height(a,ridgeV)),end:toWorld(b,ridgeV,height(b,ridgeV))}));
       z.ridge=ridgeSegments.length?{...ridgeSegments[0],segments:ridgeSegments}:null;
       for(const q of ridgeSegments)out.ridges.push({id:`${z.id}-R${out.ridges.length+1}`,zoneId:z.id,...q});
-      const rectangle=poly.length===4&&Math.abs(z.area-L*S)<1e-5;
       const n=Math.max(1,Math.ceil((L-EPS)/z.spacing)),inset=Math.min(chord.b/2000,L/4);
       z.actualSpacing=Math.max((L-2*inset)/n,inset+(L-2*inset)/(2*n));
+      const rowU=Array.from({length:n+1},(_,i)=>u0+inset+(L-2*inset)*i/n),widths=rowU.map((u,i)=>(i===n?u1+overhangs.end:(u+rowU[i+1])/2)-(i===0?u0-overhangs.start:(rowU[i-1]+u)/2));
+      if(overhangs.start>EPS){const delta=rowU[0]-(u0-overhangs.start),transfer=delta*delta/(2*(rowU[1]-rowU[0]));widths[0]+=transfer;widths[1]-=transfer;}
+      if(overhangs.end>EPS){const delta=u1+overhangs.end-rowU[n],transfer=delta*delta/(2*(rowU[n]-rowU[n-1]));widths[n]+=transfer;widths[n-1]-=transfer;}
+      if(widths.some(w=>w<=EPS)||Math.max(...widths)>3)throw Error('Боковой свес требует отдельного удерживающего/несущего решения: недопустимая реакция или грузовая ширина крайних стропил.');
+      z.rafterRowLoads=rowU.map((u,row)=>({row,u,tributaryWidth:widths[row],loadPath:(overhangs.start||overhangs.end)?'cantilever-battens-to-two-edge-rafters':'tributary-strip'}));z.analysisSpacing=hasOverhang?Math.max(...widths):z.actualSpacing;
       z.requestedSection=z.chordSection;z.selectedSection=z.chordSection;
       z.effectiveFraming=z.shape==='hip'?'geometric':'truss';
       z.framingReason=z.shape==='hip'?'Вальмовая геометрия без расчётной пространственной схемы.':'Для двускатной зоны выбрана схема ферм.';
       z.rafterAnalysis=null;
       if(z.shape==='mono'){
-        const params={horizontalSpan:S,pitch:z.pitchLeft,b:chord.b,h:chord.h,spacing:z.actualSpacing,roofDead:(p.loads?.roofDead??.5)+extraDead,snow:(p.loads?.snow??1.5)*(z.loadSnowFactor??1),mu:mu(z.pitchLeft),gammaG:p.loads?.gammaG??1.1,gammaQ:p.loads?.gammaQ??1.4,E,Fb:p.material?.Fb??13,Fv:p.material?.Fv??1.5,Ft:p.material?.Ft??8,Fc:p.material?.Fc??12,density,deflectionRatio:z.deflectionRatio};
+        const params={horizontalSpan:S,pitch:z.pitchLeft,b:chord.b,h:chord.h,spacing:z.analysisSpacing,overhangLow:overhangs.low,overhangHigh:overhangs.high,roofDead:(p.loads?.roofDead??.5)+extraDead,snow:(p.loads?.snow??1.5)*(z.loadSnowFactor??1),mu:mu(z.pitchLeft),gammaG:p.loads?.gammaG??1.1,gammaQ:p.loads?.gammaQ??1.4,E,Fb:p.material?.Fb??13,Fv:p.material?.Fv??1.5,Ft:p.material?.Ft??8,Fc:p.material?.Fc??12,density,deflectionRatio:z.deflectionRatio};
         const requestedAnalysis=calculateRafter(params);
         const candidates=[{id:z.chordSection,b:chord.b,h:chord.h},...timberSections.filter(q=>q.category==='board'&&q.b===chord.b&&q.h>chord.h&&q.h<=250).sort((a,b)=>a.h-b.h)];
         let chosen=null;
-        if(z.framing==='auto')for(const candidate of candidates){const analysis=calculateRafter({...params,b:candidate.b,h:candidate.h});if(analysis.status!=='fail'&&analysis.slopeLength<=6+EPS){chosen={candidate,analysis};break;}}
+        if(z.framing==='auto')for(const candidate of candidates){const analysis=calculateRafter({...params,b:candidate.b,h:candidate.h}),cutAllowance=hasOverhang?candidate.h/1000*Math.tan(z.pitchLeft*Math.PI/180):0;if(analysis.status!=='fail'&&analysis.slopeLength+cutAllowance<=6+EPS){chosen={candidate,analysis};break;}}
         if(z.framing==='rafters'||chosen){
           z.effectiveFraming='rafters';z.rafterAnalysis=chosen?.analysis??requestedAnalysis;
           if(chosen){z.selectedSection=chosen.candidate.id;chord={b:chosen.candidate.b,h:chosen.candidate.h};}
@@ -162,6 +176,7 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true,roofExtraDeadBy
           z.rafterTrial=requestedAnalysis;
           z.framingReason=z.framing==='truss'?'Фермы выбраны вручную.':requestedAnalysis.slopeLength>6+EPS?'Цельное стропило длиннее 6 м. Авто предлагает ферму; альтернативы — промежуточная опора или рассчитанное наращивание.':'В выбранном диапазоне досок стропила не проходят частные проверки. Авто предлагает ферму; можно изменить сечение, шаг или добавить опору.';
         }
+        if(hasOverhang&&z.effectiveFraming!=='rafters')throw Error('С указанными свесами стропильная схема не подобрана; автоматическая подмена фермой без конструкции свесов запрещена.');
       }
       if(z.effectiveFraming==='rafters'){
         z.rafterAxisLift=chord.h/2000/Math.cos(z.pitchLeft*Math.PI/180);
@@ -176,7 +191,7 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true,roofExtraDeadBy
         const inset=Math.min(chord.b/2000,L/4),u=u0+inset+(L-2*inset)*row/n,intervals=lineIntervals(poly,u);if(!intervals.length)continue;
         const full=intervals.length===1&&near(intervals[0][0],v0)&&near(intervals[0][1],v1);if(!full)partialFrames++;
         if(z.effectiveFraming==='rafters'){
-          for(const [a,b] of intervals)add(z,'rafter',chord.b,chord.h,toWorld(u,a,height(u,a)),toWorld(u,b,height(u,b)),{name:'Стропильная балка',rafterRow:row,unverified:!full||!z.analysisApplicable});
+          for(const [a,b] of intervals){const bearingStart=toWorld(u,a,height(u,a)),bearingEnd=toWorld(u,b,height(u,b)),start=toWorld(u,a-overhangs.low,height(u,a-overhangs.low)),end=toWorld(u,b+overhangs.high,height(u,b+overhangs.high)),N=[-s,0,c],plumb={scheme:'miter',angle:z.pitchLeft,plane:'depth',cutWidthMM:chord.h};add(z,'rafter',chord.b,chord.h,start,end,{name:'Стропильная балка',rafterRow:row,tributaryWidth:widths[row],bearingStart,bearingEnd,supportStart:bearingStart,supportEnd:bearingEnd,supportLowStation:overhangs.low/Math.cos(z.pitchLeft*Math.PI/180),supportHighStation:(overhangs.low+S)/Math.cos(z.pitchLeft*Math.PI/180),overhangLow:overhangs.low,overhangHigh:overhangs.high,requireSingleStock:hasOverhang,...(hasOverhang?{cutStart:{...plumb,tiltSign:-1},startCutPlane:{point:start,normal:N},cutEnd:{...plumb,tiltSign:1},endCutPlane:{point:end,normal:N}}:{}),unverified:!full||!z.analysisApplicable});}
         }else if(z.shape==='hip'||!z.analysis?.bars?.length){
           for(const [a,b] of intervals){let values=[a,b,ridgeV];for(const plane of planes.filter(p=>Math.abs(p.b)>EPS))for(const other of planes.filter(p=>Math.abs(p.b)<EPS))values.push((other.a*u+other.d-plane.d)/plane.b);values=unique(values.filter(v=>v>=a-EPS&&v<=b+EPS));for(let j=1;j<values.length;j++)add(z,'top',chord.b,chord.h,toWorld(u,values[j-1],height(u,values[j-1])),toWorld(u,values[j],height(u,values[j])),{trussRow:row,unverified:true});add(z,'bottom',chord.b,chord.h,toWorld(u,a,0),toWorld(u,b,0),{trussRow:row,unverified:true});}
         }else{
@@ -192,8 +207,9 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true,roofExtraDeadBy
       if(z.analysisApplicable&&z.analysis)out.checks.push(...z.analysis.checks.map(q=>({...q,id:`${z.id}-${q.id}`,zoneId:z.id})));
       out.checks.push({id:`${z.id}-junctions`,label:`${z.name??z.id}: примыкания и раскрепление`,status:'unverified',note:'Опоры, крепление примыканий и связь из плоскости не рассчитаны. Геометрический сток проверяется отдельно.'});
       out.zones.push(z);closures.push({z,toLocal,height,planes});out.area+=z.surfaceArea;out.projectedArea+=z.area;out.snowEffectiveArea+=z.snowEffectiveArea;out.warnings.push(...z.warnings.map(w=>`${z.name??z.id}: ${w}`));
-    }catch(error){out.warnings.push(`${z.name??z.id}: ${error.message}`);out.checks.push({id:`${z.id}-geometry`,label:`${z.name??z.id}: геометрия кровли`,status:'fail',note:error.message});out.complete=false;}
+    }catch(error){out.surfaces.splice(surfaceStart);out.instances.splice(instanceStart);out.warnings.push(`${z.name??z.id}: ${error.message}`);out.checks.push({id:`${z.id}-geometry`,label:`${z.name??z.id}: геометрия кровли`,status:'fail',note:error.message});out.complete=false;}
   }
+  for(let i=0;i<out.zones.length;i++)for(let j=0;j<i;j++){const a=out.zones[i],b=out.zones[j];if(!Object.values(a.overhangs??{}).some(v=>v>EPS)&&!Object.values(b.overhangs??{}).some(v=>v>EPS))continue;const overlap=overlapArea(a.coverPolygon??a.polygon,b.coverPolygon??b.polygon);if(overlap>1e-5){out.complete=false;out.checks.push({id:`${a.id}-${b.id}-cover-overlap`,label:'Пересечение зон покрытия со свесами',status:'fail',value:overlap,limit:0,unit:'м²',note:'Покрытия со свесами наложились в плане. Каскад над нижним скатом и узел пересечения не поддержаны этой раскладкой.'});}}
   // Vertical roof closures on exterior edges only. Shared zone boundaries are
   // not counted twice as full gables; their structural junction remains unknown.
   for(const data of closures){const {z,toLocal,height,planes}=data;z.gableArea=0;

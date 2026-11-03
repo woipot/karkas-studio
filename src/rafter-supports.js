@@ -64,7 +64,8 @@ export function buildRafterSupports(project,base,zone,rawRafters){
     if(!xyz(rafter?.start)||!xyz(rafter?.end)||!finite(rafter.h)||!finite(rafter.b)||rafter.h<=0||rafter.b<=0){unsupported.push({rafterId:rafter?.id??i,reason:'Некорректная геометрия стропила.'});continue;}
     const L=Math.hypot(...rafter.end.map((v,j)=>v-rafter.start[j])),horizontal=Math.hypot(rafter.end[0]-rafter.start[0],rafter.end[2]-rafter.start[2]);
     if(L<EPS||horizontal<EPS){unsupported.push({rafterId:rafter.id??i,reason:'Нулевая горизонтальная длина стропила.'});continue;}
-    const low=rafter.start[1]<=rafter.end[1]?rafter.start:rafter.end,high=low===rafter.start?rafter.end:rafter.start,depthProjection=rafter.h/2000*L/horizontal;
+    const first=rafter.bearingStart??rafter.supportStart??rafter.start,last=rafter.bearingEnd??rafter.supportEnd??rafter.end;
+    const low=first[1]<=last[1]?first:last,high=low===first?last:first,depthProjection=rafter.h/2000*L/horizontal;
     const planDirection={x:(rafter.end[0]-rafter.start[0])/horizontal,y:(rafter.end[2]-rafter.start[2])/horizontal};
     const alignment=w=>{const d=sub(w.b,w.a),length=dist(w.a,w.b);return Math.abs(dot(d,planDirection)/length);};
     for(const [end,axis] of [['low',low],['high',high]]){
@@ -78,7 +79,7 @@ export function buildRafterSupports(project,base,zone,rawRafters){
       const axisSeat=matches.find(w=>Math.abs(w.top-bearingY)<=HEIGHT_TOL||Math.abs(w.top-axis[1])<=HEIGHT_TOL);
       if(axisSeat){Object.assign(s,{mode:'wallBearing',wallId:axisSeat.id,wallLevel:axisSeat.level,level:axisSeat.level,seatDepthRequired:Math.max(0,axisSeat.top-bearingY),note:'Нижняя плоскость стропила совпадает с верхом стены. Опирание, смятие и анкеры требуют проверки.'});result.supports.push(s);continue;}
       const wall=covering??below;
-      if(!wall){s.status='fail';s.note='Под концом стропила нет заданной несущей стены, балки или стойки; новая скрытая опора не создаётся.';unsupported.push(s);result.supports.push(s);continue;}
+      if(!wall){s.status='fail';s.note='Под расчётной точкой опирания стропила нет заданной несущей стены, балки или стойки; новая скрытая опора не создаётся.';unsupported.push(s);result.supports.push(s);continue;}
       if(!covering&&Array.isArray(base.wallProfiles)&&(project.roof?.wallFraming??'auto')!=='stacked'){s.status='fail';s.note='Цельная стена здесь не сформирована: разрежьте стену по границе ската или задайте отдельную опору. Автоматическая составная надстройка отключена.';unsupported.push(s);result.supports.push(s);continue;}
       const offset=wallParameter(q,wall),opening=covering?openingAt(wall,offset,bearingY,rafter.b):null;
       if(opening){Object.assign(s,{mode:'openingConflict',wallId:wall.id,wallLevel:wall.level,openingId:opening.id,status:'fail',note:'Опорная линия стропила попадает в оконный или дверной проём.'});openingConflicts.push(s);result.supports.push(s);continue;}
@@ -108,7 +109,7 @@ export function buildRafterSupports(project,base,zone,rawRafters){
       result.warnings.push(`Надстройка ${wallLabel(wall)}: стойки и верхний пояс включены в массу и раскрой. Их устойчивость, привязка к нижним стойкам, стыки и закрепление не рассчитаны.`);
     }
   }
-  check('rafter-support-missing','Наличие опор у концов стропил',unsupported.length?'fail':'warning',unsupported.length?'Есть концы без заданной опоры. Отдельные стойки не добавляются автоматически.':'Найдены геометрические опорные линии; это не проверка несущей способности.',{missingCount:unsupported.length});
+  check('rafter-support-missing','Наличие расчётных стеновых опор стропил',unsupported.length?'fail':'warning',unsupported.length?'Есть расчётные опорные точки без заданной опоры. Отдельные стойки не добавляются автоматически.':'Найдены геометрические опорные линии; свободные консольные концы не считаются опорами. Это не проверка несущей способности.',{missingCount:unsupported.length});
   check('rafter-support-openings','Опоры стропил и проёмы стен',openingConflicts.length?'fail':'warning',openingConflicts.length?'Опора или опорная доска пересекает проём. Нужна отдельная балка с заданными опорами либо перенос проёма.':'На принятой опорной высоте пересечений с проёмами не обнаружено.',{conflictCount:openingConflicts.length});
   check('rafter-support-connections','Соединения и передача усилий опор','unverified','Ledger, надстройки стен, опорные запилы, смятие, отрыв, анкеры и передача нагрузки до фундамента требуют отдельного расчёта.');
   result.assumptions=[

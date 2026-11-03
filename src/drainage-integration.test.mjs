@@ -53,13 +53,15 @@ test('suggested mono roofs point away from high walls; all 92m² reach exterior 
   }
 });
 
-test('drainage fix updates real roof mass, six-metre stock map and foundation loads exactly once',()=>{
+test('drainage fix updates roof stock and loads while an unsupported upper-floor rim remains visibly uncuttable',()=>{
   const {old,p,roof,result}=corrected(),oldStock=calculateCutting(old.p,old.result),stock=calculateCutting(p,result);
   assert.ok(Math.abs(roof.mass-old.roof.mass)>1e-4,'Mono geometry must change the actual roof BOM');
   near(result.timber.totals.roof.mass,roof.mass);
-  assert.ok(result.timber.instances.every(b=>Number.isFinite(b.mass)&&b.cutLength<=6+1e-7));
-  assert.equal(stock.overlength.length,0);assert.equal(stock.invalid.length,0);
-  assert.equal(stock.summary.pieces,result.timber.instances.length);
+  assert.ok(result.timber.instances.every(b=>Number.isFinite(b.mass)));
+  assert.ok(result.timber.instances.filter(b=>b.category==='roof').every(b=>b.cutLength<=6+1e-7));
+  assert.ok(stock.overlength.some(b=>b.source?.category==='floor'&&b.source?.role==='rimJoist'&&(b.source.level??b.source.floor)===2));
+  assert.ok(stock.overlength.every(b=>b.source?.category==='floor'));assert.equal(stock.summary.complete,false);assert.ok(result.checks.some(c=>c.id==='floor-stock-L2'&&c.status==='fail'));assert.equal(stock.invalid.length,0);
+  assert.equal(stock.summary.pieces+stock.overlength.length,result.timber.instances.length);
   assert.ok(Math.abs(stock.summary.usedVolume-oldStock.summary.usedVolume)>1e-6,'Changed roof must alter the physical cut map');
   for(const s of stock.stocks)assert.ok(s.consumed<=6+1e-7);
   const expected=(result.timber.mass-old.result.timber.mass)*9.80665/1000*p.loads.gammaG

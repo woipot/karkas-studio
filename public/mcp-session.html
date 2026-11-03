@@ -1,4 +1,4 @@
-<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Реальный сеанс MCP · HELSINKI L-146</title><style>body{margin:0;background:#f5f4ec;color:#263322;font:15px/1.6 system-ui}main{max-width:1280px;margin:auto;padding:42px 28px}h1{font-size:40px;line-height:1.1;letter-spacing:-1.5px;max-width:900px}h2{margin-top:42px}a{color:#416234}code,pre{font:12px/1.6 ui-monospace,monospace;overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#f0f1e7;padding:16px}.eyebrow{letter-spacing:2px;font-size:11px;color:#71845b}.cards{display:flex;gap:16px;flex-wrap:wrap}.card{padding:20px;background:white;border:1px solid #d8dfcb;min-width:170px}.card b{font-size:28px;display:block}table{border-collapse:collapse;width:100%;font-size:12px;background:white}td,th{padding:12px;text-align:left;border:1px solid #dbe1d1;vertical-align:top}td:last-child{max-width:500px;word-break:break-word}small{display:block;color:#738369}summary{cursor:pointer}.table{overflow:auto}aside{border-left:3px solid #b3975b;padding:12px 20px;background:#f0eadb}footer{margin-top:40px;color:#738369}</style><main><p class="eyebrow">КАРКАС ENGINE 4.1 · РЕАЛЬНЫЙ MCP STDIO · РЕВИЗИЯ 6</p><h1>Нейронка спроектировала Г-образный дом через MCP</h1><p>Два этажа, второй свет, лестничный проём, свайный ростверк из пакетов досок и кровля из двух скатов с общим коньком. Расчётный пример для района Хельсинки.</p><div class="cards"><div class="card">Площадь по осям<b>145.68 м²</b></div><div class="card">Физических деталей<b>1140</b></div><div class="card">Шестиметровых заготовок<b>614</b></div><div class="card">Опор, условная схема<b>45</b></div><div class="card">Примерный бюджет<b>235 655 €</b></div></div><p><a href="./structural-album.pdf">Открыть полный альбом КР PDF</a> · <a href="./">3D и отчёт</a> · <a href="./mcp-calls.jsonl" download>Исходный журнал запросов и полных ответов JSONL</a></p><h2>Как выполнялось подключение</h2><p>Сервер <code>karkas-engine</code> зарегистрирован в Codex. В уже открытом чате инструменты не появились автоматически; агент установил настоящее соединение MCP по stdio через SDK, выполнил initialize, tools/list и tools/call. Скрипт <code>scripts/agent-session.mjs</code> использует именно зарегистрированную конфигурацию. Генерация, исправления ревизий, сравнение вариантов, расчёты и экспорт выполнены инструментами MCP.</p><p>Журнал содержит 28 завершённых tools/call, включая ранние повторные запросы при настройке терминала и повторные подключения. Ранние сеансы начинали собственную нумерацию/цепочку хешей; файл сохранён без удаления дублей и не является криптографически удостоверенной внешней записью. Контрольные суммы позволяют сопоставить скачанные артефакты.</p><h2>Изменения сохранённого проекта</h2><div class="table"><table><thead><tr><th>Ревизия</th><th>Детали</th><th>Заготовки</th><th>Сваи</th><th>Превышения</th><th>SHA256 проекта</th></tr></thead><tbody><tr><td>R1</td><td>756</td><td>351</td><td>31</td><td>19</td><td>bee4b2e4a3226e33eac262629196f0bf8342b7fe51083b169aff0409206b7e80</td></tr><tr><td>R2</td><td>766</td><td>372</td><td>31</td><td>1</td><td>462be238b0c84f62088412835676620902af8be23f7ec20a4115eb1af6749d42</td></tr><tr><td>R3</td><td>760</td><td>365</td><td>31</td><td>0</td><td>d3fe4c52fb17fc7fde186834f650fec9b7b60ba4c22ccc57f77c8d0f28cb3997</td></tr><tr><td>R4</td><td>798</td><td>368</td><td>31</td><td>0</td><td>fdc2b577e9aa2be3f1f472c0f3167818dedeaafe0d484e0c3f891bcb7d1fd0aa</td></tr><tr><td>R5</td><td>1124</td><td>593</td><td>31</td><td>6</td><td>13e75f0abf599ac98099bd1e313aa796520992ad61ebcf8628a6616db2287c9a</td></tr><tr><td>R6</td><td>1140</td><td>614</td><td>45</td><td>0</td><td>d347bc8e89a7ec89b387996b4f50625a9fa47404dff3f5e752c9eea9121273a6</td></tr></tbody></table></div><p>При финальной проверке движка также исправлены физические запилы встречных стропил и реек в общем коньке. Хеш относится к сохранённым исходным данным ревизии; отдельные SHA256 экспортов указаны в manifest.json. Исходная sourcePlanning сохранена отдельно от вычисленной планировки.<br><br>Первый вариант имел ошибки пролётов и неразмещённые детали. Агент добавил опорные линии, разделил скаты, исправил лестничный проём и проходы, подобрал сечения, учёл утепление и вспомогательные рейки. После увеличения собственного веса MCP показал перегрузки; сравнение вариантов привело к шагу опор до 1,8 м при балках ростверка до 2 м и шагу стропил до 0,5 м.</p><h2>Снег и тепловлажностный режим</h2><p>Принятый снег на грунте 2,75 кН/м², коэффициент формы 0,8 при 25°, Cₑ=Cₜ=1. Рассчитаны равномерная, две несимметричные схемы и два дополнительных сценария 150% на одном скате с неизменными сечениями. Дополнительные сценарии являются анализом чувствительности, не нормативной локальной эпюрой заноса. Точная снеговая привязка к координатам и полный набор сочетаний остаются задачей рабочего проекта.</p><p>Для стены, крыши и пола над наружным воздухом рассчитаны сопротивления R/U, доля деревянного каркаса, точка росы и профили температуры/давления пара в слоях. Принята стационарная пара +21/−26°C, внутренние RH 40% и дополнительная стена RH 60%. Это условный зимний режим, не климатический год Хельсинки. Годовая влага, дефекты герметичности и пространственные мостики не рассчитаны.</p><h2>Раскрой и состав сметы</h2><p>Все 1140 деталей размещены; отсутствуют неразмещённые или длиннее допустимого заготовки. Закупка 614 досок по 6 м; нижняя оценка 609, глобальная оптимальность не доказана. Остатки и пропилы 17.38%, из них 562.86 пог. м отмечены как пригодные остатки. Разбивка по сечениям, направления запилов, припуски, стыки и каждая ID заготовки находятся в PDF/CSV/HTML.</p><aside><b>Статус: расчётная проработка КР, не рабочий проект для строительства.</b> В принятых частных проверках 0 превышений; 108 проверок имеют статус частной проверки или «не подтверждено». Геология отсутствует. Сравнены ЖБ-забивные, стальные RR/RD и винтовые сваи; предварительно выбран RD, а 80 кН — условный предел примера, не подтверждённое сопротивление грунта. Узлы крепежа, пространственная жёсткость/ветровой отрыв, лестница/ограждения и годовая влага требуют отдельного инженерного расчёта. Смета основана на примерных ставках в EUR, без рыночных предложений и подтверждённой стоимости свай.</aside><h2>Фактически выполненные вызовы</h2><div class="table"><table><thead><tr><th>№</th><th>UTC</th><th>Инструмент</th><th>Рев.</th><th>Результат</th><th>Подробности</th></tr></thead><tbody><tr><td>1</td><td>2026-11-02T23:44:39.326Z</td><td><b>karkas_catalog</b><small>6 мс · ответ</small></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Реальный сеанс MCP · HELSINKI L-146</title><style>body{margin:0;background:#f5f4ec;color:#263322;font:15px/1.6 system-ui}main{max-width:1280px;margin:auto;padding:42px 28px}h1{font-size:40px;line-height:1.1;letter-spacing:-1.5px;max-width:900px}h2{margin-top:42px}a{color:#416234}code,pre{font:12px/1.6 ui-monospace,monospace;overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#f0f1e7;padding:16px}.eyebrow{letter-spacing:2px;font-size:11px;color:#71845b}.cards{display:flex;gap:16px;flex-wrap:wrap}.card{padding:20px;background:white;border:1px solid #d8dfcb;min-width:170px}.card b{font-size:28px;display:block}table{border-collapse:collapse;width:100%;font-size:12px;background:white}td,th{padding:12px;text-align:left;border:1px solid #dbe1d1;vertical-align:top}td:last-child{max-width:500px;word-break:break-word}small{display:block;color:#738369}summary{cursor:pointer}.table{overflow:auto}aside{border-left:3px solid #b3975b;padding:12px 20px;background:#f0eadb}footer{margin-top:40px;color:#738369}</style><main><p class="eyebrow">КАРКАС ENGINE 4.2.0 · РЕАЛЬНЫЙ MCP STDIO · РЕВИЗИЯ 8</p><h1>Нейронка спроектировала Г-образный дом через MCP</h1><p>Два этажа, второй свет, лестничный проём, свайный ростверк из пакетов досок и кровля из двух скатов с общим коньком. Расчётный пример для района Хельсинки.</p><div class="cards"><div class="card">Площадь по осям<b>145.68 м²</b></div><div class="card">Физических деталей<b>1366</b></div><div class="card">Шестиметровых заготовок<b>635</b></div><div class="card">Опор, условная схема<b>45</b></div><div class="card">Примерный бюджет<b>249 243 €</b></div></div><p><a href="./structural-album.pdf">Открыть полный альбом КР PDF</a> · <a href="./">3D и отчёт</a> · <a href="./mcp-calls.jsonl" download>Исходный журнал запросов и полных ответов JSONL</a></p><h2>Как выполнялось подключение</h2><p>Сервер <code>karkas-engine</code> зарегистрирован в Codex. Агент выполнил initialize, tools/list и tools/call через настоящие MCP-соединения по stdio. После изменения кода4.2 запущен свежий MCP-процесс, чтобы расчёт использовал обновлённые алгоритмы. Скрипт <code>scripts/agent-session.mjs</code> использует именно зарегистрированную конфигурацию. Генерация, исправления ревизий, сравнение вариантов, расчёты и экспорт выполнены инструментами MCP.</p><p>Журнал содержит 44 завершённых tools/call, включая ранние повторные запросы при настройке терминала и повторные подключения. Ранние сеансы начинали собственную нумерацию/цепочку хешей; файл сохранён без удаления дублей и не является криптографически удостоверенной внешней записью. Контрольные суммы позволяют сопоставить скачанные артефакты.</p><h2>Изменения сохранённого проекта</h2><div class="table"><table><thead><tr><th>Ревизия</th><th>Детали</th><th>Заготовки</th><th>Сваи</th><th>Превышения</th><th>SHA256 проекта</th></tr></thead><tbody><tr><td>R1</td><td>756</td><td>351</td><td>31</td><td>19</td><td>bee4b2e4a3226e33eac262629196f0bf8342b7fe51083b169aff0409206b7e80</td></tr><tr><td>R2</td><td>766</td><td>372</td><td>31</td><td>1</td><td>462be238b0c84f62088412835676620902af8be23f7ec20a4115eb1af6749d42</td></tr><tr><td>R3</td><td>760</td><td>365</td><td>31</td><td>0</td><td>d3fe4c52fb17fc7fde186834f650fec9b7b60ba4c22ccc57f77c8d0f28cb3997</td></tr><tr><td>R4</td><td>798</td><td>368</td><td>31</td><td>0</td><td>fdc2b577e9aa2be3f1f472c0f3167818dedeaafe0d484e0c3f891bcb7d1fd0aa</td></tr><tr><td>R5</td><td>1124</td><td>593</td><td>31</td><td>6</td><td>13e75f0abf599ac98099bd1e313aa796520992ad61ebcf8628a6616db2287c9a</td></tr><tr><td>R6</td><td>1140</td><td>614</td><td>45</td><td>0</td><td>d347bc8e89a7ec89b387996b4f50625a9fa47404dff3f5e752c9eea9121273a6</td></tr><tr><td>R7</td><td>1365</td><td>631</td><td>45</td><td>19</td><td>4b1b5031598202a0dbafb4dd2c4c373f5a4717cc45fb89b7be9d37c12b14d71a</td></tr><tr><td>R8</td><td>1366</td><td>635</td><td>45</td><td>0</td><td>b7f2515c910bc74252509f6a55463664dc7f86764c84f38aa8f5a6f2f86be57c</td></tr></tbody></table></div><p>При финальной проверке движка также исправлены физические запилы встречных стропил и реек в общем коньке. Хеш относится к сохранённым исходным данным ревизии; отдельные SHA256 экспортов указаны в manifest.json. Исходная sourcePlanning сохранена отдельно от вычисленной планировки.<br><br>Первый вариант имел ошибки пролётов и неразмещённые детали. Агент добавил опорные линии, разделил скаты, исправил лестничный проём и проходы, подобрал сечения, учёл утепление и вспомогательные рейки. После увеличения собственного веса MCP показал перегрузки; сравнение вариантов привело к шагу опор до 1,8 м при балках ростверка до 2 м и шагу стропил до 0,5 м.</p><h2>Снег и тепловлажностный режим</h2><p>Принятый снег на грунте 2,75 кН/м², коэффициент формы 0,8 при 25°, Cₑ=Cₜ=1. Рассчитаны равномерная, две несимметричные схемы и два дополнительных сценария 150% на одном скате с неизменными сечениями. Дополнительные сценарии являются анализом чувствительности, не нормативной локальной эпюрой заноса. Точная снеговая привязка к координатам и полный набор сочетаний остаются задачей рабочего проекта.</p><p>Для стены, крыши и пола над наружным воздухом рассчитаны сопротивления R/U, доля деревянного каркаса, точка росы и профили температуры/давления пара в слоях. Принята стационарная пара +21/−26°C, внутренние RH 40% и дополнительная стена RH 60%. Это условный зимний режим, не климатический год Хельсинки. Годовая влага, дефекты герметичности и пространственные мостики не рассчитаны.</p><h2>Что изменено в4.2</h2><p>Одинаковые детали объединены в 199 марок FG, а 635 исходных досок — в 198 схем FP. Каждая схема показана один раз с количеством и местами применения; точная привязка физических ID остаётся в CSV/JSON. Разные запилы и выборки не сливаются.</p><p>Круговая обвязка обеих платформ: 80.00 м. Поперечные распорки: 191 шт. Максимальные реальные пролёты: этаж1 — 2.00 м; этаж2 — 4.00 м. Распорки не создают вертикальных опор. Опорные линии и пролёты представлены на чертежах.</p><p>Независимые свесы (горизонтальные метры в локальных осях каждой зоны): ROOF-N: {"low":0.6,"high":0,"start":0.35,"end":0.45}; ROOF-S: {"low":0.4,"high":0,"start":0.35,"end":0.35}. Свесы учтены в геометрии досок, консольной работе, снеговой нагрузке, площади кровли, закупке и водоотводе.</p><p><a href="./fabrication-parts.csv">Ведомость применения деталей CSV</a> · <a href="./fabrication-stocks.csv">Привязка заготовок к схемам CSV</a></p><h2>Раскрой и состав сметы</h2><p>Все 1366 деталей размещены; отсутствуют неразмещённые или длиннее допустимого заготовки. Закупка 635 досок по 6 м; нижняя оценка 626, глобальная оптимальность не доказана. Остатки и пропилы 12.87%, из них 430.35 пог. м отмечены как пригодные остатки. Разбивка по сечениям, направления запилов, припуски, стыки и каждая ID заготовки находятся в PDF/CSV/HTML.</p><aside><b>Статус: расчётная проработка КР, не рабочий проект для строительства.</b> В принятых частных проверках 0 превышений; 110 проверок имеют статус частной проверки или «не подтверждено». Геология отсутствует. Сравнены ЖБ-забивные, стальные RR/RD и винтовые сваи; предварительно выбран RD, а 80 кН — условный предел примера, не подтверждённое сопротивление грунта. Узлы крепежа, пространственная жёсткость/ветровой отрыв, лестница/ограждения и годовая влага требуют отдельного инженерного расчёта. Смета основана на примерных ставках в EUR, без рыночных предложений и подтверждённой стоимости свай.</aside><h2>Фактически выполненные вызовы</h2><div class="table"><table><thead><tr><th>№</th><th>UTC</th><th>Инструмент</th><th>Рев.</th><th>Результат</th><th>Подробности</th></tr></thead><tbody><tr><td>1</td><td>2026-11-02T23:44:39.326Z</td><td><b>karkas_catalog</b><small>6 мс · ответ</small></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
   &quot;request&quot;: {
     &quot;name&quot;: &quot;karkas_catalog&quot;,
     &quot;arguments&quot;: {}
@@ -2968,4 +2968,1050 @@
       &quot;sha256&quot;: &quot;330b0d81864f5e4310ce6daace2c22070db7da08e4bcae3c7e3835c821b9124e&quot;
     }
   ]
-}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 d61c130eb5886e1c099cfbc0252d985097ec96faf2c2889576a650171ada0635.</small></details></td></tr></tbody></table></div><footer>Проект house-feb222a5-b803-4f4d-b79f-158af2904f5a · R6<br>SHA256 проекта d347bc8e89a7ec89b387996b4f50625a9fa47404dff3f5e752c9eea9121273a6<br>SHA256 исходного журнала f000ee9bb18d2c7cb52e25d1adcc8ae0be42a899d3b2b947a552e44c9c49bca4</footer></main></html>
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 d61c130eb5886e1c099cfbc0252d985097ec96faf2c2889576a650171ada0635.</small></details></td></tr><tr><td>29</td><td>2026-11-03T12:16:25.429Z</td><td><b>karkas_catalog</b><small>5 мс · ответ</small></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_catalog&quot;,
+    &quot;arguments&quot;: {}
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 7e421c08ce0b59bfb4ca838851a01653007bcae4f8ef3374b94c12d34792d47e.</small></details></td></tr><tr><td>30</td><td>2026-11-03T12:16:25.434Z</td><td><b>karkas_get_project</b><small>4 мс · ответ</small></td><td>6</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_get_project&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;
+    }
+  },
+  &quot;revision&quot;: 6,
+  &quot;hash&quot;: &quot;d347bc8e89a7ec89b387996b4f50625a9fa47404dff3f5e752c9eea9121273a6&quot;
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 494fbb09d636195513c51ef3aad792a18f5243fb1a4cd8e96ef066cd1e80ed9f.</small></details></td></tr><tr><td>31</td><td>2026-11-03T12:16:27.165Z</td><td><b>karkas_apply_patch</b><small>1729 мс · ответ</small></td><td>7</td><td>1365 деталей · 631 заготовок<br>19 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_apply_patch&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;expected_revision&quot;: 6,
+      &quot;operations&quot;: [
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/name&quot;,
+          &quot;value&quot;: &quot;HELSINKI L-146 · КР 4.2 · платформы и независимые свесы&quot;
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/floor/rimSection&quot;,
+          &quot;value&quot;: &quot;48x248&quot;
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/floor/blocking&quot;,
+          &quot;value&quot;: true
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/floor/blockingSection&quot;,
+          &quot;value&quot;: &quot;48x248&quot;
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/floor/blockingStep&quot;,
+          &quot;value&quot;: 1.2
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/roof/zones/0/overhangs&quot;,
+          &quot;value&quot;: {
+            &quot;low&quot;: 0.6,
+            &quot;high&quot;: 0,
+            &quot;start&quot;: 0.35,
+            &quot;end&quot;: 0.45
+          }
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/roof/zones/1/overhangs&quot;,
+          &quot;value&quot;: {
+            &quot;low&quot;: 0.4,
+            &quot;high&quot;: 0,
+            &quot;start&quot;: 0.35,
+            &quot;end&quot;: 0.35
+          }
+        }
+      ]
+    }
+  },
+  &quot;revision&quot;: 7,
+  &quot;hash&quot;: &quot;4b1b5031598202a0dbafb4dd2c4c373f5a4717cc45fb89b7be9d37c12b14d71a&quot;,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-146 · КР 4.2 · платформы и независимые свесы&quot;,
+    &quot;area&quot;: 145.68,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 7,
+    &quot;boards&quot;: 1365,
+    &quot;timberVolume&quot;: 30.856282002536798,
+    &quot;timberMass&quot;: 13885.326901141403,
+    &quot;designVerticalLoad&quot;: 1424.3554274195867,
+    &quot;piles&quot;: 45,
+    &quot;grillageBoards&quot;: 68,
+    &quot;stockBoards&quot;: 631,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: null,
+    &quot;estimateTotal&quot;: 240037.39,
+    &quot;currency&quot;: &quot;EUR&quot;,
+    &quot;status&quot;: &quot;failed_checks&quot;,
+    &quot;failedChecks&quot;: 19,
+    &quot;unverifiedOrWarningChecks&quot;: 110,
+    &quot;certified&quot;: false,
+    &quot;partGroups&quot;: 195,
+    &quot;cuttingPatterns&quot;: 181
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 8b1974a42318278bc5d2d30932bddd0c1ee53e2d8f94cb2269aaf7c0847763b0.</small></details></td></tr><tr><td>32</td><td>2026-11-03T12:17:12.073Z</td><td><b>karkas_report</b><small>4 мс · ответ</small></td><td>7</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_report&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 7,
+      &quot;topic&quot;: &quot;checks&quot;,
+      &quot;status&quot;: &quot;fail&quot;,
+      &quot;limit&quot;: 100
+    }
+  },
+  &quot;revision&quot;: 7,
+  &quot;hash&quot;: &quot;4b1b5031598202a0dbafb4dd2c4c373f5a4717cc45fb89b7be9d37c12b14d71a&quot;
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 a9e5c1538f5e176a8cc5b16b9b2a040e189536bcf98409643e259096f5bd1d16.</small></details></td></tr><tr><td>33</td><td>2026-11-03T12:17:12.077Z</td><td><b>karkas_report</b><small>3 мс · ответ</small></td><td>7</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_report&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 7,
+      &quot;topic&quot;: &quot;checks&quot;,
+      &quot;status&quot;: &quot;unverified&quot;,
+      &quot;limit&quot;: 100
+    }
+  },
+  &quot;revision&quot;: 7,
+  &quot;hash&quot;: &quot;4b1b5031598202a0dbafb4dd2c4c373f5a4717cc45fb89b7be9d37c12b14d71a&quot;
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 9323575b1ff2498458386cebcb37a4a8b57ad0e86555eabc567ac45d64fdd59c.</small></details></td></tr><tr><td>34</td><td>2026-11-03T12:20:07.751Z</td><td><b>karkas_snow_cases</b><small>16 мс · ответ</small></td><td>7</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_snow_cases&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 7
+    }
+  },
+  &quot;revision&quot;: 7
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 9847de1fa096ba0b54a845f0385626a945ff9d519a62479302efc5bf38ef8581.</small></details></td></tr><tr><td>35</td><td>2026-11-03T12:24:43.984Z</td><td><b>karkas_compare_variants</b><small>7642 мс · ответ</small></td><td>7</td><td>1365 деталей · 631 заготовок<br>19 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_compare_variants&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 7,
+      &quot;variants&quot;: [
+        {
+          &quot;name&quot;: &quot;Стропила75x300 · консоли40x100 · сваи1.8&quot;,
+          &quot;operations&quot;: [
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/voids/1/edgeSection&quot;,
+              &quot;value&quot;: &quot;98x248&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/0/chordSection&quot;,
+              &quot;value&quot;: &quot;75x300&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/1/chordSection&quot;,
+              &quot;value&quot;: &quot;75x300&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/auxiliaryTimber/roofBattens&quot;,
+              &quot;value&quot;: &quot;40x100&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/foundation/spacing&quot;,
+              &quot;value&quot;: 1.8
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/layers/4/thickness&quot;,
+              &quot;value&quot;: 0.3
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/layers/4/name&quot;,
+              &quot;value&quot;: &quot;Межстропильная минеральная вата 300 мм&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/framingFraction&quot;,
+              &quot;value&quot;: 0.18
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/loads/roofDead&quot;,
+              &quot;value&quot;: 0.6178481029999999
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/name&quot;,
+              &quot;value&quot;: &quot;Утепление кровли 300+150+45 мм и сплошной слой75мм&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/rate&quot;,
+              &quot;value&quot;: 46.21621621621622
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/note&quot;,
+              &quot;value&quot;: &quot;Бюджетная исходная ставка42EUR/м² пропорционально изменена по суммарной толщине утепления; без рыночной котировки.&quot;
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/envelope/roofMassBasis&quot;,
+              &quot;value&quot;: &quot;Добавка к слоям кровли от увеличения основного утепления с248мм: принята плотность минваты35кг/м³. Древесина учитывается отдельно физической ведомостью; снег и свойства древесины сохранены.&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/6/section&quot;,
+              &quot;value&quot;: &quot;75x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/16/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/18/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            }
+          ]
+        },
+        {
+          &quot;name&quot;: &quot;Стропила75x300 · консоли50x100 · сваи1.8&quot;,
+          &quot;operations&quot;: [
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/voids/1/edgeSection&quot;,
+              &quot;value&quot;: &quot;98x248&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/0/chordSection&quot;,
+              &quot;value&quot;: &quot;75x300&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/1/chordSection&quot;,
+              &quot;value&quot;: &quot;75x300&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/auxiliaryTimber/roofBattens&quot;,
+              &quot;value&quot;: &quot;50x100&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/foundation/spacing&quot;,
+              &quot;value&quot;: 1.8
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/layers/4/thickness&quot;,
+              &quot;value&quot;: 0.3
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/layers/4/name&quot;,
+              &quot;value&quot;: &quot;Межстропильная минеральная вата 300 мм&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/framingFraction&quot;,
+              &quot;value&quot;: 0.18
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/loads/roofDead&quot;,
+              &quot;value&quot;: 0.6178481029999999
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/name&quot;,
+              &quot;value&quot;: &quot;Утепление кровли 300+150+45 мм и сплошной слой75мм&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/rate&quot;,
+              &quot;value&quot;: 46.21621621621622
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/note&quot;,
+              &quot;value&quot;: &quot;Бюджетная исходная ставка42EUR/м² пропорционально изменена по суммарной толщине утепления; без рыночной котировки.&quot;
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/envelope/roofMassBasis&quot;,
+              &quot;value&quot;: &quot;Добавка к слоям кровли от увеличения основного утепления с248мм: принята плотность минваты35кг/м³. Древесина учитывается отдельно физической ведомостью; снег и свойства древесины сохранены.&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/6/section&quot;,
+              &quot;value&quot;: &quot;75x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/16/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/18/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            }
+          ]
+        },
+        {
+          &quot;name&quot;: &quot;Стропила75x300 · консоли50x100 · сваи1.6&quot;,
+          &quot;operations&quot;: [
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/voids/1/edgeSection&quot;,
+              &quot;value&quot;: &quot;98x248&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/0/chordSection&quot;,
+              &quot;value&quot;: &quot;75x300&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/1/chordSection&quot;,
+              &quot;value&quot;: &quot;75x300&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/auxiliaryTimber/roofBattens&quot;,
+              &quot;value&quot;: &quot;50x100&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/foundation/spacing&quot;,
+              &quot;value&quot;: 1.6
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/layers/4/thickness&quot;,
+              &quot;value&quot;: 0.3
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/layers/4/name&quot;,
+              &quot;value&quot;: &quot;Межстропильная минеральная вата 300 мм&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/framingFraction&quot;,
+              &quot;value&quot;: 0.18
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/loads/roofDead&quot;,
+              &quot;value&quot;: 0.6178481029999999
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/name&quot;,
+              &quot;value&quot;: &quot;Утепление кровли 300+150+45 мм и сплошной слой75мм&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/rate&quot;,
+              &quot;value&quot;: 46.21621621621622
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/note&quot;,
+              &quot;value&quot;: &quot;Бюджетная исходная ставка42EUR/м² пропорционально изменена по суммарной толщине утепления; без рыночной котировки.&quot;
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/envelope/roofMassBasis&quot;,
+              &quot;value&quot;: &quot;Добавка к слоям кровли от увеличения основного утепления с248мм: принята плотность минваты35кг/м³. Древесина учитывается отдельно физической ведомостью; снег и свойства древесины сохранены.&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/6/section&quot;,
+              &quot;value&quot;: &quot;75x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/16/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/18/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            }
+          ]
+        },
+        {
+          &quot;name&quot;: &quot;Стропила100x250 · консоли50x100 · сваи1.8&quot;,
+          &quot;operations&quot;: [
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/voids/1/edgeSection&quot;,
+              &quot;value&quot;: &quot;98x248&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/0/chordSection&quot;,
+              &quot;value&quot;: &quot;100x250&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/1/chordSection&quot;,
+              &quot;value&quot;: &quot;100x250&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/auxiliaryTimber/roofBattens&quot;,
+              &quot;value&quot;: &quot;50x100&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/foundation/spacing&quot;,
+              &quot;value&quot;: 1.8
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/layers/4/thickness&quot;,
+              &quot;value&quot;: 0.25
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/layers/4/name&quot;,
+              &quot;value&quot;: &quot;Межстропильная минеральная вата 250 мм&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/framingFraction&quot;,
+              &quot;value&quot;: 0.23
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/loads/roofDead&quot;,
+              &quot;value&quot;: 0.6006864654999999
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/name&quot;,
+              &quot;value&quot;: &quot;Утепление кровли 250+150+45 мм и сплошной слой75мм&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/rate&quot;,
+              &quot;value&quot;: 42.16216216216216
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/note&quot;,
+              &quot;value&quot;: &quot;Бюджетная исходная ставка42EUR/м² пропорционально изменена по суммарной толщине утепления; без рыночной котировки.&quot;
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/envelope/roofMassBasis&quot;,
+              &quot;value&quot;: &quot;Добавка к слоям кровли от увеличения основного утепления с248мм: принята плотность минваты35кг/м³. Древесина учитывается отдельно физической ведомостью; снег и свойства древесины сохранены.&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/6/section&quot;,
+              &quot;value&quot;: &quot;75x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/16/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/18/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            }
+          ]
+        },
+        {
+          &quot;name&quot;: &quot;Стропила100x300 · консоли50x100 · сваи1.8&quot;,
+          &quot;operations&quot;: [
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/voids/1/edgeSection&quot;,
+              &quot;value&quot;: &quot;98x248&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/0/chordSection&quot;,
+              &quot;value&quot;: &quot;100x300&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/1/chordSection&quot;,
+              &quot;value&quot;: &quot;100x300&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/auxiliaryTimber/roofBattens&quot;,
+              &quot;value&quot;: &quot;50x100&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/foundation/spacing&quot;,
+              &quot;value&quot;: 1.8
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/layers/4/thickness&quot;,
+              &quot;value&quot;: 0.3
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/layers/4/name&quot;,
+              &quot;value&quot;: &quot;Межстропильная минеральная вата 300 мм&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/framingFraction&quot;,
+              &quot;value&quot;: 0.23
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/loads/roofDead&quot;,
+              &quot;value&quot;: 0.6178481029999999
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/name&quot;,
+              &quot;value&quot;: &quot;Утепление кровли 300+150+45 мм и сплошной слой75мм&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/rate&quot;,
+              &quot;value&quot;: 46.21621621621622
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/note&quot;,
+              &quot;value&quot;: &quot;Бюджетная исходная ставка42EUR/м² пропорционально изменена по суммарной толщине утепления; без рыночной котировки.&quot;
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/envelope/roofMassBasis&quot;,
+              &quot;value&quot;: &quot;Добавка к слоям кровли от увеличения основного утепления с248мм: принята плотность минваты35кг/м³. Древесина учитывается отдельно физической ведомостью; снег и свойства древесины сохранены.&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/6/section&quot;,
+              &quot;value&quot;: &quot;75x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/16/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/18/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            }
+          ]
+        },
+        {
+          &quot;name&quot;: &quot;Стропила75x300 · консоли50x100 · сваи1.4&quot;,
+          &quot;operations&quot;: [
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/voids/1/edgeSection&quot;,
+              &quot;value&quot;: &quot;98x248&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/0/chordSection&quot;,
+              &quot;value&quot;: &quot;75x300&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/1/chordSection&quot;,
+              &quot;value&quot;: &quot;75x300&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/auxiliaryTimber/roofBattens&quot;,
+              &quot;value&quot;: &quot;50x100&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/foundation/spacing&quot;,
+              &quot;value&quot;: 1.4
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/layers/4/thickness&quot;,
+              &quot;value&quot;: 0.3
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/layers/4/name&quot;,
+              &quot;value&quot;: &quot;Межстропильная минеральная вата 300 мм&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/assemblies/1/framingFraction&quot;,
+              &quot;value&quot;: 0.18
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/loads/roofDead&quot;,
+              &quot;value&quot;: 0.6178481029999999
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/name&quot;,
+              &quot;value&quot;: &quot;Утепление кровли 300+150+45 мм и сплошной слой75мм&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/rate&quot;,
+              &quot;value&quot;: 46.21621621621622
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/envelope/costItems/1/note&quot;,
+              &quot;value&quot;: &quot;Бюджетная исходная ставка42EUR/м² пропорционально изменена по суммарной толщине утепления; без рыночной котировки.&quot;
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/envelope/roofMassBasis&quot;,
+              &quot;value&quot;: &quot;Добавка к слоям кровли от увеличения основного утепления с248мм: принята плотность минваты35кг/м³. Древесина учитывается отдельно физической ведомостью; снег и свойства древесины сохранены.&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/6/section&quot;,
+              &quot;value&quot;: &quot;75x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/16/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/18/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            }
+          ]
+        }
+      ]
+    }
+  },
+  &quot;revision&quot;: 7,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-146 · КР 4.2 · платформы и независимые свесы&quot;,
+    &quot;area&quot;: 145.68,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 7,
+    &quot;boards&quot;: 1365,
+    &quot;timberVolume&quot;: 30.856282002536798,
+    &quot;timberMass&quot;: 13885.326901141403,
+    &quot;designVerticalLoad&quot;: 1424.3554274195867,
+    &quot;piles&quot;: 45,
+    &quot;grillageBoards&quot;: 68,
+    &quot;stockBoards&quot;: 631,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: null,
+    &quot;estimateTotal&quot;: 240037.39,
+    &quot;currency&quot;: &quot;EUR&quot;,
+    &quot;status&quot;: &quot;failed_checks&quot;,
+    &quot;failedChecks&quot;: 19,
+    &quot;unverifiedOrWarningChecks&quot;: 110,
+    &quot;certified&quot;: false,
+    &quot;partGroups&quot;: 195,
+    &quot;cuttingPatterns&quot;: 181
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 1a8be69efdfabf717decf2dc8d0ad08bc5908d7fd9142a56a490f981934876f8.</small></details></td></tr><tr><td>36</td><td>2026-11-03T12:26:18.038Z</td><td><b>karkas_apply_patch</b><small>4441 мс · ответ</small></td><td>8</td><td>1366 деталей · 635 заготовок<br>0 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_apply_patch&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;expected_revision&quot;: 7,
+      &quot;operations&quot;: [
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/voids/1/edgeSection&quot;,
+          &quot;value&quot;: &quot;98x248&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/roof/zones/0/chordSection&quot;,
+          &quot;value&quot;: &quot;75x300&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/roof/zones/1/chordSection&quot;,
+          &quot;value&quot;: &quot;75x300&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/auxiliaryTimber/roofBattens&quot;,
+          &quot;value&quot;: &quot;50x100&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/foundation/spacing&quot;,
+          &quot;value&quot;: 1.8
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/envelope/assemblies/1/layers/4/thickness&quot;,
+          &quot;value&quot;: 0.3
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/envelope/assemblies/1/layers/4/name&quot;,
+          &quot;value&quot;: &quot;Межстропильная минеральная вата 300 мм&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/envelope/assemblies/1/framingFraction&quot;,
+          &quot;value&quot;: 0.18
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/loads/roofDead&quot;,
+          &quot;value&quot;: 0.6178481029999999
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/envelope/costItems/1/name&quot;,
+          &quot;value&quot;: &quot;Утепление кровли 300+150+45 мм и сплошной слой75мм&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/envelope/costItems/1/rate&quot;,
+          &quot;value&quot;: 46.21621621621622
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/envelope/costItems/1/note&quot;,
+          &quot;value&quot;: &quot;Бюджетная исходная ставка42EUR/м² пропорционально изменена по суммарной толщине утепления; без рыночной котировки.&quot;
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/envelope/roofMassBasis&quot;,
+          &quot;value&quot;: &quot;Добавка к слоям кровли от увеличения основного утепления с248мм: принята плотность минваты35кг/м³. Древесина учитывается отдельно физической ведомостью; снег и свойства древесины сохранены.&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/6/section&quot;,
+          &quot;value&quot;: &quot;75x198&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/16/section&quot;,
+          &quot;value&quot;: &quot;98x198&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/18/section&quot;,
+          &quot;value&quot;: &quot;98x198&quot;
+        }
+      ]
+    }
+  },
+  &quot;revision&quot;: 8,
+  &quot;hash&quot;: &quot;b7f2515c910bc74252509f6a55463664dc7f86764c84f38aa8f5a6f2f86be57c&quot;,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-146 · КР 4.2 · платформы и независимые свесы&quot;,
+    &quot;area&quot;: 145.68,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 7,
+    &quot;boards&quot;: 1366,
+    &quot;timberVolume&quot;: 34.98666543123436,
+    &quot;timberMass&quot;: 15743.999444055185,
+    &quot;designVerticalLoad&quot;: 1451.5454300264155,
+    &quot;piles&quot;: 45,
+    &quot;grillageBoards&quot;: 68,
+    &quot;stockBoards&quot;: 635,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: null,
+    &quot;estimateTotal&quot;: 249243.46,
+    &quot;currency&quot;: &quot;EUR&quot;,
+    &quot;status&quot;: &quot;requires_engineering&quot;,
+    &quot;failedChecks&quot;: 0,
+    &quot;unverifiedOrWarningChecks&quot;: 110,
+    &quot;certified&quot;: false,
+    &quot;partGroups&quot;: 199,
+    &quot;cuttingPatterns&quot;: 198
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 4b2290ca0790257b6ac9d1ac2de30509332685f0d3959380fc2d4b94a5315385.</small></details></td></tr><tr><td>37</td><td>2026-11-03T12:28:35.047Z</td><td><b>karkas_catalog</b><small>33 мс · ответ</small></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_catalog&quot;,
+    &quot;arguments&quot;: {}
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 83efcf66ac91e873a971a746d2fa02f1bd6bd02c435cee594cc09f61f2cf1d43.</small></details></td></tr><tr><td>38</td><td>2026-11-03T12:28:40.756Z</td><td><b>karkas_analyze</b><small>5701 мс · ответ</small></td><td>8</td><td>1366 деталей · 635 заготовок<br>0 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_analyze&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 8
+    }
+  },
+  &quot;revision&quot;: 8,
+  &quot;hash&quot;: &quot;b7f2515c910bc74252509f6a55463664dc7f86764c84f38aa8f5a6f2f86be57c&quot;,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-146 · КР 4.2 · платформы и независимые свесы&quot;,
+    &quot;area&quot;: 145.68,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 7,
+    &quot;boards&quot;: 1366,
+    &quot;timberVolume&quot;: 34.98666543123436,
+    &quot;timberMass&quot;: 15743.999444055185,
+    &quot;designVerticalLoad&quot;: 1451.5454300264155,
+    &quot;piles&quot;: 45,
+    &quot;grillageBoards&quot;: 68,
+    &quot;stockBoards&quot;: 635,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: null,
+    &quot;estimateTotal&quot;: 249243.46,
+    &quot;currency&quot;: &quot;EUR&quot;,
+    &quot;status&quot;: &quot;requires_engineering&quot;,
+    &quot;failedChecks&quot;: 0,
+    &quot;unverifiedOrWarningChecks&quot;: 110,
+    &quot;certified&quot;: false,
+    &quot;partGroups&quot;: 199,
+    &quot;cuttingPatterns&quot;: 198
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 0501bf8fb4f3544da58a28a4ae4f8be9d18c89a75b00223125369fc12318510f.</small></details></td></tr><tr><td>39</td><td>2026-11-03T12:28:40.822Z</td><td><b>karkas_report</b><small>61 мс · ответ</small></td><td>8</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_report&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 8,
+      &quot;topic&quot;: &quot;floor_platform&quot;
+    }
+  },
+  &quot;revision&quot;: 8,
+  &quot;hash&quot;: &quot;b7f2515c910bc74252509f6a55463664dc7f86764c84f38aa8f5a6f2f86be57c&quot;
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 e30a8501acbeadb5a111a0a6cc2ba9506e5ee80ea49f634849e29df4146d0a41.</small></details></td></tr><tr><td>40</td><td>2026-11-03T12:28:40.854Z</td><td><b>karkas_report</b><small>4 мс · ответ</small></td><td>8</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_report&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 8,
+      &quot;topic&quot;: &quot;checks&quot;,
+      &quot;status&quot;: &quot;unverified&quot;,
+      &quot;limit&quot;: 100
+    }
+  },
+  &quot;revision&quot;: 8,
+  &quot;hash&quot;: &quot;b7f2515c910bc74252509f6a55463664dc7f86764c84f38aa8f5a6f2f86be57c&quot;
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 62333eea69b69ebabebf7aed8bf3d7e8ca9d42f10015b40904d1fcb559316b38.</small></details></td></tr><tr><td>41</td><td>2026-11-03T12:28:40.869Z</td><td><b>karkas_compare_foundations</b><small>8 мс · ответ</small></td><td>8</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_compare_foundations&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 8
+    }
+  },
+  &quot;revision&quot;: 8
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 931c3a3558e694f47fd9395faabcdb0b5733ce0de7f19d804688c4e83bdce4c8.</small></details></td></tr><tr><td>42</td><td>2026-11-03T12:28:45.931Z</td><td><b>karkas_export</b><small>5057 мс · ответ</small></td><td>8</td><td>report_json, project_json, plan_svg, boards_csv, cutting_csv, estimate_csv, cutting_html, model_obj, fabrication_parts_csv, fabrication_stocks_csv, structural_pdf</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_export&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 8,
+      &quot;formats&quot;: [
+        &quot;report_json&quot;,
+        &quot;project_json&quot;,
+        &quot;plan_svg&quot;,
+        &quot;boards_csv&quot;,
+        &quot;cutting_csv&quot;,
+        &quot;estimate_csv&quot;,
+        &quot;cutting_html&quot;,
+        &quot;model_obj&quot;,
+        &quot;fabrication_parts_csv&quot;,
+        &quot;fabrication_stocks_csv&quot;,
+        &quot;structural_pdf&quot;
+      ]
+    }
+  },
+  &quot;revision&quot;: 8,
+  &quot;hash&quot;: &quot;b7f2515c910bc74252509f6a55463664dc7f86764c84f38aa8f5a6f2f86be57c&quot;,
+  &quot;artifacts&quot;: [
+    {
+      &quot;format&quot;: &quot;report_json&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/report.json&quot;,
+      &quot;bytes&quot;: 14438137,
+      &quot;sha256&quot;: &quot;d11c8244cc2436074e75728d9cdeac4af8ac6f4f0555ef512c6c0a1a14aaf4e7&quot;
+    },
+    {
+      &quot;format&quot;: &quot;project_json&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/project.json&quot;,
+      &quot;bytes&quot;: 35951,
+      &quot;sha256&quot;: &quot;5c96e18846fb86db482b7c65e4386b09ff7d30df3a77b240daca7832ce670e45&quot;
+    },
+    {
+      &quot;format&quot;: &quot;plan_svg&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/plan.svg&quot;,
+      &quot;bytes&quot;: 6406,
+      &quot;sha256&quot;: &quot;a5a1ae3265f4356e1292d20552e9c245e5502fdef093b7fb5f6970793844b452&quot;
+    },
+    {
+      &quot;format&quot;: &quot;boards_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/boards.csv&quot;,
+      &quot;bytes&quot;: 417921,
+      &quot;sha256&quot;: &quot;2df256a0f28965f2e4b98fdfc2c5aa7432f13c6f13e216156b347b01c04384fe&quot;
+    },
+    {
+      &quot;format&quot;: &quot;cutting_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/cutting.csv&quot;,
+      &quot;bytes&quot;: 306412,
+      &quot;sha256&quot;: &quot;4d323ae3228436e81fd6574a51c416c7fbaec50148121eed35d1d9dddff61b38&quot;
+    },
+    {
+      &quot;format&quot;: &quot;estimate_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/estimate.csv&quot;,
+      &quot;bytes&quot;: 9064,
+      &quot;sha256&quot;: &quot;7fe787a037013297dbb215e08f6f3b603b6ed5e6a49042906f122f82f8fd42a1&quot;
+    },
+    {
+      &quot;format&quot;: &quot;cutting_html&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/cutting.html&quot;,
+      &quot;bytes&quot;: 451678,
+      &quot;sha256&quot;: &quot;a31afd2fcc2aea340f5dbf9ab7710c6cae4127aa13fa12498de998a79ac9ac17&quot;
+    },
+    {
+      &quot;format&quot;: &quot;model_obj&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/model.obj&quot;,
+      &quot;bytes&quot;: 1867633,
+      &quot;sha256&quot;: &quot;ac14f93403d84f87b41c6f0c360b84022146ba9e640ae9a6e967c0fe0d8a203c&quot;
+    },
+    {
+      &quot;format&quot;: &quot;fabrication_parts_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/fabrication-parts.csv&quot;,
+      &quot;bytes&quot;: 335431,
+      &quot;sha256&quot;: &quot;f35a12b825c24e40ba8b9cdc8106923b4d921ce035a4f1b67c56aab2b44da0b1&quot;
+    },
+    {
+      &quot;format&quot;: &quot;fabrication_stocks_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/fabrication-stocks.csv&quot;,
+      &quot;bytes&quot;: 81933,
+      &quot;sha256&quot;: &quot;a8bcf0d582f82fea4e7344a94464fcce2345abfb7d40461baa5afff2adeae1cd&quot;
+    },
+    {
+      &quot;format&quot;: &quot;structural_pdf&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/structural-album.pdf&quot;,
+      &quot;bytes&quot;: 693918,
+      &quot;sha256&quot;: &quot;cc7ae0455b5b119256bcba6b02cb0811688ddf10d6e2d8e5c633a91f1dcb91ca&quot;
+    }
+  ]
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 8c385b49c2f1448506aa1d64de683382cd1f487f80b048e699370fe1f6e064d5.</small></details></td></tr><tr><td>43</td><td>2026-11-03T12:42:30.604Z</td><td><b>karkas_catalog</b><small>7 мс · ответ</small></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_catalog&quot;,
+    &quot;arguments&quot;: {}
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 eaf188a67176bd4bcb6fc90335d82d83dd6897ad57d7cc5a47d48f2ad73afb66.</small></details></td></tr><tr><td>44</td><td>2026-11-03T12:42:35.198Z</td><td><b>karkas_export</b><small>4593 мс · ответ</small></td><td>8</td><td>report_json, project_json, plan_svg, boards_csv, cutting_csv, estimate_csv, cutting_html, model_obj, fabrication_parts_csv, fabrication_stocks_csv, structural_pdf</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_export&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 8,
+      &quot;formats&quot;: [
+        &quot;report_json&quot;,
+        &quot;project_json&quot;,
+        &quot;plan_svg&quot;,
+        &quot;boards_csv&quot;,
+        &quot;cutting_csv&quot;,
+        &quot;estimate_csv&quot;,
+        &quot;cutting_html&quot;,
+        &quot;model_obj&quot;,
+        &quot;fabrication_parts_csv&quot;,
+        &quot;fabrication_stocks_csv&quot;,
+        &quot;structural_pdf&quot;
+      ]
+    }
+  },
+  &quot;revision&quot;: 8,
+  &quot;hash&quot;: &quot;b7f2515c910bc74252509f6a55463664dc7f86764c84f38aa8f5a6f2f86be57c&quot;,
+  &quot;artifacts&quot;: [
+    {
+      &quot;format&quot;: &quot;report_json&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/report.json&quot;,
+      &quot;bytes&quot;: 14438137,
+      &quot;sha256&quot;: &quot;3f942c99dedaa45eaa973692712cf57d572ce73732e5c95b0c84cdf1be241b30&quot;
+    },
+    {
+      &quot;format&quot;: &quot;project_json&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/project.json&quot;,
+      &quot;bytes&quot;: 35951,
+      &quot;sha256&quot;: &quot;5c96e18846fb86db482b7c65e4386b09ff7d30df3a77b240daca7832ce670e45&quot;
+    },
+    {
+      &quot;format&quot;: &quot;plan_svg&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/plan.svg&quot;,
+      &quot;bytes&quot;: 6406,
+      &quot;sha256&quot;: &quot;a5a1ae3265f4356e1292d20552e9c245e5502fdef093b7fb5f6970793844b452&quot;
+    },
+    {
+      &quot;format&quot;: &quot;boards_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/boards.csv&quot;,
+      &quot;bytes&quot;: 417921,
+      &quot;sha256&quot;: &quot;2df256a0f28965f2e4b98fdfc2c5aa7432f13c6f13e216156b347b01c04384fe&quot;
+    },
+    {
+      &quot;format&quot;: &quot;cutting_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/cutting.csv&quot;,
+      &quot;bytes&quot;: 306412,
+      &quot;sha256&quot;: &quot;4d323ae3228436e81fd6574a51c416c7fbaec50148121eed35d1d9dddff61b38&quot;
+    },
+    {
+      &quot;format&quot;: &quot;estimate_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/estimate.csv&quot;,
+      &quot;bytes&quot;: 9064,
+      &quot;sha256&quot;: &quot;7fe787a037013297dbb215e08f6f3b603b6ed5e6a49042906f122f82f8fd42a1&quot;
+    },
+    {
+      &quot;format&quot;: &quot;cutting_html&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/cutting.html&quot;,
+      &quot;bytes&quot;: 451678,
+      &quot;sha256&quot;: &quot;a31afd2fcc2aea340f5dbf9ab7710c6cae4127aa13fa12498de998a79ac9ac17&quot;
+    },
+    {
+      &quot;format&quot;: &quot;model_obj&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/model.obj&quot;,
+      &quot;bytes&quot;: 1867633,
+      &quot;sha256&quot;: &quot;ac14f93403d84f87b41c6f0c360b84022146ba9e640ae9a6e967c0fe0d8a203c&quot;
+    },
+    {
+      &quot;format&quot;: &quot;fabrication_parts_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/fabrication-parts.csv&quot;,
+      &quot;bytes&quot;: 335431,
+      &quot;sha256&quot;: &quot;f35a12b825c24e40ba8b9cdc8106923b4d921ce035a4f1b67c56aab2b44da0b1&quot;
+    },
+    {
+      &quot;format&quot;: &quot;fabrication_stocks_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/fabrication-stocks.csv&quot;,
+      &quot;bytes&quot;: 81933,
+      &quot;sha256&quot;: &quot;a8bcf0d582f82fea4e7344a94464fcce2345abfb7d40461baa5afff2adeae1cd&quot;
+    },
+    {
+      &quot;format&quot;: &quot;structural_pdf&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r8/structural-album.pdf&quot;,
+      &quot;bytes&quot;: 692761,
+      &quot;sha256&quot;: &quot;250a9c607037025d91c3d982637fbe8fa5b9597cf81b3ca25f7c56d335deff5b&quot;
+    }
+  ]
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 d90ddea62bd0de11961e027d4f43c7b64a7b76ecdbcbf5254cb5f292c43f1211.</small></details></td></tr></tbody></table></div><footer>Проект house-feb222a5-b803-4f4d-b79f-158af2904f5a · R8<br>SHA256 проекта b7f2515c910bc74252509f6a55463664dc7f86764c84f38aa8f5a6f2f86be57c<br>SHA256 исходного журнала 0dbee8accc296e3f2a122958f2891606eb1703b1b6956bb76e683f909250dd40</footer></main></html>

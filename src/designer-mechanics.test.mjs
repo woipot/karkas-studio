@@ -12,17 +12,17 @@ test('physical overlapping stock pieces recover the original eight-metre logical
   const a=logicalMembers([{...b,id:'p1',start:[0,0,0],end:[0,0,6]},{...b,id:'p2',start:[0,0,5.6],end:[0,0,8]}],'joist');
   assert.equal(a.length,1);near(a[0].length,8);near(a[0].mass,20);assert.equal(a[0].spliced,true);
 });
-test('upper-floor bearing wall creates four-metre spans; ground grillage and stock splices are not upper-floor supports',()=>{
+test('lower-floor bearing wall creates four-metre spans; ground grillage and stock splices are not upper-floor supports',()=>{
   const p=make();p.floors=2;const a=run(p);near(a.joist.span,4);assert.ok(a.joist.members.filter(m=>m.floor===1).every(m=>m.span<=p.foundation.spacing+1e-7));
   p.walls=p.walls.filter(w=>w.kind!=='bearing');const r=calculateDesigner(p),b=checkDesignerMembers(p,r);near(b.joist.span,8);
-  assert.ok(r.timber.instances.filter(x=>x.role==='joist').every(x=>x.length<=6));
-  assert.ok(b.joist.members.filter(x=>x.floor===2).every(x=>x.spliced));assert.ok(b.joist.members.filter(x=>x.floor===1).every(x=>!x.spliced&&x.span<=p.foundation.spacing+1e-7));near(b.joist.deflection/a.joist.deflection,16);
+  assert.ok(r.timber.instances.filter(x=>x.role==='joist'&&x.level===2).every(x=>x.cutLength>6));
+  assert.ok(b.joist.members.filter(x=>x.floor===2).every(x=>!x.spliced));assert.ok(b.joist.members.filter(x=>x.floor===1).every(x=>!x.spliced&&x.span<=p.foundation.spacing+1e-7));near(b.joist.deflection/a.joist.deflection,16*b.joist.lineLoadService/a.joist.lineLoadService);
   assert.ok(b.joist.deflectionUtilization>1);assert.equal(b.joist.status,'fail');
 });
 test('turning off physical splitting preserves the same unsupported analytical span and forces',()=>{
   const p=make();p.floors=2;p.walls=p.walls.filter(w=>w.kind!=='bearing');const a=run(p);p.joints.spliceScheme='none';const b=run(p);
   near(a.joist.span,b.joist.span);near(a.joist.moment,b.joist.moment);near(a.joist.deflection,b.joist.deflection);
-  assert.ok(a.joist.spliced);assert.equal(b.joist.spliced,false);
+  assert.equal(a.joist.spliced,false);assert.equal(b.joist.spliced,false);
 });
 test('independent 4m 50×200 beam under 1kN/m: M2, stress6MPa, deflection10mm',()=>{
   const p=make();p.floor={section:'50x200',spacing:.5,axis:'y'};p.loads={...p.loads,floorDead:.5,live:1.5,gammaG:1,gammaQ:1,wind:0};

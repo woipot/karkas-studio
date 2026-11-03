@@ -11,6 +11,7 @@ import datetime
 import json
 import math
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -33,6 +34,7 @@ LIME = colors.HexColor('#d7e7ae')
 ORANGE = colors.HexColor('#aa6533')
 RED = colors.HexColor('#a0433d')
 BLUE = colors.HexColor('#597e96')
+SUPPORT = colors.HexColor('#80658e')
 STATUS = 'КР · расчётная проработка / НЕ РАБОЧАЯ ДОКУМЕНТАЦИЯ'
 
 
@@ -263,7 +265,7 @@ def dimension(c, a, b, offset=15, label=None):
     c.restoreState()
 
 
-ROLE = {'stud': 'Стойка', 'plate': 'Обвязка', 'corner': 'Угол', 'joist': 'Лага', 'rim': 'Бортовая доска', 'voidHeader': 'Ригель проёма', 'voidTrimmer': 'Обрамление проёма', 'rafter': 'Стропило', 'truss': 'Ферма', 'letInBrace': 'Врезная укосина', 'blocking': 'Распорка', 'grillage': 'Ростверк', 'beam': 'Балка', 'header': 'Перемычка', 'kingStud': 'Стойка проёма', 'jackStud': 'Опорная стойка', 'sill': 'Подоконная доска'}
+ROLE = {'stud': 'Стойка', 'plate': 'Обвязка', 'corner': 'Угол', 'joist': 'Лага', 'rim': 'Бортовая доска', 'rimJoist': 'Обвязка перекрытия', 'floorBlocking': 'Поперечные распорки', 'voidHeader': 'Ригель проёма', 'voidTrimmer': 'Обрамление проёма', 'openingHeader': 'Поперечная балка проёма', 'openingTrimmer': 'Продольная балка проёма', 'rafter': 'Стропило', 'truss': 'Ферма', 'letInBrace': 'Врезная укосина', 'blocking': 'Распорка', 'grillage': 'Ростверк', 'beam': 'Балка', 'header': 'Перемычка', 'kingStud': 'Стойка проёма', 'jackStud': 'Опорная стойка', 'sill': 'Подоконная доска'}
 STATUSES = {'pass': 'Частная проверка выполнена', 'fail': 'Не выполнено', 'warning': 'Требует уточнения', 'unverified': 'Не проверено', 'blocked': 'Заблокировано', 'complete': 'Сформировано'}
 
 
@@ -281,7 +283,10 @@ class Album:
         self.roof = self.r.get('roofModel') or {}
         self.gr = self.r.get('grillageModel') or {}
         self.members = (self.r.get('timber') or {}).get('instances') or []
-        self.marks = {str(m.get('id')): f'Д-{i + 1:04d}' for i, m in enumerate(self.members)}
+        self.fabrication = report.get('fabrication') or {}
+        self.part_groups = self.fabrication.get('partGroups') or []
+        self.pattern_groups = self.fabrication.get('patternGroups') or []
+        self.marks = self.fabrication.get('partToGroup') or {str(m.get('id')): f'Д-{i + 1:04d}' for i, m in enumerate(self.members)}
         self.wall_map = {str(w.get('id')): w for w in self.p.get('walls', [])}
         self.wall_names = {str(w.get('id')): f'Стена {i + 1:02d}' for i, w in enumerate(self.p.get('walls', []))}
         self.levels = self.g.get('levels') or []
@@ -446,26 +451,49 @@ class Album:
             if len(interfaces) > 9:
                 self.table_pages('Ограждение · ' + clean(name) + ' · все межслойные границы', [('Граница', .36), ('x, мм', .13), ('T, °C', .13), ('RH, %', .12), ('pv, Па', .13), ('psat, Па', .13)], [[v.get('name', v.get('id')), number(optional_number(v.get('x')) * 1000 if optional_number(v.get('x')) is not None else None, 3), number(v.get('temperature'), 3), number(v.get('rh'), 2), number(v.get('pVapor'), 2), number(v.get('pSat'), 2)] for v in interfaces if isinstance(v, dict)], 'Давление свободного диффузионного профиля и давление насыщения; масса конденсата не вычисляется.', 8)
         checks = self.r.get('checks') or []
-        self.table_pages('Расчётные проверки · полный реестр', [('Проверка', .23), ('Статус', .14), ('Значение / предел', .16), ('Пояснение из движка', .47)], [[q.get('label', q.get('id')), STATUSES.get(q.get('status'), q.get('status', '-')), self.check_value(q), q.get('note', '')] for q in checks], 'Частные проверки модели не заменяют общий расчёт здания и рабочую документацию.', 7.7)
-        schedule = (self.r.get('timber') or {}).get('schedule') or []
-        self.table_pages('Спецификация · сводка досок', [('Марка группы', .1, 'mono'), ('Назначение', .27), ('Сечение, мм', .12), ('Длина, м', .1), ('Кол-во', .08), ('Объём, м³', .12), ('Масса, кг', .11), ('Категория', .1)], [[s.get('id'), s.get('name'), f'{s.get("b")} × {s.get("h")}', number(s.get('length'), 3), s.get('count'), number(s.get('volume'), 4), number(s.get('mass'), 2), s.get('category')] for s in schedule], 'Сводка движка; полный реестр физических досок и их исходных ID приведён далее.', 7.7)
-        rows = []
-        for m in self.members:
-            rows.append([self.marks[str(m.get('id'))], m.get('id'), self.wall_names.get(str(m.get('wallId')), m.get('beamId') or m.get('zoneId') or '-'), f'{m.get("floor", m.get("level", "-"))} / {m.get("name", ROLE.get(m.get("role"), m.get("role", "-")))}', f'{m.get("b")} × {m.get("h")}', number(m.get('length'), 3), number(m.get('cutLength', m.get('actualCutLength', m.get('length'))), 3), number(m.get('mass'), 3), self.ends(m.get('cutStart'), m.get('cutEnd'))])
-        self.table_pages('Спецификация · все физические детали', [('Марка', .065), ('Полный ID детали', .205, 'mono'), ('Конструкция', .12), ('Этаж / назначение', .16), ('b × h, мм', .08), ('L ось, м', .065), ('Загот., м', .075), ('Масса, кг', .07), ('Торцы / соединения', .16)], rows, 'Марки Д-xxxx используются на чертежах. Заготовочная длина учитывает переданные движком припуски; масса может быть нетто после выборок.', 7.2)
+        if self.part_groups:
+            # Dedicated envelope/snow/opening sheets already contain these
+            # complete checks. Keep one occurrence in the PDF; JSON keeps all.
+            checks = [q for q in checks if not (str(q.get('id', '')).startswith('envelope-') and self.r.get('envelope') or str(q.get('id', '')).startswith('snow-') and self.r.get('snowAssessment') or str(q.get('id', '')).startswith('opening-') and self.r.get('floorOpenings'))]
+        self.table_pages('Расчётные проверки · общий реестр', [('Проверка', .23), ('Статус', .14), ('Значение / предел', .16), ('Пояснение из движка', .47)], [[q.get('label', q.get('id')), STATUSES.get(q.get('status'), q.get('status', '-')), self.check_value(q), q.get('note', '')] for q in checks], 'Проверки ограждений, снега и обрамления полностью приведены на своих листах. Общий расчёт здания и рабочие узлы не подтверждены.', 7.7)
+        if self.part_groups:
+            rows = []
+            for group in self.part_groups:
+                shape = group.get('geometry') or {}
+                ends = self.ends(shape.get('cutStart'), shape.get('cutEnd'))
+                if shape.get('notches'):
+                    ends += '\nВыборок: ' + str(len(shape['notches'])) + '; локальная геометрия в JSON.'
+                rows.append([clean(group.get('id')) + '\n', group.get('count'), f'{group.get("b")} × {group.get("h")}', number(group.get('axisLength'), 3) + ' / ' + number(group.get('cutLength'), 3), ends, self.application_summary(group)])
+            columns = [('Группа / схема', .12, 'mono'), ('Шт.', .05), ('Сечение, мм', .1), ('Ось / заготовка, м', .12), ('Торцы / выборки', .26), ('Применение · конструкция × количество', .35)]
+            self.table_pages('Изготовление · одинаковые детали и применение', columns, rows, 'Одна FG - одна геометрия, включая торцы и выборки. Полные физические ID и точное применение: fabrication-parts.csv / JSON.', 7.5)
+            for page in self.pages:
+                if page['kind'] == 'table' and page['title'].startswith('Изготовление · одинаковые'):
+                    page['kind'] = 'partgroups'
+        else:
+            schedule = (self.r.get('timber') or {}).get('schedule') or []
+            self.table_pages('Спецификация · сводка досок', [('Марка группы', .1, 'mono'), ('Назначение', .27), ('Сечение, мм', .12), ('Длина, м', .1), ('Кол-во', .08), ('Объём, м³', .12), ('Масса, кг', .11), ('Категория', .1)], [[s.get('id'), s.get('name'), f'{s.get("b")} × {s.get("h")}', number(s.get('length'), 3), s.get('count'), number(s.get('volume'), 4), number(s.get('mass'), 2), s.get('category')] for s in schedule], 'Групповая сводка движка. Полные физические ID - во внешнем CSV/JSON.', 7.7)
         erows = [[r.get('name'), r.get('unit'), number(r.get('netQuantity'), 3), number(r.get('quantity'), 3), number(r.get('unitPrice'), 2), number(r.get('total'), 2), r.get('note', '')] for r in self.estimate.get('rows', [])]
         self.table_pages('Смета · материалы и закупка', [('Позиция', .25), ('Ед.', .05), ('Нетто', .08), ('Закупка', .085), (f'Цена, {self.unit_money}', .12), (f'Сумма, {self.unit_money}', .13), ('Основание количества', .285)], erows, 'Цены из отчёта, не коммерческое предложение. Доски закупаются по полной карте 6 м.', 7.5)
         self.add('Смета · итог и состав стоимости', 'estimate')
         self.add('Полная карта раскроя 6 м · правила и сводка', 'cutsummary')
         cards = []
-        for stock in self.cut.get('stocks') or []:
+        if self.pattern_groups:
+            for pattern in self.pattern_groups:
+                if abs(finite(pattern.get('length'), 6) - 6) > 1e-7:
+                    raise ValueError('Схема содержит исходную доску иной длины, чем 6 м: ' + clean(pattern.get('id')))
+                pieces = pattern.get('pieces') or []
+                for offset in range(0, max(1, len(pieces)), 6):
+                    cards.append((pattern, offset, pieces[offset:offset + 6]))
+            for i in range(0, len(cards), 6):
+                self.add('Полная карта раскроя 6 м · повторяемые схемы', 'patterncards', cards[i:i + 6], 'Одна FP-карта на одинаковую раскладку; количество исходных досок указано явно. Точное соответствие stock ID - fabrication-stocks.csv.')
+        for stock in ([] if self.pattern_groups else self.cut.get('stocks') or []):
             if abs(finite(stock.get('length'), 6) - 6) > 1e-7:
                 raise ValueError('Карта содержит исходную доску иной длины, чем 6 м: ' + clean(stock.get('id')))
             pieces = stock.get('pieces') or []
             # A long stock can occupy continuation cards; no piece IDs are hidden.
             for offset in range(0, max(1, len(pieces)), 8):
                 cards.append((stock, offset, pieces[offset:offset + 8]))
-        for i in range(0, len(cards), 4):
+        for i in range(0, 0 if self.pattern_groups else len(cards), 4):
             self.add('Полная карта раскроя 6 м', 'cutcards', cards[i:i + 4], 'Все исходные доски по 6 000 мм. Красные промежутки - пропил; серый сегмент - остаток.')
         if self.cut.get('overlength') or self.cut.get('invalid'):
             self.table_pages('Раскрой · неразмещённые и некорректные детали', [('Исходные данные', 1)], [[clean(item)] for item in (self.cut.get('overlength') or []) + (self.cut.get('invalid') or [])], 'Эти детали не включены в подтверждённую закупочную раскладку.')
@@ -484,6 +512,39 @@ class Album:
         if q.get('utilization') is not None:
             out += '\nη = ' + number(q['utilization'], 4)
         return out
+
+    def application_summary(self, group):
+        totals = collections.OrderedDict()
+        for app in group.get('applications') or []:
+            level = clean(app.get('level'))
+            wall_ids = list(dict.fromkeys(([app['wallId']] if app.get('wallId') else []) + list(app.get('wallIds') or [])))
+            place = ' / '.join(self.wall_names.get(str(value), clean(value)) for value in wall_ids) if wall_ids else None
+            if not place and app.get('rimEdge') is not None:
+                place = 'Ребро контура ' + clean(app['rimEdge'])
+            if not place:
+                for key, label in [('zoneId', 'Кровля'), ('beamId', 'Балка'), ('voidId', 'Проём'), ('objectId', 'Объект')]:
+                    if app.get(key):
+                        place = label + ' ' + clean(app[key]); break
+            place = place or clean(app.get('name') or app.get('role') or 'Общие детали')
+            term = f'Э{level}: {place}'
+            totals[term] = totals.get(term, 0) + int(finite(app.get('count')))
+        return '; '.join(term + ' ×' + str(count) for term, count in totals.items())
+
+    def compressed_ids(self, values):
+        values = list(values or [])
+        parsed = [re.fullmatch(r'(.*?)(\d+)', clean(value)) for value in values]
+        if not values or not all(parsed) or len(set(m.group(1) for m in parsed)) != 1:
+            return ', '.join(clean(value) for value in values)
+        prefix, digits = parsed[0].group(1), len(parsed[0].group(2))
+        nums = sorted(set(int(m.group(2)) for m in parsed))
+        spans, lo, hi = [], nums[0], nums[0]
+        for n in nums[1:]:
+            if n == hi + 1:
+                hi = n
+            else:
+                spans.append((lo, hi)); lo = hi = n
+        spans.append((lo, hi))
+        return ', '.join(prefix + str(a).zfill(digits) + ('-' + prefix + str(b).zfill(digits) if b != a else '') for a, b in spans)
 
     def flatten_fields(self, data, prefix=''):
         labels = {'region': 'Регион', 'country': 'Страна', 'selected': 'Выбран', 'type': 'Тип', 'name': 'Название', 'reason': 'Основание выбора', 'status': 'Статус', 'capacity': 'Несущая способность', 'diameter': 'Диаметр', 'length': 'Длина', 'unitPrice': 'Цена единицы', 'currency': 'Валюта', 'assumptions': 'Допущения', 'alternatives': 'Варианты', 'options': 'Варианты', 'selectedType': 'Выбранный тип', 'note': 'Примечание', 'notes': 'Примечания', 'geotechnicalStatus': 'Геотехнический статус'}
@@ -512,6 +573,10 @@ class Album:
         label = labels.get(scheme, scheme)
         if abs(finite(end.get('angle'))) > .001:
             label += ' ' + number(end.get('angle'), 2) + '°'
+        if end.get('plane') is not None:
+            label += ' пл=' + clean(end.get('plane'))
+        if end.get('tiltSign') is not None:
+            label += ' знак=' + clean(end.get('tiltSign'))
         if finite(end.get('lapLength')):
             label += ' L=' + number(finite(end['lapLength']) * 1000, 0) + ' мм'
         if end.get('lapSide'):
@@ -598,7 +663,7 @@ class Album:
             text(c, f'{page_index + 1:03d}', xx, yy, 9, 'Mono', GREEN)
             text(c, page['title'], xx + 40, yy, 8.5, width=colw - 45)
             line(c, (xx, yy - 8), (xx + colw, yy - 8))
-        self.note(c, 'Альбом включает все физические детали и все исходные доски закупки. Идентификаторы сохраняют связь с JSON-отчётом.', y=104)
+        self.note(c, 'Альбом включает все группы деталей и схемы раскроя с количеством повторений. Полные физические ID и stock ID сохраняются во внешних CSV и JSON.', y=104)
 
     def draw_assumptions(self, c, data, index):
         columns = [(43, 520), (620, 520)]
@@ -643,7 +708,7 @@ class Album:
     def level_polygon(self, level=None):
         return [xy(p) for p in ((level or {}).get('polygon') or self.g.get('polygon') or [])]
 
-    def draw_stair_plan(self, c, stair, fn):
+    def draw_stair_plan(self, c, stair, fn, show_note=True):
         points = [xy(p) for p in stair.get('polygon', [])]
         if len(points) < 3:
             return
@@ -678,7 +743,8 @@ class Album:
             line(c, fn((turn_x, low_y)), fn((turn_x, high_y)), BLUE, .9)
             arrow(c, fn((turn_x, high_y)), fn((d - .12, high_y)), BLUE, .9)
             text(c, 'ВВЕРХ → ВОСТОЧНАЯ ГАЛЕРЕЯ', *fn((inner + .05, e + .12)), 5.6, 'Bold', BLUE)
-            text(c, f'{risers} подъёмов · h={number(finite(stair.get("riser")) * 1000, 1)} мм · b={number(tread * 1000 if tread is not None else None, 0)} мм', *fn((a + .05, b - .18)), 5.8, color=BLUE)
+            if show_note:
+                text(c, f'{risers} подъёмов · h={number(finite(stair.get("riser")) * 1000, 1)} мм · b={number(tread * 1000 if tread is not None else None, 0)} мм', *fn((a + .05, b - .18)), 5.8, color=BLUE)
         else:
             # Explicit polyline geometry is preferred for other orientations.
             route = stair.get('travelPath') or stair.get('path')
@@ -689,7 +755,7 @@ class Album:
                 arrow(c, fn(route[-2]), fn(route[-1]), BLUE, .8)
             text(c, 'ЛЕСТНИЦА · КОНТУР', *fn((a + .05, b + .1)), 6, 'Bold', BLUE)
 
-    def draw_plan_base(self, c, level, box, rooms=True, openings=True, axes=True):
+    def draw_plan_base(self, c, level, box, rooms=True, openings=True, axes=True, stair_note=True):
         level_index = level.get('index', 1)
         pts = self.level_polygon(level)
         walls = [w for w in self.p.get('walls', []) if int(w.get('level', w.get('floor', 1))) == int(level_index)]
@@ -796,7 +862,7 @@ class Album:
                 text(c, ('Д' if op.get('type') == 'door' else 'О') + ' ' + number(width * 1000, 0), (op_a[0] + op_b[0]) / 2 + 2, (op_a[1] + op_b[1]) / 2 + 7, 6.5, color=BLUE)
         stair = self.p.get('staircase') or {}
         if stair and int(level_index) in (int(stair.get('levelFrom', 1)), int(stair.get('levelTo', 2))):
-            self.draw_stair_plan(c, stair, fn)
+            self.draw_stair_plan(c, stair, fn, show_note=stair_note)
         return fn, scale
 
     def draw_floorplan(self, c, level, index):
@@ -896,22 +962,54 @@ class Album:
                 polygon(c, [(xx - 4, y + 19), (xx + 4, y + 19), (xx, y + 25)], INK, None)
                 text(c, station.get('pileId', '-'), xx - 16, y + 7, 6, 'Mono')
             joints = [q for q in self.gr.get('joints', []) if q.get('beamId') == beam.get('id')]
-            text(c, f'Фактические стыки: {len(joints)}; опоры и станции показаны пунктиром. Полные ID досок - в спецификации.', x + 14, y + 39, 7, color=MUTED)
+            text(c, f'Фактические стыки: {len(joints)}; опоры и станции показаны пунктиром. Полные ID досок - во внешнем CSV/JSON.', x + 14, y + 39, 7, color=MUTED)
 
     def draw_floorframing(self, c, level, index):
-        fn, scale = self.draw_plan_base(c, level, (40, 135, 870, H - 245), rooms=False, openings=False)
+        fn, scale = self.draw_plan_base(c, level, (40, 135, 870, H - 245), rooms=False, openings=False, stair_note=False)
+        platform = self.r.get('floorPlatform') or {}
+        bearing_lines = [support for support in (platform.get('supports') or []) if int(support.get('level', 1)) == int(level.get('index', 1))]
+        spans = [span for span in (platform.get('spans') or []) if int(span.get('level', 1)) == int(level.get('index', 1))]
+        for support in bearing_lines:
+            if support.get('a') is not None and support.get('b') is not None:
+                line(c, fn(xy(support['a'])), fn(xy(support['b'])), SUPPORT, 2, [6, 3])
         members = [m for m in self.members if m.get('category') == 'floor' and int(m.get('floor', m.get('level', 1))) == int(level.get('index', 1))]
+        labelled_groups = set()
         for j, m in enumerate(members):
             if not m.get('start') or not m.get('end'):
                 continue
             a, b = fn(xy(m['start'])), fn(xy(m['end']))
             is_opening = bool(m.get('voidId')) or clean(m.get('role')).startswith('opening')
             color = ORANGE if is_opening or 'void' in clean(m.get('role')).lower() or 'header' in clean(m.get('role')).lower() else WOOD_DARK
+            if m.get('role') == 'rimJoist':
+                color = GREEN
+            elif m.get('role') == 'floorBlocking':
+                color = BLUE
             line(c, a, b, color, max(1.2, min(5, finite(m.get('b'), 50) / 1000 * scale)))
-            if is_opening or len(members) < 50 or j % 2 == 0:
+            group_id = self.marks.get(str(m.get('id')), str(m.get('id')))
+            label_key = (group_id, m.get('role'))
+            if label_key not in labelled_groups:
+                labelled_groups.add(label_key)
                 xx, yy = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
-                text(c, self.marks.get(str(m.get('id')), ''), xx + 3, yy + 3, 6, 'Mono', color)
+                label_x, label_y = xx + 3, yy + 3
+                if is_opening:
+                    void = next((v for v in self.p.get('voids', []) if v.get('id') == m.get('voidId')), {})
+                    poly = [xy(p) for p in void.get('polygon', [])]
+                    if poly:
+                        low_x, low_y, high_x, high_y = bounds(poly)
+                        center = fn(((low_x + high_x) / 2, (low_y + high_y) / 2))
+                        if abs(b[1] - a[1]) >= abs(b[0] - a[0]):
+                            label_x = xx - pdfmetrics.stringWidth(group_id, 'Mono', 6) - 5 if xx <= center[0] else xx + 5
+                        else:
+                            label_y = yy - 11 if yy <= center[1] else yy + 7
+                text(c, group_id, label_x, label_y, 6, 'Mono', color)
+        for span in spans:
+            for endpoint in ('supportStart', 'supportEnd'):
+                support = span.get(endpoint) or {}
+                if support.get('point') is not None:
+                    xx, yy = fn(xy(support['point']))
+                    c.setFillColor(SUPPORT); c.circle(xx, yy, 1.8, fill=1, stroke=0)
         marked = set()
+        labelled_support_sources = set()
         for member in (self.r.get('floorOpenings') or {}).get('instances', []):
             if int(member.get('floor', member.get('level', 1))) != int(level.get('index', 1)):
                 continue
@@ -927,13 +1025,29 @@ class Album:
                 xx, yy = fn(point)
                 c.setFillColor(colors.white); c.setStrokeColor(BLUE); c.circle(xx, yy, 3.5, fill=1, stroke=1)
                 label = self.wall_names.get(str(support.get('wallId'))) or self.marks.get(str(support.get('memberId')), '')
-                text(c, label, xx + 5, yy - 9, 5.8, color=BLUE)
+                source = support.get('sourceId') or support.get('wallId') or support.get('memberId')
+                already_marked_group = label.startswith('FG') and any(key[0] == label for key in labelled_groups)
+                if source not in labelled_support_sources and not already_marked_group:
+                    labelled_support_sources.add(source)
+                    text(c, label, xx + 5, yy - 9, 5.8, color=BLUE)
         x, y = 950, H - 145
         text(c, 'ПЕРЕКРЫТИЕ', x, y, 11, 'Bold', GREEN); y -= 30
         grouped = collections.Counter((m.get('b'), m.get('h'), m.get('role')) for m in members)
         for (b, h, role), count in grouped.items():
             y = text(c, f'{ROLE.get(role, role)}\n{b} × {h} мм · {count} шт.', x, y, 8.5, width=190) - 18
-        text(c, 'Оранжевым - обрамление пустот. Синие кружки - переданные моделью опоры. Сдвоенные элементы показаны по фактическим осям.', x, max(180, y - 10), 8, color=MUTED, width=190)
+        stair = self.p.get('staircase') or {}
+        if stair and int(level.get('index', 1)) in (int(stair.get('levelFrom', 1)), int(stair.get('levelTo', 2))):
+            y = text(c, f'Лестница: {clean(stair.get("risers", "-"))} подъёмов; h={number(finite(stair.get("riser")) * 1000, 1)} мм; проступь {number(finite(stair.get("tread")) * 1000, 0)} мм.', x, y - 5, 7.5, color=BLUE, width=190) - 18
+        y = min(y - 10, 280)
+        for label, color in [('Обвязка перекрытия', GREEN), ('Поперечные распорки', BLUE), ('Лаги', WOOD_DARK), ('Обрамление проёмов', ORANGE)]:
+            line(c, (x, y + 3), (x + 18, y + 3), color, 3)
+            text(c, label, x + 25, y, 7.5, color=color); y -= 20
+        if platform:
+            line(c, (x, y + 3), (x + 18, y + 3), SUPPORT, 2, [4, 2])
+            text(c, 'Несущие линии: ' + str(len(bearing_lines)), x + 25, y, 7.5, color=SUPPORT); y -= 20
+            text(c, 'Пролёты по модели: ' + str(len(spans)) + '. Опоры обрамления: ' + str(len(marked)) + ' мест. Показана геометрия опор; соединения и передача усилий подтверждаются отдельно.', x, y - 8, 7.5, color=MUTED, width=190)
+        else:
+            text(c, 'Опорная модель платформы не передана. Опоры обрамления: ' + str(len(marked)) + ' мест; соединения требуют подтверждения.', x, y - 8, 7.5, color=MUTED, width=190)
 
     def wall_members(self, wall):
         wid = str(wall.get('id'))
@@ -993,10 +1107,10 @@ class Album:
             groups = collections.Counter((m.get('b'), m.get('h'), m.get('role')) for m in members)
             for (mb, mh, role), count in list(groups.items())[:9]:
                 sy = text(c, f'{mb} × {mh} · {ROLE.get(role, role)} · {count} шт.', sx, sy, 7.5, width=250) - 6
-            text(c, f'Всего {len(members)} физических деталей.\nКрасным - переданные геометрические выборки.\nМарки и полные ID - в спецификации.', sx, y + 49, 7, color=MUTED, width=250)
+            text(c, f'Всего {len(members)} физических деталей.\nКрасным - переданные геометрические выборки.\nFG - группа; точные ID и позиции - в CSV/JSON.', sx, y + 49, 7, color=MUTED, width=250)
 
     def draw_roofplan(self, c, data, index):
-        pts = [xy(p) for s in self.roof.get('surfaces', []) for p in s.get('points', [])] + self.level_polygon()
+        pts = [xy(p) for s in self.roof.get('surfaces', []) for p in s.get('points', [])] + self.level_polygon() + [xy(p) for z in self.roof.get('zones', []) for p in z.get('coverPolygon', [])]
         fn, scale = transform(pts, (45, 135, 800, H - 245), 45)
         polygon(c, [fn(p) for p in self.level_polygon()], None, LINE, 1)
         palette = [colors.HexColor(s) for s in ('#d9e5c7', '#e8d5b6', '#cddfe5', '#e0d7e8')]
@@ -1004,6 +1118,33 @@ class Album:
         for surface in self.roof.get('surfaces') or []:
             zi = next((j for j, z in enumerate(zones) if z.get('id') == surface.get('zoneId')), 0)
             polygon(c, [fn(xy(p)) for p in surface.get('points', [])], palette[zi % len(palette)], colors.white, .5)
+        for zone in zones:
+            bearing = [xy(p) for p in (zone.get('bearingPolygon') or zone.get('polygon') or [])]
+            cover = [xy(p) for p in (zone.get('coverPolygon') or [])]
+            c.setDash([5, 3]); polygon(c, [fn(p) for p in bearing], None, INK, .7); c.setDash([])
+            if cover:
+                polygon(c, [fn(p) for p in cover], None, GREEN, 1.3)
+            overhangs = zone.get('overhangs') or {}
+            angle = math.radians(finite(zone.get('ridgeAngle')))
+            u, v = (math.cos(angle), math.sin(angle)), (-math.sin(angle), math.cos(angle))
+            local = [(p[0] * u[0] + p[1] * u[1], p[0] * v[0] + p[1] * v[1]) for p in bearing]
+            lo_u, lo_v, hi_u, hi_v = bounds(local)
+            edges = list(zip(bearing, bearing[1:] + bearing[:1]))
+            for key, axis, target, direction in [('low', 1, lo_v, (-v[0], -v[1])), ('high', 1, hi_v, v), ('start', 0, lo_u, (-u[0], -u[1])), ('end', 0, hi_u, u)]:
+                distance = optional_number(overhangs.get(key))
+                if distance is None or distance <= 0:
+                    continue
+                candidates = []
+                for edge_a, edge_b in edges:
+                    aa = edge_a[0] * (u if axis == 0 else v)[0] + edge_a[1] * (u if axis == 0 else v)[1]
+                    bb = edge_b[0] * (u if axis == 0 else v)[0] + edge_b[1] * (u if axis == 0 else v)[1]
+                    if abs(aa - target) < 1e-5 and abs(bb - target) < 1e-5:
+                        candidates.append((math.dist(edge_a, edge_b), edge_a, edge_b))
+                if candidates:
+                    _, aa, bb = max(candidates)
+                    start = ((aa[0] + bb[0]) / 2, (aa[1] + bb[1]) / 2)
+                    end = (start[0] + direction[0] * distance, start[1] + direction[1] * distance)
+                    dimension(c, fn(start), fn(end), 11, number(distance * 1000, 0))
         for ridge in self.roof.get('ridges') or []:
             line(c, fn(xy(ridge.get('start'))), fn(xy(ridge.get('end'))), GREEN, 2)
         drainage = self.roof.get('drainage') or {}
@@ -1023,7 +1164,9 @@ class Album:
             y -= 29
             y = text(c, f'К{j + 1} · {zone.get("name", zone.get("id"))}', x, y, 9, 'Bold', width=240) - 9
             y = text(c, f'{zone.get("shape")} / {zone.get("effectiveFraming", "-")}\nУклоны {number(zone.get("pitchLeft"), 1)}° / {number(zone.get("pitchRight"), 1)}°\nНаправление конька {number(zone.get("ridgeAngle"), 1)}°\nПоверхность {number(zone.get("surfaceArea"), 2)} м²', x, y, 8, width=240) - 13
-        self.note(c, 'Синий - направление стока / карнизы; зелёный - коньки; оранжевый - ендовы; красный - примыкания к стенам. Узлы гидроизоляции требуют системы производителя.', y=105)
+            if zone.get('overhangs'):
+                y = text(c, 'Свесы низ / верх / начало / конец: ' + ' / '.join(number(finite(zone['overhangs'].get(key)) * 1000, 0) for key in ('low', 'high', 'start', 'end')) + ' мм по горизонтали.', x, y, 7.5, width=240) - 13
+        self.note(c, 'Пунктир - опорный контур; зелёный контур - покрытие со свесами. Синие стрелки - сток; оранжевый - ендовы; красный - примыкания. Размеры свесов - переданные горизонтальные значения.', y=105)
 
     def draw_roofsections(self, c, zones, index):
         for j, zone in enumerate(zones or []):
@@ -1464,6 +1607,40 @@ class Album:
         if not rows:
             text(c, 'Данные отсутствуют в исходном отчёте.', 48, y - 24, 9, color=ORANGE)
 
+    def draw_partgroups(self, c, data, index):
+        self.draw_table(c, data, index)
+        columns, rows, size = data
+        groups = {g.get('id'): g for g in self.part_groups}
+        y = H - 153
+        width = (W - 84) * columns[0][1] - 17
+        for row, rh in rows:
+            group = groups.get(clean(row[0]).strip(), {})
+            shape = group.get('geometry') or {}
+            x, yy = 49, y - 24
+            skew_a = 4 if (shape.get('cutStart') or {}).get('scheme') == 'miter' else 0
+            skew_b = 4 if (shape.get('cutEnd') or {}).get('scheme') == 'miter' else 0
+            polygon(c, [(x, yy), (x + width, yy), (x + width - skew_b, yy + 6), (x + skew_a, yy + 6)], WOOD, WOOD_DARK, .5)
+            length = max(.0001, finite(group.get('cutLength')))
+            for end_key, at_start in [('cutStart', True), ('cutEnd', False)]:
+                end = shape.get(end_key) or {}
+                lap = min(width, max(0, finite(end.get('lapLength')) / length * width))
+                if end.get('scheme') in ('halfLap', 'half-lap') and lap > 0:
+                    lx = x if at_start else x + width - lap
+                    ly = yy + 3 if end.get('lapSide') == 'top' else yy
+                    c.setFillColor(colors.white); c.setStrokeColor(WOOD_DARK); c.rect(lx, ly, lap, 3, fill=1, stroke=1)
+                elif end.get('scheme') == 'scarf' and lap > 0:
+                    edge = x if at_start else x + width
+                    inner = edge + lap if at_start else edge - lap
+                    removed = [(edge, yy), (edge, yy + 6), (inner, yy + 6)] if end.get('lapSide') == 'top' else [(edge, yy), (edge, yy + 6), (inner, yy)]
+                    polygon(c, removed, colors.white, WOOD_DARK, .5)
+            for notch in shape.get('notches') or []:
+                points = notch.get('polygon') or []
+                stations = [p[0] for p in points if isinstance(p, list) and len(p) >= 3]
+                if stations:
+                    a, b = min(stations), max(stations)
+                    c.setFillColor(RED); c.rect(x + max(0, a / length) * width, yy + 2, max(1, min(1, b / length) * width - max(0, a / length) * width), 4, fill=1, stroke=0)
+            y -= rh
+
     def draw_estimate(self, c, data, index):
         x, y = 55, H - 155
         text(c, 'ИТОГО ПО ОТЧЁТУ', x, y, 12, 'Bold', GREEN)
@@ -1500,7 +1677,7 @@ class Album:
             if left_notes_y < 135:
                 break
             left_notes_y = text(c, clean(note), 43, left_notes_y, 7.8, color=MUTED, width=560) - 7
-        self.note(c, 'В приложении далее приведены ВСЕ исходные доски и ВСЕ размещённые детали, включая продолжения длинных карт.', y=107, color=GREEN)
+        self.note(c, 'Далее приведены все повторяемые схемы с количеством исходных досок. Каждая деталь и stock ID точно сопоставлены группам во внешних CSV и JSON.', y=107, color=GREEN)
 
     def draw_cutcards(self, c, cards, index):
         w, h = (W - 112) / 2, 297
@@ -1540,6 +1717,43 @@ class Album:
                 yy -= 22
             if len(pieces) < 8:
                 text(c, 'Остаток: ' + ('для повторного использования' if stock.get('reusable') else 'короткий / не отнесён к пригодным'), x + 13, y + 10, 6.5, color=GREEN if stock.get('reusable') else MUTED)
+
+    def draw_patterncards(self, c, cards, index):
+        w, h = (W - 112) / 2, 198
+        for card_index, (pattern, offset, pieces) in enumerate(cards or []):
+            x = 43 + (card_index % 2) * (w + 26)
+            y = H - 116 - h - (card_index // 2) * (h + 12)
+            c.setFillColor(PAPER); c.setStrokeColor(LINE); c.roundRect(x, y, w, h, 5, fill=1, stroke=1)
+            text(c, pattern.get('id'), x + 12, y + h - 20, 12, 'Mono', GREEN)
+            text(c, '× ' + clean(pattern.get('count')) + ' шт.', x + 98, y + h - 20, 11, 'Bold')
+            text(c, clean(pattern.get('section')) + ' мм · 6 000 мм' + (' · продолжение' if offset else ''), x + 250, y + h - 20, 8, 'Bold')
+            text(c, 'Пропил ' + number(pattern.get('kerfWaste'), 3) + ' м · остаток ' + number(pattern.get('remainder'), 3) + ' м на доску', x + 12, y + h - 38, 7.4, color=MUTED)
+            bx, by, bw = x + 12, y + h - 68, w - 24
+            c.setFillColor(colors.HexColor('#e1e5df')); c.rect(bx, by, bw, 18, fill=1, stroke=0)
+            for j, p in enumerate(pattern.get('pieces') or []):
+                sx = bx + finite(p.get('start')) / 6 * bw
+                ex = bx + finite(p.get('end')) / 6 * bw
+                c.setFillColor(WOOD if j % 2 == 0 else LIME); c.setStrokeColor(colors.white); c.rect(sx, by, max(.2, ex - sx), 18, fill=1, stroke=1)
+                if ex - sx > 39:
+                    text(c, p.get('partGroupId'), sx + 3, by + 6, 7, 'Mono')
+                elif ex - sx > 10:
+                    text(c, j + 1, sx + 2, by + 6, 6.5, 'Bold')
+                if j < len(pattern.get('pieces') or []) - 1:
+                    line(c, (ex, by), (ex, by + 18), RED, .8)
+            yy = by - 16
+            text(c, '№ / ГРУППА', x + 12, yy, 6.8, 'Bold', MUTED)
+            text(c, 'НАЧАЛО → КОНЕЦ, ММ', x + 150, yy, 6.8, 'Bold', MUTED)
+            text(c, 'ДЛИНА, ММ', x + w - 92, yy, 6.8, 'Bold', MUTED)
+            yy -= 15
+            for j, piece in enumerate(pieces):
+                text(c, f'{offset + j + 1:02d}  {clean(piece.get("partGroupId"))}', x + 12, yy, 7.5, 'Mono')
+                text(c, number(finite(piece.get('start')) * 1000, 1) + ' → ' + number(finite(piece.get('end')) * 1000, 1), x + 150, yy, 7.5, 'Mono')
+                text(c, number(finite(piece.get('length')) * 1000, 1), x + w - 92, yy, 7.5, 'Mono')
+                yy -= 14
+            ids = 'Исходные: ' + self.compressed_ids(pattern.get('stockIds'))
+            if len(wrap(ids, w - 24, 'Body', 7)) > 2:
+                ids = f'Все {pattern.get("count")} stock ID: fabrication-stocks.csv / JSON.'
+            text(c, ids, x + 12, y + 21, 7, color=MUTED, width=w - 24, leading=9)
 
 
 def main():

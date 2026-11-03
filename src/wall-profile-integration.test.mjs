@@ -2,6 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {calculateDesigner,defaultDesignerProject} from './designer-engine.js';
 import {calculateRoofZones} from './roof-zones.js';import {calculateCutting} from './cutting.js';
 import {checkDesignerMembers} from './designer-mechanics.js';
+import {deriveWallProfiles} from './wall-profiles.js';
 const clone=x=>JSON.parse(JSON.stringify(x));
 const near=(a,b,t=1e-6)=>assert.ok(Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<t,`${a} ≠ ${b}`);
 function project(span=4,pitch=25){
@@ -10,6 +11,16 @@ function project(span=4,pitch=25){
 }
 function calculate(p){const base=calculateDesigner(p),roof=calculateRoofZones(p,base),result=calculateDesigner(p,{roofModel:roof});return {p,base,roof,result,cutting:calculateCutting(p,result)};}
 const profiles=r=>r.geometry.wallProfiles??[];
+
+test('unequal eave reactions reach the correct high and low bearing walls without moving walls to the cover outline',()=>{
+  const p=project(),base=calculateDesigner(p),roof=calculateRoofZones(p,base),zone=roof.zones[0];
+  zone.rafterAnalysis.reactions={verticalA:9,verticalB:3,serviceVerticalA:6,serviceVerticalB:2};
+  zone.bearingPolygon=structuredClone(zone.polygon);zone.bearingBounds=structuredClone(zone.bounds);zone.coverPolygon=[{x:-.4,y:-.2},{x:6.3,y:-.2},{x:6.3,y:4.6},{x:-.4,y:4.6}];
+  const r=deriveWallProfiles(p,base,roof),high=r.find(w=>w.wallId==='w0'),low=r.find(w=>w.wallId==='w2'),spacing=zone.actualSpacing||zone.spacing;
+  near(high.roofReactionLine.design,3/spacing);near(low.roofReactionLine.design,9/spacing);
+  near(high.roofReactionLine.service,2/spacing);near(low.roofReactionLine.service,6/spacing);
+  near(high.highTop-low.highTop,4*Math.tan(25*Math.PI/180));
+});
 const profileFor=(r,id)=>profiles(r).find(p=>p.wallId===id&&p.level===1);
 function topAt(profile,wall,board){
   const dx=wall.b.x-wall.a.x,dz=wall.b.y-wall.a.y,L=Math.hypot(dx,dz),s=((board.start[0]-wall.a.x)*dx+(board.start[2]-wall.a.y)*dz)/L;

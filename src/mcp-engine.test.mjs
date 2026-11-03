@@ -13,6 +13,16 @@ import {generateHouse} from './house-generator.js';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const near=(a,b,t=1e-7)=>assert.ok(Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<t,`${a} ≠ ${b}`);
 
+test('invalid overhang transactions never commit and valid independent horizontal eaves preserve the bearing polygon',async t=>{
+ const dataDir=await mkdtemp(path.join(tmpdir(),'karkas-overhang-input-'));t.after(()=>rm(dataDir,{recursive:true,force:true}));
+ const engine=createHouseEngine({dataDir}),created=await engine.generate({width:6,depth:4,roof:{shape:'mono',pitch:20,framing:'rafters'}}),id=created.project_id;
+ for(const value of [null,[],{low:-.1},{high:2.1},{start:'0.3'},{end:null},{left:.4},{low:NaN}])await assert.rejects(engine.patch(id,1,[{op:'add',path:'/roof/overhangs',value}]),e=>['INVALID_PROJECT','INVALID_INPUT'].includes(e.code));
+ assert.equal((await engine.get(id)).revision,1);
+ const before=await engine.analyze(id),updated=await engine.patch(id,1,[{op:'add',path:'/roof/overhangs',value:{low:.6,high:.2,start:0,end:0}}]);
+ assert.equal(updated.revision,2);const after=await engine.analyze(id);
+ assert.deepEqual(after.result.geometry.polygon,before.result.geometry.polygon);assert.equal(after.project.roof.overhangs.low,.6);assert.equal(after.project.roof.overhangs.high,.2);
+});
+
 test('report preserves source planning so revision hash remains reproducible after room derivation',()=>{
   const {project,planning}=generateHouse({width:8,depth:4});
   planning.stale=true;planning.rooms=[{id:'old',name:'Старая комната',area:100,level:1}];

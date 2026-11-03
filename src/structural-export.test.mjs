@@ -51,9 +51,9 @@ test('real MCP exports the complete Cyrillic A3 structural album for a two-store
   async function call(name,args){const response=await client.callTool({name:'karkas_'+name,arguments:args},{timeout:90000});assert.notEqual(response.isError,true,`${name}: ${JSON.stringify(response.structuredContent)}\n${stderr}`);assert.ok(response.structuredContent);return response.structuredContent;}
   const name='QA Г-образный дом со вторым светом',generated=await call('generate',{name,template:'l-shape',width:12,depth:9,wingWidth:8,wingDepth:5,levels:[{height:2.8},{height:2.6,footprint:[{x:0,y:0},{x:8,y:0},{x:8,y:5},{x:0,y:5}]}],secondLight:{level:2,polygon:[{x:2,y:1},{x:4,y:1},{x:4,y:4},{x:2,y:4}]},roof:{shape:'gable',pitch:25,framing:'auto'},sections:{walls:'50x150',floor:'50x250',roof:'50x200',grillage:'50x200'},foundation:{spacing:2,capacity:40,grillage:{plies:3}},bracing:{method:'sheathing'}});
   assert.equal(generated.revision,1);assert.equal(generated.summary.certified,false);
-  const exported=await call('export',{project_id:generated.project_id,revision:1,formats:['report_json','structural_pdf']});assert.equal(exported.revision,1);assert.equal(exported.hash,generated.hash);
+  const exported=await call('export',{project_id:generated.project_id,revision:1,formats:['report_json','structural_pdf','fabrication_parts_csv','fabrication_stocks_csv']});assert.equal(exported.revision,1);assert.equal(exported.hash,generated.hash);
   const pdf=exported.artifacts.find(a=>a.format==='structural_pdf'),json=exported.artifacts.find(a=>a.format==='report_json');assert.ok(pdf);assert.ok(json);assert.match(pdf.path,/\.pdf$/i);
-  for(const artifact of [pdf,json]){const relative=path.relative(dataDir,artifact.path);assert.ok(!relative.startsWith('..')&&!path.isAbsolute(relative));const bytes=await readFile(artifact.path);assert.equal(bytes.length,artifact.bytes);assert.equal(createHash('sha256').update(bytes).digest('hex'),artifact.sha256);}
+  for(const artifact of exported.artifacts){const relative=path.relative(dataDir,artifact.path);assert.ok(!relative.startsWith('..')&&!path.isAbsolute(relative));const bytes=await readFile(artifact.path);assert.equal(bytes.length,artifact.bytes);assert.equal(createHash('sha256').update(bytes).digest('hex'),artifact.sha256);}
   const bytes=await readFile(pdf.path);assert.ok(bytes.length>20000,'An entire construction album must contain more than an empty PDF shell');assert.equal(bytes.subarray(0,5).toString(),'%PDF-');
   const report=JSON.parse(await readFile(json.path,'utf8'));assert.equal(report.engine.projectId,generated.project_id);assert.equal(report.engine.revision,1);assert.equal(report.engine.hash,generated.hash);
   const geometry=report.result.geometry;assert.equal(geometry.levels.length,2);assert.equal(geometry.levels[0].polygon.length,6);assert.equal(geometry.levels[0].area,92);assert.equal(geometry.levels[1].voidArea,6);assert.equal(geometry.levels[1].netFloorArea,34);assert.equal(geometry.totalFloorArea,126);
@@ -63,8 +63,11 @@ test('real MCP exports the complete Cyrillic A3 structural album for a two-store
   assert.ok((text.match(/[А-Яа-яЁё]/g)||[]).length>100,'Cyrillic labels must extract as Unicode text');assert.equal(text.includes('\uFFFD'),false);assert.ok(compact.includes(name.replace(/\s+/g,'')));assert.ok(compact.includes(generated.hash),'The full revision hash must be printed in the album');
   for(const heading of ['КР · расчётная проработка','НЕ РАБОЧАЯ ДОКУМЕНТАЦИЯ','Свайное поле','Ростверк','Полная карта раскроя 6 м'])assert.ok(compact.includes(heading.replace(/\s+/g,'')),`Missing album section: ${heading}`);
   const stocks=report.cutting.stocks,boards=report.result.timber.instances;assert.ok(stocks.length>20);assert.ok(boards.length>100);
-  for(const stock of stocks)assert.ok(compact.includes(stock.id.replace(/\s+/g,'')),`Missing physical stock blank ${stock.id}`);
-  for(const board of boards)assert.ok(compact.includes(board.id.replace(/\s+/g,'')),`Missing physical member ${board.id}`);
+  const fabrication=report.fabrication;assert.ok(fabrication);assert.equal(fabrication.partGroups.reduce((s,g)=>s+g.count,0),boards.length);assert.equal(fabrication.patternGroups.reduce((s,g)=>s+g.count,0),stocks.length);
+  for(const group of [...fabrication.partGroups,...fabrication.patternGroups])assert.ok(compact.includes(group.id),'Missing grouped fabrication mark '+group.id);
+  const partsCSV=await readFile(exported.artifacts.find(a=>a.format==='fabrication_parts_csv').path,'utf8'),stocksCSV=await readFile(exported.artifacts.find(a=>a.format==='fabrication_stocks_csv').path,'utf8');
+  for(const board of boards)assert.ok(partsCSV.includes(board.id),'Missing exact physical part mapping '+board.id);
+  for(const stock of stocks)assert.ok(stocksCSV.includes(stock.id),'Missing exact stock mapping '+stock.id);
   assert.equal((await call('get_project',{project_id:generated.project_id})).revision,1,'Export must preserve the source revision');
   t.diagnostic(`Verified ${inspection.pages} A3 pages, ${stocks.length} stock IDs, ${boards.length} physical member IDs, ${pdf.bytes} PDF bytes and SHA256 ${pdf.sha256}`);
 });

@@ -3,7 +3,7 @@ const sum=a=>a.reduce((s,x)=>s+x,0);
 const finite=n=>typeof n==='number'&&Number.isFinite(n);
 const dist=(a,b)=>Math.hypot(...a.map((x,i)=>x-b[i]));
 const section=s=>{const m=typeof s==='string'&&s.match(/^(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)$/);return m?{b:+m[1],h:+m[2]}:null;};
-const safeStatus=u=>u>1?'fail':'pass';
+const safeStatus=u=>!finite(u)?'unverified':u>1?'fail':'pass';
 
 /** Join physical stock pieces back into their original straight logical member. */
 export function logicalMembers(instances,role){
@@ -14,7 +14,7 @@ export function logicalMembers(instances,role){
   return [...groups].map(([id,parts])=>{
     const first=parts.find(b=>dist(b.start,b.end)>1e-8)||parts[0],L=dist(first.start,first.end),u=first.end.map((x,i)=>(x-first.start[i])/L);
     const points=parts.flatMap(b=>[b.start,b.end]),projections=points.map(p=>sum(p.map((x,i)=>(x-first.start[i])*u[i]))),min=Math.min(...projections),max=Math.max(...projections);
-    return {id,parts,start:first.start.map((x,i)=>x+u[i]*min),end:first.start.map((x,i)=>x+u[i]*max),length:max-min,b:first.b,h:first.h,mass:sum(parts.map(b=>b.mass??0)),spliced:parts.length>1,wallId:first.wallId,floor:first.floor};
+    return {id,parts,start:first.start.map((x,i)=>x+u[i]*min),end:first.start.map((x,i)=>x+u[i]*max),length:max-min,b:first.b,h:first.h,mass:sum(parts.map(b=>b.mass??0)),spliced:parts.length>1,wallId:first.wallId,floor:first.floor,analyticalSpan:first.analyticalSpan,supportStart:first.supportStart,supportEnd:first.supportEnd,supportStatus:first.supportStatus,actualSpacing:first.actualSpacing,tributaryWidth:first.tributaryWidth,platformSpanId:first.platformSpanId,geometricUnbracedLength:first.geometricUnbracedLength};
   });
 }
 
@@ -37,26 +37,30 @@ export function checkDesignerMembers(p,r){
   const levels=r?.geometry?.levels??[],netFloorArea=finite(r?.geometry?.totalFloorArea)?r.geometry.totalFloorArea:area*F;
   const floorWoodPressure=hasArea&&netFloorArea>0?(r.timber?.totals?.floor?.weight??0)/netFloorArea:0;
   const spacing=p.floor?.spacing??.6;
-  const lineService=((p.loads.floorDead??0)+floorWoodPressure+(p.loads.live??0))*spacing;
-  const lineDesign=(((p.loads.floorDead??0)+floorWoodPressure)*gammaG+(p.loads.live??0)*gammaQ)*spacing;
+  const floorPressureFor=m=>{const level=levels.find(l=>l.index===m.floor);return level&&level.netFloorArea>0?sum(instances.filter(b=>b.category==='floor'&&b.floor===m.floor).map(b=>b.mass??0))*9.80665/1000/level.netFloorArea:floorWoodPressure;};
   const joists=hasArea?logicalMembers(instances,'joist').filter(m=>m.length>0&&m.b>0&&m.h>0).map(m=>{
-    const I=m.b*m.h**3/12,Z=m.b*m.h**2/6,L=m.length*1000,M=lineDesign*m.length**2/8,V=lineDesign*m.length/2;
+    const span=finite(m.analyticalSpan)?m.analyticalSpan:m.length,tributaryWidth=m.tributaryWidth??m.actualSpacing??spacing,woodPressure=floorPressureFor(m);
+    const lineService=((p.loads.floorDead??0)+woodPressure+(p.loads.live??0))*tributaryWidth,lineDesign=(((p.loads.floorDead??0)+woodPressure)*gammaG+(p.loads.live??0)*gammaQ)*tributaryWidth;
+    if(m.supportStatus&&m.supportStatus!=='pass')return {...m,span,floorWoodPressure:woodPressure,lineLoadService:lineService,lineLoadDesign:lineDesign,utilization:null,status:'unverified',numericChecksApplicable:false,note:'Не подтверждены обе геометрические опоры; шарнирная модель не выдаётся за проверку этого элемента.'};
+    const I=m.b*m.h**3/12,Z=m.b*m.h**2/6,L=span*1000,M=lineDesign*span**2/8,V=lineDesign*span/2;
     const stress=M*1e6/Z,deflection=5*lineService*L**4/(384*E*I),deflectionAllowed=L/300,shearStress=1.5*V*1000/(m.b*m.h);
     const bendingUtilization=stress/Fb,deflectionUtilization=deflection/deflectionAllowed,shearUtilization=shearStress/Fv;
     const maxSpanBending=lineDesign>0?Math.sqrt(8*Fb*Z/(lineDesign*1e6)):Infinity;
     const maxSpanDeflection=lineService>0?Math.cbrt(384*E*I/(5*lineService*300))/1000:Infinity;
     const maxSpanShear=lineDesign>0?2*Fv*m.b*m.h/(1.5*lineDesign)/1000:Infinity;
     const utilization=Math.max(bendingUtilization,deflectionUtilization,shearUtilization);
-    return {...m,span:m.length,I,Z,lineLoadService:lineService,lineLoadDesign:lineDesign,moment:M,shear:V,stress,deflection,deflectionAllowed,shearStress,bendingUtilization,deflectionUtilization,shearUtilization,maxSpanBending,maxSpanDeflection,maxSpanShear,maxSpan:Math.min(maxSpanBending,maxSpanDeflection,maxSpanShear),utilization,status:safeStatus(utilization)};
+    return {...m,span,I,Z,floorWoodPressure:woodPressure,lineLoadService:lineService,lineLoadDesign:lineDesign,moment:M,shear:V,stress,deflection,deflectionAllowed,shearStress,bendingUtilization,deflectionUtilization,shearUtilization,maxSpanBending,maxSpanDeflection,maxSpanShear,maxSpan:Math.min(maxSpanBending,maxSpanDeflection,maxSpanShear),utilization,status:safeStatus(utilization),numericChecksApplicable:true};
   }):[];
-  const worstJoist=joists.length?joists.reduce((a,b)=>a.utilization>b.utilization?a:b):null;
-  const joist=worstJoist?{...worstJoist,members:joists,logicalCount:joists.length,stockPieces:joists.reduce((s,m)=>s+m.parts.length,0),floorWoodPressure,note:'Расчётная длина — полный логический пролёт; стыки не являются опорами.'}:null;
-  if(joist)checks.push(
+  const numericJoists=joists.filter(j=>j.numericChecksApplicable),unknownJoists=joists.filter(j=>!j.numericChecksApplicable);
+  const worstJoist=numericJoists.length?numericJoists.reduce((a,b)=>a.utilization>b.utilization?a:b):joists[0];
+  const joist=worstJoist?{...worstJoist,members:joists,logicalCount:joists.length,stockPieces:joists.reduce((s,m)=>s+m.parts.length,0),note:'Расчётная длина — между действительными опорами; физические торцы по граням обвязки, блокинг и стыки не сокращают этот пролёт.'}:null;
+  if(joist?.numericChecksApplicable)checks.push(
     {id:'designerJoistBending',label:'Балки: изгиб худшего пролёта',value:joist.stress,limit:Fb,unit:'МПа',utilization:joist.bendingUtilization,status:safeStatus(joist.bendingUtilization)},
     {id:'designerJoistDeflection',label:'Балки: мгновенный прогиб',value:joist.deflection,limit:joist.deflectionAllowed,unit:'мм',utilization:joist.deflectionUtilization,status:safeStatus(joist.deflectionUtilization)},
     {id:'designerJoistShear',label:'Балки: сдвиг',value:joist.shearStress,limit:Fv,unit:'МПа',utilization:joist.shearUtilization,status:safeStatus(joist.shearUtilization)},
   );
-  else checks.push({id:'designerJoists',label:'Балки перекрытия',status:'unverified',note:'Нет замкнутой площади или сформированных балок.'});
+  else checks.push({id:'designerJoists',label:'Балки перекрытия',status:'unverified',note:'Нет замкнутой площади или пролётов с двумя подтверждёнными геометрическими опорами.'});
+  if(unknownJoists.length)checks.push({id:'designerJoistSupports',label:'Лаги без подтверждённой опорной схемы',status:'unverified',value:unknownJoists.length,unit:'шт.',memberIds:unknownJoists.map(m=>m.id),note:'Частные шарнирные проверки этих элементов не выполняются. Требуется реальная опора и рабочий узел передачи нагрузки.'});
   const measuredWalls=(r.fullHeightWalls?.walls??[]).filter(w=>w.mode==='continuous'&&w.studs?.length),measuredIds=new Set(measuredWalls.map(w=>w.wallId));
   const bearingWalls=(p.walls??[]).filter(w=>w.kind!=='partition'&&!measuredIds.has(w.id)),bounds=r?.geometry?.bounds??{};
   const supportLength=Math.min(bounds.width??0,bounds.height??0);

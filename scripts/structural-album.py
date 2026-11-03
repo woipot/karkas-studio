@@ -438,6 +438,9 @@ class Album:
             if not isinstance(frame, dict):
                 continue
             zone_name = clean(zone.get('name', zone.get('id')))
+            collar = self.collar_lap_detail(zone)
+            if collar:
+                self.add('Кровля · накладной ригель · контакт широких граней', 'collarlap', collar, zone_name + '. Фактическая геометрия выбранной рамы. Нахлёст расположен сбоку; крепёж и пространственная работа соединения не подтверждены.')
             force_rows = self.roof_frame_force_rows(zone)
             if force_rows:
                 self.table_pages('Кровля · рамный расчёт 2D · усилия и прогибы', [('Участок / назначение', .23), ('Сечение, мм', .09), ('L оси, м', .07), ('|N|max, кН', .085), ('|V|max, кН', .085), ('|M|max, кНм', .09), ('δверт / δlim, мм', .12), ('η', .07), ('Статус', .16)], force_rows, zone_name + '. Усилия - расчётная нагрузка; вертикальный прогиб - эксплуатационная. Огибающие N/V/M не обязательно одновременны. Заготовки - по FG / раскрою.', 7.4)
@@ -1147,9 +1150,17 @@ class Album:
                 station += width * tangent if cut.get('plane') == 'width' else height * tangent * (1 if at_start else -1)
             return station
         if profile:
-            return [project(tuple(center[i] + u[i] * cut_station(finite(p[0]), finite(p[1]), 0) + depth[i] * finite(p[1]) for i in range(3))) for p in profile]
-        # Convex hull of the actual rectangular section's eight projected corners.
-        points = sorted(set(project(tuple(center[i] + u[i] * cut_station(s, h, w) + depth[i] * h + cross[i] * w for i in range(3))) for s in (-length / 2, length / 2) for h in (-finite(m.get('h')) / 2000, finite(m.get('h')) / 2000) for w in (-finite(m.get('b')) / 2000, finite(m.get('b')) / 2000)))
+            outline = [project(tuple(center[i] + u[i] * cut_station(finite(p[0]), finite(p[1]), 0) + depth[i] * finite(p[1]) for i in range(3))) for p in profile]
+            area = abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(outline, outline[1:] + outline[:1]))) / 2
+            width_ends = [project(tuple(center[i] + cross[i] * side * finite(m.get('b')) / 2000 for i in range(3))) for side in (-1, 1)]
+            if area > 1e-10 or math.dist(*width_ends) < 1e-10:
+                return outline
+            # A plan normal to a profile collapses its depth, but retains the
+            # real extrusion width; do not turn a 75 mm rafter into a centreline.
+            points = sorted(set(project(tuple(center[i] + u[i] * cut_station(finite(p[0]), finite(p[1]), width) + depth[i] * finite(p[1]) + cross[i] * width for i in range(3))) for p in profile for width in (-finite(m.get('b')) / 2000, finite(m.get('b')) / 2000)))
+        else:
+            # Convex hull of the actual rectangular section's eight projected corners.
+            points = sorted(set(project(tuple(center[i] + u[i] * cut_station(s, h, w) + depth[i] * h + cross[i] * w for i in range(3))) for s in (-length / 2, length / 2) for h in (-finite(m.get('h')) / 2000, finite(m.get('h')) / 2000) for w in (-finite(m.get('b')) / 2000, finite(m.get('b')) / 2000)))
         if len(points) < 3:
             return points
         def turn(a, b, c):
@@ -1848,6 +1859,34 @@ class Album:
         rows.append(['Граница подтверждения', '2D-модель по номинальным b × h. Податливость узлов, ослабление жёсткости запилами, крепёж, смятие и внеплоскостная устойчивость не подтверждены.'])
         return rows
 
+    def collar_lap_detail(self, zone):
+        candidates = []
+        for row in zone.get('frameRows') or []:
+            contacts = [connection for connection in row.get('lapConnections') or [] if isinstance(connection, dict) and len(connection.get('worldContactPolygon') or []) >= 3]
+            if contacts:
+                candidates.append((max(abs(finite(c.get('demandKN'))) for c in contacts), row, contacts))
+        if not candidates:
+            return None
+        _, row, contacts = max(candidates, key=lambda item: item[0])
+        member_ids = list(dict.fromkeys(str(member_id) for contact in contacts for member_id in contact.get('memberWorldIds') or []))
+        by_id = {str(member.get('id')): member for member in getattr(self, 'members', [])}
+        members = [by_id[member_id] for member_id in member_ids if member_id in by_id]
+        return {'zone': zone, 'row': row, 'contacts': contacts, 'members': members, 'memberIds': member_ids}
+
+    def collar_lap_snow_envelope(self, zone):
+        candidates = []
+        for case in (getattr(self, 'r', {}).get('snowAssessment') or {}).get('cases') or []:
+            for frame in case.get('frames') or []:
+                if frame.get('zoneId') != zone.get('id'): continue
+                for connection in frame.get('connections') or []:
+                    value = optional_number(connection.get('axisOffsetMomentScaleKNm'))
+                    if value is not None:
+                        candidates.append((abs(value), case, connection))
+        if not candidates: return None
+        value, case, connection = max(candidates, key=lambda item: item[0])
+        cases = list(dict.fromkeys(clean(item[1].get('id', item[1].get('name'))) for item in candidates if abs(item[0] - value) < 1e-9))
+        return {'connection': connection, 'caseIds': cases}
+
     def draw_roofsections(self, c, zones, index):
         for j, zone in enumerate(zones or []):
             expanded = len(zones or []) == 1 and bool(zone.get('frameAnalysis'))
@@ -1910,7 +1949,112 @@ class Album:
             else:
                 analysis = zone.get('analysis') or {}
                 sy = text(c, 'Типовая ферма: ' + clean(zone.get('trussType')) + '\nСтатус: ' + clean(analysis.get('status')) + '\nПрименимость: ' + ('типовая схема применима' if zone.get('analysisApplicable') else 'к обрезанным/частичным элементам не подтверждена'), sx, sy, 8, width=w * .31)
-            text(c, 'Проекция физических досок; совпадающие тела рам показаны один раз. Чистовые профили и скосы - по данным модели. Опорные узлы не рассчитаны.', sx, y + 40, 7.4, color=ORANGE, width=w * .31)
+            side_lap = any(member.get('role') == 'collarTie' and (member.get('collarConnection') == 'faceLap' or abs(finite(member.get('outOfPlaneOffset'))) > 1e-8) for member in members)
+            note = 'Ригель находится в боковой плоскости. Его перекрытие со стропилами на фронтальной проекции не означает объёмного пересечения древесины. Поперечная толщина и контакт - на отдельном листе узла; крепёж не рассчитан.' if side_lap else 'Проекция физических досок; совпадающие тела рам показаны один раз. Чистовые профили и скосы - по данным модели. Опорные узлы не рассчитаны.'
+            text(c, note, sx, y + 55 if side_lap else y + 40, 7.4, color=ORANGE, width=w * .31)
+
+    def draw_collarlap(self, c, detail, index):
+        zone, row, contacts, members = detail['zone'], detail['row'], detail['contacts'], detail['members']
+        angle = math.radians(finite(zone.get('ridgeAngle'))); cosine, sine = math.cos(angle), math.sin(angle)
+        front = lambda point: (-xyz(point)[0] * sine + xyz(point)[2] * cosine, xyz(point)[1])
+        plan = lambda point: (xyz(point)[0] * cosine + xyz(point)[2] * sine - finite(row.get('u')), -xyz(point)[0] * sine + xyz(point)[2] * cosine)
+        collar = next((member for member in members if member.get('role') == 'collarTie'), None)
+        x, y = 43, H - 139
+        text(c, 'ФРОНТАЛЬНАЯ ПРОЕКЦИЯ · ДВЕ БОКОВЫЕ ПЛОСКОСТИ', x, y, 9, 'Bold', GREEN)
+        text(c, 'Рама ' + str(int(finite(row.get('row'))) + 1) + ' · U=' + number(row.get('u'), 4) + ' м · выбран наибольший Nd среди переданных контактов зоны.', x, y - 18, 7.4, color=MUTED, width=719)
+        contact_front = [[front(point) for point in connection.get('worldContactPolygon') or []] for connection in contacts]
+        profiles = [(member, self.projected_member(member, front)) for member in members]
+        focus = [point for shape in contact_front for point in shape]
+        if collar:
+            focus += self.projected_member(collar, front)
+        if not focus or not profiles:
+            self.note(c, 'Физические доски или мировая геометрия контакта не переданы. Узел не достраивается по номинальным размерам.', y=600, color=ORANGE); return
+        lo_x, lo_y, hi_x, hi_y = bounds(focus)
+        front_box = (x, 411, 719, 256)
+        fn, _ = transform([(lo_x - .2, lo_y - .3), (hi_x + .2, hi_y + .3)], front_box, 15)
+        c.saveState(); clip = c.beginPath(); clip.rect(*front_box); c.clipPath(clip, stroke=0)
+        for member, shape in sorted(profiles, key=lambda item: 1 if item[0].get('role') == 'collarTie' else 0):
+            is_collar = member.get('role') == 'collarTie'
+            polygon(c, [fn(point) for point in shape], colors.Color(.74, .86, .72, alpha=.65) if is_collar else WOOD, GREEN if is_collar else WOOD_DARK, .9)
+        for shape in contact_front:
+            polygon(c, [fn(point) for point in shape], colors.Color(1, .57, .18, alpha=.45), ORANGE, 1.1)
+        c.restoreState()
+        for i, shape in enumerate(contact_front):
+            center = fn((sum(point[0] for point in shape) / len(shape), sum(point[1] for point in shape) / len(shape)))
+            label = (center[0], center[1] - 37)
+            line(c, center, label, ORANGE, .65); c.setFillColor(colors.white); c.setStrokeColor(ORANGE); c.circle(*label, 9, fill=1, stroke=1)
+            text(c, 'К' + str(i + 1), label[0] - 6, label[1] - 2.5, 7, 'Bold', ORANGE)
+        if collar:
+            collar_shape = self.projected_member(collar, front); a, b, d, e = bounds(collar_shape)
+            dimension(c, fn((d, b)), fn((d, e)), -21, number((e - b) * 1000, 0))
+        text(c, 'Оранжевым - фактические участки контакта широких граней. Совпадение силуэтов ригеля и стропил здесь намеренное: древесина находится в разных боковых плоскостях.', x, 390, 7.8, color=ORANGE, width=719)
+        tx, ty, tw = 799, y, W - 842
+        text(c, 'ФАКТИЧЕСКАЯ ДЕТАЛЬ', tx, ty, 10, 'Bold', GREEN); ty -= 28
+        if collar:
+            mark = self.marks.get(str(collar.get('id')), '-')
+            cuts = [collar.get('cutStart') or {}, collar.get('cutEnd') or {}]
+            ends = 'Прямые торцы 90°' if all(cut.get('scheme') == 'butt' and abs(finite(cut.get('angle'))) < 1e-8 for cut in cuts) else self.ends(*cuts)
+            for label, value in [('Марка / сечение', mark + ' · ' + clean(collar.get('b')) + ' × ' + clean(collar.get('h')) + ' мм'), ('Длина заготовки', number(finite(collar.get('cutLength', collar.get('length'))) * 1000, 2) + ' мм'), ('Торцы', ends)]:
+                text(c, label, tx, ty, 7.2, color=MUTED); ty = text(c, value, tx, ty - 17, 10, 'Bold', width=tw) - 22
+        marks = list(dict.fromkeys(self.marks.get(str(member.get('id')), '-') for member in members if member.get('role') == 'topChord'))
+        ty = text(c, 'Стропила: ' + ', '.join(marks) + '. Накладка установлена со стороны +U; исходные доски и контакты связаны мировыми IDs в JSON.', tx, ty - 2, 8, width=tw) - 21
+        badge(c, 'КРЕПЁЖ НЕ ПОДОБРАН', tx, ty, ORANGE)
+        note_bottom = text(c, 'N × e - масштаб эксцентриситета. Это не расчёт гвоздей, не жёсткость узла и не результат пространственной рамы.', tx, ty - 35, 8.5, 'Bold', ORANGE, width=tw)
+        envelope = self.collar_lap_snow_envelope(zone)
+        if envelope:
+            connection = envelope['connection']
+            text(c, 'Огибающая снеговых сценариев зоны: ' + ', '.join(envelope['caseIds']) + '. Nd=' + number(connection.get('demandKN'), 3) + ' кН; N × e=' + number(connection.get('axisOffsetMomentScaleKNm'), 4) + ' кНм. Это отдельный расчётный сценарий, не сила выбранного ряда.', tx, note_bottom - 20, 7.3, color=ORANGE, width=tw)
+        # A plan of the same physical bodies retains their real extrusion widths.
+        px, py, pw, ph = 43, 143, 510, 220
+        c.setStrokeColor(LINE); c.rect(px, py, pw, ph, fill=0, stroke=1)
+        text(c, 'ФРАГМЕНТ ПЛАНА К1 · ПОПЕРЕЧНАЯ ТОЛЩИНА', px + 10, py + ph - 20, 8.5, 'Bold', GREEN)
+        first = contacts[0]; ids = set(str(member_id) for member_id in first.get('memberWorldIds') or [])
+        pair = [member for member in members if str(member.get('id')) in ids]
+        shapes = [(member, self.projected_member(member, plan)) for member in pair]
+        plan_contact = [plan(point) for point in first.get('worldContactPolygon') or []]
+        all_points = [point for _, shape in shapes for point in shape]
+        if shapes and plan_contact:
+            min_u, _, max_u, _ = bounds(all_points); _, min_v, _, max_v = bounds(plan_contact)
+            center_v = (min_v + max_v) / 2
+            view_min_v, view_max_v = center_v - .07, center_v + .07
+            plan_box = (px + 12, py + 60, pw - 24, ph - 96)
+            pf, _ = transform([(min_u - .025, view_min_v), (max_u + .025, view_max_v)], plan_box, 8)
+            c.saveState(); clip = c.beginPath(); clip.rect(*plan_box); c.clipPath(clip, stroke=0)
+            for member, shape in shapes:
+                is_collar = member.get('role') == 'collarTie'
+                polygon(c, [pf(point) for point in shape], colors.HexColor('#dce8d5') if is_collar else WOOD, GREEN if is_collar else WOOD_DARK, .9)
+            contact_u = sum(point[0] for point in plan_contact) / len(plan_contact)
+            line(c, pf((contact_u, min_v)), pf((contact_u, max_v)), ORANGE, 1.7)
+            c.restoreState()
+            for member, shape in shapes:
+                a, b, d, e = bounds(shape)
+                dimension(c, pf((a, view_min_v)), pf((d, view_min_v)), -15, number((d - a) * 1000, 0))
+            centers = [(member.get('role'), (bounds(shape)[0] + bounds(shape)[2]) / 2) for member, shape in shapes]
+            for _, center in centers:
+                line(c, pf((center, view_min_v)), pf((center, view_max_v)), MUTED, .45, [3, 2])
+            if len(centers) == 2:
+                uu = sorted(center for _, center in centers)
+                dimension(c, pf((uu[0], view_min_v)), pf((uu[1], view_min_v)), -34, 'e ' + number((uu[1] - uu[0]) * 1000, 1))
+        text(c, 'Показан ограниченный фрагмент плана, не отдельная короткая деталь. Толщины - по физическим граням, e - между осями. Доски касаются широкой гранью.', px + 10, py + 12, 6.9, color=MUTED, width=pw - 20)
+        # Connection numbers are transferred verbatim, without connector design.
+        qx, qy, qw = 586, 345, W - 629
+        text(c, 'КОНТАКТ И УСИЛИЕ ВЫБРАННОГО РЯДА', qx, qy, 9, 'Bold', GREEN); qy -= 20
+        columns = [('Узел / участники', .31), ('A, м²', .16), ('Nd, кН', .15), ('e, мм', .14), ('N × e, кНм', .24)]
+        c.setFillColor(INK); c.rect(qx, qy - 24, qw, 24, fill=1, stroke=0)
+        left = qx
+        for label, fraction in columns:
+            text(c, label, left + 5, qy - 15, 6.7, 'Bold', colors.white); left += qw * fraction
+        qy -= 24
+        for i, connection in enumerate(contacts):
+            values = ['К' + str(i + 1) + ' · ' + clean(connection.get('id')) + '\n' + ' / '.join(clean(member) for member in connection.get('members') or []), number(connection.get('contactAreaM2'), 6), number(connection.get('demandKN'), 3), number(finite(connection.get('eccentricityM')) * 1000, 1) if optional_number(connection.get('eccentricityM')) is not None else '-', number(connection.get('axisOffsetMomentScaleKNm'), 4)]
+            height = max(47, max(len(wrap(value, qw * fraction - 10, 'Body', 7)) for value, (_, fraction) in zip(values, columns)) * 8.7 + 12)
+            c.setFillColor(PAPER if i % 2 == 0 else colors.white); c.rect(qx, qy - height, qw, height, fill=1, stroke=0)
+            left = qx
+            for value, (_, fraction) in zip(values, columns):
+                text(c, value, left + 5, qy - 13, 7, width=qw * fraction - 10); left += qw * fraction
+            qy -= height
+        text(c, 'Площадь контакта не задаёт несущую способность. Число, диаметр, длина и схема крепежа отсутствуют; смятие, отрыв, срез, эксцентриситет и пространственная работа узла не подтверждены.', qx, qy - 17, 7.3, color=ORANGE, width=qw)
+        self.note(c, 'Контакт и поперечное положение досок - по фактической 3D-геометрии. Усилия выбранного ряда и огибающая снеговых сценариев показаны раздельно; модель 2D сохраняет свои аналитические оси.', y=108, color=MUTED)
 
     def draw_roof_seats(self, c, zone, roof_profiles, local, box):
         bounds_ = zone.get('bearingBounds') or zone.get('bounds') or {}

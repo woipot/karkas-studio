@@ -84,3 +84,30 @@ print(json.dumps({'forces':a.roof_frame_force_rows(z),'model':a.roof_frame_model
   const missing=JSON.parse(execFileSync(python,['-c',code],{cwd:root,input:JSON.stringify(zone),encoding:'utf8'}));
   assert.ok(missing.model.some(r=>r[1].includes('EI = - кН·м²')));
 });
+
+test('a profiled side-lap plan retains75/50mm thickness and uses the actual offset only once',()=>{
+  const code=String.raw`
+import json,runpy,sys
+A=runpy.run_path('scripts/structural-album.py')['Album'];a=A.__new__(A)
+print(json.dumps([a.projected_member(b,lambda p:(p[0],p[2])) for b in json.load(sys.stdin)]))
+`;
+  const boards=[{b:75,h:200,start:[0,0,0],end:[1,0,0],crossAxis:[0,0,1],shape:{type:'rafterSeats',points:[[-.5,-.1],[.5,-.1],[.5,.1],[-.5,.1]]}},{b:50,h:100,start:[0,0,.0625],end:[1,0,.0625],crossAxis:[0,0,1],outOfPlaneOffset:.0625,shape:{type:'rippedBoard',points:[[-.5,-.05],[.5,-.05],[.5,.05],[-.5,.05]]}}];
+  const polygons=JSON.parse(execFileSync(python,['-c',code],{cwd:root,input:JSON.stringify(boards),encoding:'utf8'}));
+  const ranges=polygons.map(poly=>[Math.min(...poly.map(p=>p[1])),Math.max(...poly.map(p=>p[1]))]);
+  assert.ok(Math.abs(ranges[0][1]-ranges[0][0]-.075)<1e-10);assert.ok(Math.abs(ranges[1][1]-ranges[1][0]-.05)<1e-10);
+  assert.ok(Math.abs(ranges[0][1]-ranges[1][0])<1e-10);assert.ok(Math.abs(ranges[1][0]-.0375)<1e-10);
+});
+
+test('collar detail resolves canonicalworld IDs and keeps snow-envelope demand separate from the selected row',()=>{
+  const code=String.raw`
+import json,runpy,sys
+A=runpy.run_path('scripts/structural-album.py')['Album'];a=A.__new__(A);r=json.load(sys.stdin);a.r=r['result'];a.members=a.r['timber']['instances'];z=a.r['roofModel']['zones'][0]
+print(json.dumps({'detail':a.collar_lap_detail(z),'snow':a.collar_lap_snow_envelope(z)}))
+`;
+  const connection=(n,worldIds)=>({id:'C',demandKN:n,axisOffsetMomentScaleKNm:n*.0625,memberWorldIds:worldIds,memberSourceBoardIds:['raw-source'],worldContactPolygon:[[0,0,0],[0,1,0],[0,1,1]]});
+  const report={result:{timber:{instances:[{id:'canonical-collar',role:'collarTie'},{id:'canonical-rafter',role:'topChord'}]},roofModel:{zones:[{id:'Z',frameRows:[{row:0,u:0,lapConnections:[connection(5,['canonical-collar','canonical-rafter'])]},{row:1,u:1,lapConnections:[connection(12,['canonical-collar','canonical-rafter'])]}]}]},snowAssessment:{cases:[{id:'snow150',frames:[{zoneId:'Z',connections:[connection(17,[])]}]}]}}};
+  const out=JSON.parse(execFileSync(python,['-c',code],{cwd:root,input:JSON.stringify(report),encoding:'utf8'}));
+  assert.equal(out.detail.row.row,1);assert.equal(out.detail.contacts[0].demandKN,12);assert.deepEqual(out.detail.members.map(m=>m.id),['canonical-collar','canonical-rafter']);
+  assert.equal(out.snow.connection.demandKN,17);assert.equal(out.snow.connection.axisOffsetMomentScaleKNm,1.0625);assert.deepEqual(out.snow.caseIds,['snow150']);
+  report.result.roofModel.zones[0].frameRows=[];const legacy=JSON.parse(execFileSync(python,['-c',code],{cwd:root,input:JSON.stringify(report),encoding:'utf8'}));assert.equal(legacy.detail,null);
+});

@@ -9,6 +9,7 @@ import {analyzeGrillageLoads} from './grillage-loads.js';
 import {buildWallBracing} from './wall-bracing.js';
 import {wallProfileTop} from './wall-profiles.js';
 import {checkFullHeightWalls} from './wall-stability.js';
+import {wallPlateEnds} from './wall-plate-joints.js';
 /** КАРКАС Designer — geometric concept model, not a code-design or FEA solver.
  * Plan coordinates and lengths: m. Sections: mm. Mass: kg. Forces: kN.
  * Wall coordinates are axes; areas are gross areas enclosed by exterior axes.
@@ -110,6 +111,7 @@ export function validateDesignerProject(input){
     for(const q of [w.a,w.b])if(Math.abs(q.x)>1000||Math.abs(q.y)>1000)error(f,'Координаты должны находиться в пределах ±1000 м.');
     range(dist(w.a,w.b),.2,100,f+'.length');
     if(!['exterior','bearing','partition'].includes(w.kind))error(f+'.kind','Тип стены: exterior, bearing или partition.');
+    if(w.height!==undefined){range(w.height,2,5,f+'.height');if(w.kind!=='partition')error(f+'.height','Независимая высота разрешена только ненесущей перегородке.');const levelHeight=(Array.isArray(p.levels)?p.levels.find(l=>l.index===(w.level??1))?.height:undefined)??p.height;if(w.height>levelHeight+EPS)error(f+'.height','Перегородка не должна выступать над верхом своего этажа.');}
     if(!parseSection(w.section))error(f+'.section','Сечение: b×h в мм; 15≤b≤300, b≤h≤600.');
     range(w.studStep,.2,1.2,f+'.studStep');
     if(w.endpointMode!==undefined&&(!['axes','faces'].includes(w.endpointMode)||w.endpointMode==='faces'&&w.kind!=='partition'))error(f+'.endpointMode','endpointMode faces допускается только для ненесущей перегородки; иначе axes.');
@@ -132,7 +134,7 @@ export function validateDesignerProject(input){
     if(w.level!==undefined&&o.floor!==undefined&&o.floor!==w.level)error(f+'.floor','Этаж проёма должен совпадать с этажом его стены.');
     const margin=2*B+.02;
     if(o.offset<margin-EPS||o.offset+o.width>dist(w.a,w.b)-margin+EPS)error(f,'До концов стены требуется место для коренных и подперемычечных стоек.');
-    const floorHeight=Array.isArray(p.levels)?p.levels.find(l=>l?.index===(o.floor??w.level??1))?.height??p.height:p.height;
+    const floorHeight=w.height??(Array.isArray(p.levels)?p.levels.find(l=>l?.index===(o.floor??w.level??1))?.height??p.height:p.height);
     if(o.sill+o.height>floorHeight-2*B-.2+EPS)error(f,'Над проёмом необходимо место для перемычки 200 мм и двух верхних обвязок.');
     if(o.type==='door'&&o.sill>EPS)warnings.push(`Дверь ${o.id} имеет порог ${o.sill} м: проём показан по заданным размерам.`);
     for(let j=0;j<i;j++){const q=os[j];if(!object(q)||q.wallId!==o.wallId||(q.floor??w.level??1)!==(o.floor??w.level??1))continue;
@@ -144,8 +146,10 @@ export function validateDesignerProject(input){
     if(!['king','queen','fink','mono','gable','none'].includes(p.roof.type))error('roof.type','Тип кровли: king, queen, fink, mono или none.');
     if(p.roof.wallFraming!==undefined&&!['auto','continuous','stacked'].includes(p.roof.wallFraming))error('roof.wallFraming','Схема стен: auto, continuous или stacked.');
     overhangs(p.roof.overhangs,'roof.overhangs');
-    if(p.roof.framing!==undefined&&!['auto','rafters','truss'].includes(p.roof.framing))error('roof.framing','Несущая схема кровли: auto, rafters или truss.');
+    if(p.roof.framing!==undefined&&!['auto','rafters','truss','tiedRafters'].includes(p.roof.framing))error('roof.framing','Несущая схема кровли: auto, rafters или truss.');
     if(p.roof.heelClearance!==undefined)range(p.roof.heelClearance,0,1,'roof.heelClearance');
+    for(const [k,lo,hi]of[['ceilingDrop',0,1],['kneeRun',.4,1],['collarHeightRatio',.4,.9]])if(p.roof[k]!==undefined)range(p.roof[k],lo,hi,'roof.'+k);
+    for(const k of['tieSection','kneeSection','collarSection'])if(p.roof[k]!==undefined&&!parseSection(p.roof[k]))error('roof.'+k,'Некорректное сечение стропильной рамы.');
     if(p.roof.snowMu!==undefined)range(p.roof.snowMu,0,3,'roof.snowMu');
     if(p.roof.ceilingDead!==undefined)range(p.roof.ceilingDead,0,5,'roof.ceilingDead');
     if(p.roof.deflectionRatio!==undefined)range(p.roof.deflectionRatio,150,600,'roof.deflectionRatio');
@@ -159,10 +163,12 @@ export function validateDesignerProject(input){
         if(typeof z.id!=='string'||!z.id||z.id.length>100||ids.has(z.id))error(f+'.id','ID зон должны быть непустыми и уникальными, до 100 символов.');ids.add(z.id);
         if(typeof z.name!=='string'||z.name.length>160)error(f+'.name','Название зоны: строка до 160 символов.');
         if(!['gable','mono','hip'].includes(z.shape))error(f+'.shape','Форма зоны: gable, mono или hip.');
-        if(z.framing!==undefined&&!['auto','rafters','truss'].includes(z.framing))error(f+'.framing','Несущая схема: auto, rafters или truss.');
+        if(z.framing!==undefined&&!['auto','rafters','truss','tiedRafters'].includes(z.framing))error(f+'.framing','Несущая схема: auto, rafters или truss.');
         if(z.loadSnowFactor!==undefined)range(z.loadSnowFactor,0,4,f+'.loadSnowFactor');
         overhangs(z.overhangs,f+'.overhangs');
         if(z.heelClearance!==undefined)range(z.heelClearance,0,1,f+'.heelClearance');
+        for(const [k,lo,hi]of[['ceilingDrop',0,1],['kneeRun',.4,1],['collarHeightRatio',.4,.9]])if(z[k]!==undefined)range(z[k],lo,hi,f+'.'+k);
+        for(const k of['tieSection','kneeSection','collarSection'])if(z[k]!==undefined&&!parseSection(z[k]))error(f+'.'+k,'Некорректное сечение стропильной рамы.');
         if(z.snowMu!==undefined)range(z.snowMu,0,3,f+'.snowMu');
         if(z.ceilingDead!==undefined)range(z.ceilingDead,0,5,f+'.ceilingDead');
         if(z.deflectionRatio!==undefined)range(z.deflectionRatio,150,600,f+'.deflectionRatio');
@@ -344,7 +350,7 @@ function cornerData(p,graph,level=1){
     const kind=distinct.length>=4?'cross':distinct.length===3?'t':Math.abs(angle-180)<.01?'straight':'corner';
     const id=level===1?n.id:'j_'+level+'_'+nodeKey(n.point),override=p.joints.overrides[id]||{},type=override.type||p.joints.defaultCorner,cutScheme=override.cutScheme||p.joints.defaultCut;
     const principal=Math.min(angle,360-angle),cutAngle=Math.max(0,(180-principal)/2);
-    const warning=kind==='t'||kind==='cross'?'Состав и передача усилий в Т/X-стыке условные; крепёж и примыкание обвязок не рассчитаны.':Math.abs(principal-90)>.01&&kind!=='straight'?'Косой угол: пакет и запилы показаны схематично, требуется рабочий узел.':['halfLap','half-lap'].includes(cutScheme)?'Врубка вполдерева обозначена; ослабление сечения и несущая способность не проверены.':null;
+    const warning=kind==='t'||kind==='cross'?'Состав и передача усилий в Т/X-стыке условные; крепёж и примыкание обвязок не рассчитаны.':Math.abs(principal-90)>.01&&kind!=='straight'?'Косой угол: пакет и запилы показаны схематично, требуется рабочий узел.':['halfLap','half-lap'].includes(cutScheme)?'Врубка вполдерева обозначена; ослабление сечения и несущая способность не проверены.':new Set(n.wallIds.map(id=>parseSection(walls.get(id).section).b)).size>1?'Угол с разной толщиной досок: отметки слоёв и 3D-примыкание обвязок требуют отдельного узла.':null;
     const section=parseSection(walls.get(n.wallIds[0]).section);
     return {id,level,point:n.point,wallIds:n.wallIds,angle,cutAngle,type,cutScheme,kind,warning,section:{...section},directions:distinct};
   });
@@ -383,7 +389,7 @@ function timberModel(p,graph,corners,bounds,truss,warnings,roofModel){
       const remaining=length-from,canFinish=remaining+allowance(startCut,h)+allowance(ce,h)<=stock+EPS;
       const span=canFinish?remaining:Math.min(stock-allowance(startCut,h),remaining-lap-.02),to=from+span;
       const endCut=canFinish?ce:{scheme,angle:scheme==='scarf'?Math.atan2(h/1000,p.joints.spliceLength)*180/Math.PI:0,lapLength:lap,lapSide:'bottom'};
-      const board=raw(name,category,role,b,h,at(from),at(to),{...extras,id:memberId+'-P'+(index+1),memberId,partIndex:index,cutStart:startCut,cutEnd:endCut,spliceIds:[]});parts.push(board);
+      const board=raw(name,category,role,b,h,at(from),at(to),{...extras,...(extras.cornerEndJoints?{cornerEndJoints:extras.cornerEndJoints.filter(j=>j.end==='start'?index===0:canFinish)}:{}),id:memberId+'-P'+(index+1),memberId,partIndex:index,cutStart:startCut,cutEnd:endCut,spliceIds:[]});parts.push(board);
       if(index){const jointId=memberId+'-J'+index;const prev=parts[index-1];prev.cutEnd.jointId=jointId;board.cutStart.jointId=jointId;prev.spliceIds.push(jointId);board.spliceIds.push(jointId);const q=at(from+lap/2),requiresSupport=['joist','customBeam','truss','bottomChord','chord','rafter'].includes(role)||category==='roof';const joint={id:jointId,role,memberId,scheme,lapLength:scheme==='fishplate'?p.joints.spliceLength:lap,point:q,partIds:[prev.id,board.id],requiresSupport,verified:false};splices.push(joint);joints.push(joint);
         if(scheme==='fishplate')for(const side of [-1,1]){const ext=p.joints.spliceLength,aa=at(from-ext),zz=at(from+ext),axis=extras.crossAxis||[1,0,0];for(let k=0;k<3;k++){aa[k]+=axis[k]*side*(b/2000+.01);zz[k]+=axis[k]*side*(b/2000+.01);}raw('Накладка стыка',category,'fishplate',20,100,aa,zz,{...extras,id:jointId+'-F'+(side<0?1:2),memberId:jointId,jointId,spliceIds:[jointId]});}
       }
@@ -398,14 +404,14 @@ function timberModel(p,graph,corners,bounds,truss,warnings,roofModel){
     function cutAt(s){const c=wallCorners.find(c=>dist(lerp(w.a,w.b,s/len),c.point)<1e-5);return {scheme:c?.cutScheme||'butt',angle:c?.cutScheme==='miter'?c.cutAngle:0,...(['halfLap','half-lap'].includes(c?.cutScheme)?{recessDepth:B/2}: {})};}
     for(let f=0;f<p.floors;f++){
       const y0=base+platform+f*story,low=y0+B;
-      const topAt=s=>profile?wallProfileTop(profile,s):y0+p.height;
+      const wallHeight=w.height??p.height,topAt=s=>profile?wallProfileTop(profile,s):y0+wallHeight;
       const slopeAt=s=>{if(!profile)return 0;const points=profile.topSamples;for(let i=1;i<points.length;i++)if(s<=points[i].s+EPS)return (points[i].topY-points[i-1].topY)/(points[i].s-points[i-1].s);return 0;};
       const highAt=s=>topAt(s)-2*B*Math.sqrt(1+slopeAt(s)**2),high=highAt(len/2);
       const os=p.openings.filter(o=>o.wallId===w.id&&(o.floor??1)===f+1).sort((a,b)=>a.offset-b.offset);
-      function plate(a,z,y){add('Обвязка стены','walls','plate',b,h,at(a,y),at(z,y),{...extra,floor:f+1,crossAxis:[0,1,0],cutStart:cutAt(a),cutEnd:cutAt(z)});}
-      const doors=os.filter(o=>o.type==='door'&&o.sill<EPS);let start=0;for(const o of doors){plate(start,o.offset,y0+B/2);start=o.offset+o.width;}plate(start,len,y0+B/2);
+      function plate(a,z,y,position='top',layer=0){const layout=wallPlateEnds(w,wallCorners,wallMap,{position,layer}),from=Math.abs(a)<EPS?layout.start:a,to=Math.abs(z-len)<EPS?layout.end:z;add('Обвязка стены','walls','plate',b,h,at(from,y),at(to,y),{...extra,floor:f+1,crossAxis:[0,1,0],cutStart:cutAt(a),cutEnd:cutAt(z),platePosition:position,plateLayer:layer,cornerEndJoints:layout.joints.filter(j=>j.end==='start'?Math.abs(a)<EPS:Math.abs(z-len)<EPS)});}
+      const doors=os.filter(o=>o.type==='door'&&o.sill<EPS);let start=0;for(const o of doors){plate(start,o.offset,y0+B/2,'bottom');start=o.offset+o.width;}plate(start,len,y0+B/2,'bottom');
       if(profile){for(let i=1;i<profile.topSamples.length;i++){const a=profile.topSamples[i-1],z=profile.topSamples[i],slope=(z.topY-a.topY)/(z.s-a.s),scale=Math.sqrt(1+slope*slope);for(const layer of [.5,1.5])add('Верхняя обвязка цельной стены','walls','plate',b,h,at(a.s,a.topY-layer*B*scale),at(z.s,z.topY-layer*B*scale),{...extra,floor:f+1,crossAxis:[0,1,0],cutStart:cutAt(a.s),cutEnd:cutAt(z.s),fullHeightWall:true,platePosition:'top'});}}
-      else{plate(0,len,y0+p.height-1.5*B);plate(0,len,y0+p.height-B/2);}
+      else{plate(0,len,y0+wallHeight-1.5*B,'top',0);plate(0,len,y0+wallHeight-B/2,'top',1);}
       const vertical=(s,a,z,role='stud')=>{const slope=profile&&Math.abs(z-highAt(s))<.001?slopeAt(s):0;add({stud:'Рядовая стойка',king:'Коренная стойка',jack:'Подперемычечная стойка',cripple:'Короткая стойка'}[role],'walls',role,b,h,at(s,a),at(s,z),{...extra,floor:f+1,fullHeightWall:!!profile,requireSingleStock:!!profile,cutEnd:Math.abs(slope)>EPS?{scheme:'miter',angle:Math.abs(Math.atan(slope)*180/Math.PI),tiltSign:Math.sign(slope),plane:'width',cutWidthMM:b}:{scheme:'butt',angle:0}});};
       const firstStud=w.endpointMode==='faces'?B/2:0,lastStud=w.endpointMode==='faces'?len-B/2:len,count=Math.max(1,Math.ceil((lastStud-firstStud)/w.studStep));
       for(let i=0;i<=count;i++){
@@ -432,7 +438,7 @@ function timberModel(p,graph,corners,bounds,truss,warnings,roofModel){
     const count=c.kind==='straight'?2:{california2:2,three3:3,closed4:4}[c.type];
     for(let f=0;f<p.floors;f++)for(let i=0;i<count;i++){
       const aa=i===0?B/2:i===1?B+D/2:i===2?D+1.5*B:B+D/2,bb=i===0?D/2:i===1?B/2:i===2?D/2:D-B/2;
-      const x=c.point.x+u.x*(aa-D/2)+v.x*(bb-D/2),z=c.point.y+u.y*(aa-D/2)+v.y*(bb-D/2),low=base+platform+f*story+B,high=Math.max(base+platform+f*story+p.height,...profiles.map(q=>{const wall=wallMap.get(q.wallId);return wallProfileTop(q,Math.max(0,Math.min(q.length,parameter(c.point,wall.a,wall.b)*q.length)));}))-2*B,axis=i===1||i===3?v:u;
+      const x=c.point.x+u.x*(aa-D/2)+v.x*(bb-D/2),z=c.point.y+u.y*(aa-D/2)+v.y*(bb-D/2),low=base+platform+f*story+B,high=Math.max(base+platform+f*story+Math.max(...c.wallIds.map(id=>wallMap.get(id)?.height??p.height)),...profiles.map(q=>{const wall=wallMap.get(q.wallId);return wallProfileTop(q,Math.max(0,Math.min(q.length,parameter(c.point,wall.a,wall.b)*q.length)));}))-2*B,axis=i===1||i===3?v:u;
       add(c.kind==='corner'?'Стойка углового пакета':'Стойка пакета стыка','walls','corner',b,h,[x,low,z],[x,high,z],{cornerId:c.id,wallIds:c.wallIds,fullHeightWall:profiles.length>0,requireSingleStock:profiles.length>0,floor:f+1,crossAxis:[axis.x,0,axis.y],cutStart:{scheme:'butt',angle:0},cutEnd:{scheme:'butt',angle:0}});
     }
   }
@@ -445,7 +451,7 @@ function timberModel(p,graph,corners,bounds,truss,warnings,roofModel){
   let roofVerified=false;
   if(roofModel&&Array.isArray(roofModel.instances)){
     let accepted=0;
-    for(const board of roofModel.instances){const a=board.start,z=board.end;if(!Array.isArray(a)||!Array.isArray(z)||a.length!==3||z.length!==3||![...a,...z,board.b,board.h].every(finite)||board.b<=0||board.h<=0)continue;const before=instances.length;add(board.name||'Доска кровли','roof',board.role||'truss',board.b,board.h,a,z,{zoneId:board.zoneId,barId:board.barId,trussRow:board.trussRow,rafterRow:board.rafterRow,bearingStart:board.bearingStart,bearingEnd:board.bearingEnd,supportStart:board.supportStart,supportEnd:board.supportEnd,supportLowStation:board.supportLowStation,supportHighStation:board.supportHighStation,tributaryWidth:board.tributaryWidth,supportGeometry:board.supportGeometry,wallId:board.wallId,connectionVerified:board.connectionVerified,reason:board.reason,sourceBoardId:board.id,...Object.fromEntries(['shape','shapeNetVolume','shapeGrossVolume','shapeCutLength','physicalTruss','requireSingleStock','auxiliaryFaceId','trussBarId','trussBarIds','force','axialForce','physicalDatum','rafterJointId','startCutPlane','endCutPlane','overhangLow','overhangHigh'].filter(k=>board[k]!==undefined).map(k=>[k,board[k]])),level:board.level??board.floor,floor:board.floor??board.level,crossAxis:board.crossAxis||[1,0,0],cutStart:board.cutStart,cutEnd:board.cutEnd});if(finite(board.shapeNetVolume)&&board.shapeNetVolume>=0)for(const part of instances.slice(before)){part.volume=part.netVolume=board.shapeNetVolume;part.mass=part.volume*p.material.density;if(finite(board.shapeGrossVolume))part.grossVolume=board.shapeGrossVolume;if(finite(board.shapeCutLength))part.cutLength=part.actualCutLength=board.shapeCutLength;}accepted++;}
+    for(const board of roofModel.instances){const a=board.start,z=board.end;if(!Array.isArray(a)||!Array.isArray(z)||a.length!==3||z.length!==3||![...a,...z,board.b,board.h].every(finite)||board.b<=0||board.h<=0)continue;const before=instances.length;add(board.name||'Доска кровли','roof',board.role||'truss',board.b,board.h,a,z,{zoneId:board.zoneId,barId:board.barId,trussRow:board.trussRow,rafterRow:board.rafterRow,bearingStart:board.bearingStart,bearingEnd:board.bearingEnd,supportStart:board.supportStart,supportEnd:board.supportEnd,supportLowStation:board.supportLowStation,supportHighStation:board.supportHighStation,tributaryWidth:board.tributaryWidth,supportGeometry:board.supportGeometry,wallId:board.wallId,connectionVerified:board.connectionVerified,reason:board.reason,sourceBoardId:board.id,...Object.fromEntries(['shape','shapeNetVolume','shapeGrossVolume','shapeCutLength','massCenter','frameMemberId','frameElementIds','tiedRafters','physicalTruss','requireSingleStock','auxiliaryFaceId','trussBarId','trussBarIds','force','axialForce','physicalDatum','rafterJointId','startCutPlane','endCutPlane','overhangLow','overhangHigh'].filter(k=>board[k]!==undefined).map(k=>[k,board[k]])),level:board.level??board.floor,floor:board.floor??board.level,crossAxis:board.crossAxis||[1,0,0],cutStart:board.cutStart,cutEnd:board.cutEnd});if(finite(board.shapeNetVolume)&&board.shapeNetVolume>=0)for(const part of instances.slice(before)){part.volume=part.netVolume=board.shapeNetVolume;part.mass=part.volume*p.material.density;if(finite(board.shapeGrossVolume))part.grossVolume=board.shapeGrossVolume;if(finite(board.shapeCutLength))part.cutLength=part.actualCutLength=board.shapeCutLength;}accepted++;}
     roofVerified=accepted>0&&accepted===roofModel.instances.length;
     if(accepted!==roofModel.instances.length)warnings.push('Некорректные доски зонной кровли пропущены: её масса неполна.');
   }else if(graph.closed&&p.roof.type!=='none'&&truss){
@@ -516,13 +522,13 @@ function pileField(p,geometry,walls,timber,loads,grillageModel){
   // remain outside the support span, so their moments change the reactions.
   for(const z of loads.roofZones??[]){
     if(!z.physicalTruss||!z.analysisApplicable||!z.trussRows?.length)continue;
-    const theta=z.ridgeAngle*Math.PI/180,c=Math.cos(theta),sn=Math.sin(theta),U=q=>q[0]*c+q[2]*sn,V=q=>-q[0]*sn+q[2]*c,b=z.bounds,S=b.maxV-b.minV,coverWidth=z.coverBounds.length,crest=b.minV+z.crestRatio*S,o=z.overhangs,shape=pitch=>z.snowMu??(pitch<=30?.8:Math.max(0,.8*(60-pitch)/30)),leftSpan=crest-(b.minV-o.low),rightSpan=b.maxV+o.high-crest,leftArea=coverWidth*leftSpan/Math.cos(z.pitchLeft*Math.PI/180),rightArea=coverWidth*rightSpan/Math.cos(z.pitchRight*Math.PI/180),leftCenter=(b.minV-o.low+crest)/2,rightCenter=(crest+b.maxV+o.high)/2;
+    const theta=z.ridgeAngle*Math.PI/180,c=Math.cos(theta),sn=Math.sin(theta),U=q=>q[0]*c+q[2]*sn,V=q=>-q[0]*sn+q[2]*c,b=z.bounds,supportMinV=z.frameSupportBounds?.minV??b.minV,supportMaxV=z.frameSupportBounds?.maxV??b.maxV,S=supportMaxV-supportMinV,roofSpan=b.maxV-b.minV,coverWidth=z.coverBounds.length,crest=b.minV+z.crestRatio*roofSpan,o=z.overhangs,shape=pitch=>z.snowMu??(pitch<=30?.8:Math.max(0,.8*(60-pitch)/30)),leftSpan=crest-(b.minV-o.low),rightSpan=b.maxV+o.high-crest,leftArea=coverWidth*leftSpan/Math.cos(z.pitchLeft*Math.PI/180),rightArea=coverWidth*rightSpan/Math.cos(z.pitchRight*Math.PI/180),leftCenter=(b.minV-o.low+crest)/2,rightCenter=(crest+b.maxV+o.high)/2;
     const rows=[...z.trussRows].sort((a,b)=>a.u-b.u).map(r=>({...r,deadA:0,deadB:0,snowA:0,snowB:0})),roofWidth=sum(rows.map(r=>r.tributaryWidth)),ceilingWidth=sum(rows.map(r=>r.ceilingWidth??0)),ceiling=(z.ceilingLoadSplit?.inputFlat??0)*z.bearingArea,topLayers=p.loads.roofDead*z.surfaceArea-ceiling,topLeft=topLayers*leftArea/(leftArea+rightArea),topRight=topLayers-topLeft,snowLeft=p.loads.snow*(z.loadSnowFactor??1)*shape(z.pitchLeft)*coverWidth*leftSpan,snowRight=p.loads.snow*(z.loadSnowFactor??1)*shape(z.pitchRight)*coverWidth*rightSpan;
-    const load=(r,W,v,kind)=>{r[kind+'A']+=W*(b.maxV-v)/S;r[kind+'B']+=W*(v-b.minV)/S;};
+    const load=(r,W,v,kind)=>{r[kind+'A']+=W*(supportMaxV-v)/S;r[kind+'B']+=W*(v-supportMinV)/S;};
     for(const row of rows){const share=row.tributaryWidth/roofWidth,ceilShare=ceilingWidth>0?(row.ceilingWidth??0)/ceilingWidth:share;load(row,topLeft*share,leftCenter,'dead');load(row,topRight*share,rightCenter,'dead');load(row,ceiling*ceilShare,(b.minV+b.maxV)/2,'dead');load(row,snowLeft*share,leftCenter,'snow');load(row,snowRight*share,rightCenter,'snow');}
     const indices=u=>{let i=0;if(u>=rows.at(-1).u)i=rows.length-2;else if(u>rows[0].u){while(i<rows.length-2&&u>rows[i+1].u)i++;}const a=rows[i],b=rows[i+1],t=(u-a.u)/(b.u-a.u);return [[a,1-t],[b,t]];};
     const roofBoards=timber.instances.filter(t=>t.category==='roof'&&t.zoneId===z.id);
-    for(const board of roofBoards){const n=Math.max(1,Math.ceil(board.length/.5));for(let k=0;k<n;k++){const t=(k+.5)/n,q=board.start.map((x,i)=>x+(board.end[i]-x)*t),W=board.mass*G/1000/n;for(const [row,factor]of indices(U(q)))load(row,W*factor,V(q),'dead');}}
+    for(const board of roofBoards){const centered=Array.isArray(board.massCenter)&&board.massCenter.length===3&&board.massCenter.every(finite),n=centered?1:Math.max(1,Math.ceil(board.length/.5));for(let k=0;k<n;k++){const t=(k+.5)/n,q=centered?board.massCenter:board.start.map((x,i)=>x+(board.end[i]-x)*t),W=board.mass*G/1000/n;for(const [row,factor]of indices(U(q)))load(row,W*factor,V(q),'dead');}}
     const invalid=rows.some(r=>r.deadA*p.loads.gammaG+r.snowA*p.loads.gammaQ<-EPS||r.deadB*p.loads.gammaG+r.snowB*p.loads.gammaQ<-EPS||r.deadA+r.snowA<-EPS||r.deadB+r.snowB<-EPS);
     if(invalid){(loads.roofSupportRoutingIssues??=[]).push(z.id);continue;}
     for(const row of rows)for(const [end,point]of [['A',row.bearingStart],['B',row.bearingEnd]]){const characteristic=row['dead'+end]+row['snow'+end],design=row['dead'+end]*p.loads.gammaG+row['snow'+end]*p.loads.gammaQ;samples.push({point:{x:point[0],y:point[2]},characteristic,design,area:0,roofZoneId:z.id,trussRow:row.row});}
@@ -554,7 +560,7 @@ export function calculateDesigner(input,{truss,roofModel}={}){
   const p=normalized(clone(input)),warnings=[...validation.warnings],levelModels=deriveLevels(p),base=levelModels[0],graph=base.graph,roofLevel=levelModels.filter(l=>l.closed).at(-1);
   const bounds=polygonBounds(p.walls.flatMap(w=>[w.a,w.b]).concat(p.objects.flatMap(o=>[o.a,...(o.b?[o.b]:[])])));
   const wallProfiles=roofModel?.wallProfiles??[];
-  const wallGross=(w,l)=>{const profile=wallProfiles.find(q=>q.wallId===w.id&&q.level===l.index&&q.mode==='continuous');return profile?profile.topSamples.slice(1).reduce((a,b,i)=>a+(b.s-profile.topSamples[i].s)*((b.topY+profile.topSamples[i].topY)/2-profile.baseY),0):dist(w.a,w.b)*l.height;};
+  const wallGross=(w,l)=>{const profile=wallProfiles.find(q=>q.wallId===w.id&&q.level===l.index&&q.mode==='continuous');return profile?profile.topSamples.slice(1).reduce((a,b,i)=>a+(b.s-profile.topSamples[i].s)*((b.topY+profile.topSamples[i].topY)/2-profile.baseY),0):dist(w.a,w.b)*(w.height??l.height);};
   const walls=p.walls.map(w=>({...w,length:dist(w.a,w.b),sectionSize:parseSection(w.section),grossArea:sum(levelModels.filter(l=>w.level===undefined||w.level===l.index).map(l=>wallGross(w,l))),openingArea:sum(p.openings.filter(o=>o.wallId===w.id).map(o=>o.width*o.height))}));
   const geometry={area:graph.area,totalFloorArea:graph.closed?sum(levelModels.filter(l=>l.closed).map(l=>l.netFloorArea)):null,grossFloorArea:graph.closed?sum(levelModels.filter(l=>l.closed).map(l=>l.area)):null,voidArea:sum(levelModels.filter(l=>l.closed).map(l=>l.voidArea)),areaComplete:levelModels.every(l=>l.closed),perimeter:sum(base.walls.filter(w=>w.kind==='exterior').map(w=>dist(w.a,w.b))),bounds,baseBounds:base.bounds,closed:graph.closed,polygon:graph.polygon,roofPolygon:roofLevel?.polygon??[],roofBounds:roofLevel?.bounds??base.bounds,rectangular:false,levels:levelModels.map(({graph,walls,...l})=>l)};
   geometry.wallProfiles=wallProfiles;

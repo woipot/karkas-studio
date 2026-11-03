@@ -267,6 +267,7 @@ def dimension(c, a, b, offset=15, label=None):
 
 ROLE = {'stud': 'Стойка', 'plate': 'Обвязка', 'corner': 'Угол', 'joist': 'Лага', 'rim': 'Бортовая доска', 'rimJoist': 'Обвязка перекрытия', 'floorBlocking': 'Поперечные распорки', 'voidHeader': 'Ригель проёма', 'voidTrimmer': 'Обрамление проёма', 'openingHeader': 'Поперечная балка проёма', 'openingTrimmer': 'Продольная балка проёма', 'rafter': 'Стропило', 'truss': 'Ферма', 'letInBrace': 'Врезная укосина', 'blocking': 'Распорка', 'grillage': 'Ростверк', 'beam': 'Балка', 'header': 'Перемычка', 'kingStud': 'Стойка проёма', 'jackStud': 'Опорная стойка', 'sill': 'Подоконная доска', 'annexRim': 'Обвязка настила пристройки', 'annexJoist': 'Лага пристройки', 'annexBlocking': 'Распорки пристройки', 'annexPostBearingBlock': 'Опорные вкладыши стоек', 'stairTread': 'Доска ступени', 'stairRiser': 'Подступенок', 'stairStringer': 'Пильный косоур', 'stairHandrail': 'Поручень марша', 'stairBaluster': 'Заполнение марша', 'guardPost': 'Стойка ограждения', 'guardRail': 'Пояс ограждения', 'guardBaluster': 'Заполнение ограждения'}
 STATUSES = {'pass': 'Частная проверка выполнена', 'fail': 'Не выполнено', 'warning': 'Требует уточнения', 'unverified': 'Не проверено', 'blocked': 'Заблокировано', 'complete': 'Сформировано'}
+ROLE.update({'topChord': 'Стропило / верхний пояс', 'bottomChord': 'Нижняя затяжка', 'collarTie': 'Верхний ригель', 'kneePost': 'Внутренний подкос', 'ceilingHanger': 'Подвес потолка', 'ceilingLedger': 'Пристенная опора потолка', 'ceilingBatten': 'Брусок потолка'})
 
 
 class Album:
@@ -275,7 +276,7 @@ class Album:
         self.p = report.get('project') or {}
         self.r = report.get('result') or {}
         self.engine = report.get('engine') or {}
-        self.release = '.'.join(clean(self.engine.get('version', '4.0')).split('.')[:2])
+        self.release = clean(self.engine.get('version', '4.0'))
         self.planning = report.get('planning') or self.r.get('planning') or {}
         self.cut = report.get('cutting') or {}
         self.estimate = report.get('estimate') or {}
@@ -425,10 +426,22 @@ class Album:
         # Two walls per sheet keeps IDs, openings and high/raked profiles readable.
         for i in range(0, len(walls), 2):
             self.add('Фасады каркаса стен', 'wallframes', walls[i:i + 2], 'Вид со стороны локальной оси стены A → B; размеры в мм, отметки в м.')
+        plate_corners = self.plate_corner_details()
+        for i in range(0, len(plate_corners), 2):
+            self.add('Углы стен · фактические слои обвязки', 'platecorners', plate_corners[i:i + 2], 'Планы физических досок: нижняя обвязка, два верхних слоя. Фрагменты по месту; марки FG связывают детали с раскроем и CSV.')
         self.add('Кровля · план зон и сток', 'roofplan')
         zones = self.roof.get('zones') or []
         for i in range(0, len(zones), 2):
             self.add('Кровля · несущие схемы и разрезы', 'roofsections', zones[i:i + 2], 'Показана геометрия фактических элементов. Опорные узлы и крепёж не подтверждены.')
+        for zone in zones:
+            frame = zone.get('frameAnalysis')
+            if not isinstance(frame, dict):
+                continue
+            zone_name = clean(zone.get('name', zone.get('id')))
+            force_rows = self.roof_frame_force_rows(zone)
+            if force_rows:
+                self.table_pages('Кровля · рамный расчёт 2D · усилия и прогибы', [('Участок / назначение', .23), ('Сечение, мм', .09), ('L оси, м', .07), ('|N|max, кН', .085), ('|V|max, кН', .085), ('|M|max, кНм', .09), ('δверт / δlim, мм', .12), ('η', .07), ('Статус', .16)], force_rows, zone_name + '. Усилия - расчётная нагрузка; вертикальный прогиб - эксплуатационная. Огибающие N/V/M не обязательно одновременны. Заготовки - по FG / раскрою.', 7.4)
+            self.table_pages('Кровля · рамный расчёт 2D · модель и жёсткости', [('Параметр / группа участков', .3), ('Данные расчётной модели', .7)], self.roof_frame_model_rows(zone), zone_name + '. Жёсткости и освобождения воспроизведены из расчёта; жёсткость реального крепёжного узла ими не подтверждается.', 7.6)
         has_second_light = any(v.get('kind') == 'doubleHeight' for v in self.p.get('voids') or [])
         self.add('Разрез здания через второй свет' if has_second_light else 'Разрез здания', 'section', subtitle='Отметки по фактической модели; пересечение выбрано через пустоту перекрытия.' if has_second_light else 'Пересечение стен, платформы и кровли фактической модели.')
         self.add('Типовые узлы · геометрия сборки', 'details', subtitle='ГЕОМЕТРИЯ. Крепёж, анкеры, опирание и совместная работа отдельно не рассчитаны.')
@@ -1123,11 +1136,20 @@ class Album:
         depth = (cross[1] * u[2] - cross[2] * u[1], cross[2] * u[0] - cross[0] * u[2], cross[0] * u[1] - cross[1] * u[0])
         center = tuple((a[i] + b[i]) / 2 for i in range(3))
         shape = m.get('shape') or {}
-        profile = shape.get('points') if shape.get('type') in ('stairStringer', 'rippedBoard') else None
+        profile = shape.get('points') if shape.get('type') in ('stairStringer', 'rippedBoard', 'rafterSeats') else None
+        def cut_station(station, height, width):
+            for key, at_start in [('cutStart', True), ('cutEnd', False)]:
+                cut = m.get(key) or {}
+                boundary = -length / 2 if at_start else length / 2
+                if cut.get('scheme') != 'miter' or abs(station - boundary) > 1e-5:
+                    continue
+                tangent = math.tan(math.radians(finite(cut.get('angle')))) * finite(cut.get('tiltSign'), 1)
+                station += width * tangent if cut.get('plane') == 'width' else height * tangent * (1 if at_start else -1)
+            return station
         if profile:
-            return [project(tuple(center[i] + u[i] * finite(p[0]) + depth[i] * finite(p[1]) for i in range(3))) for p in profile]
+            return [project(tuple(center[i] + u[i] * cut_station(finite(p[0]), finite(p[1]), 0) + depth[i] * finite(p[1]) for i in range(3))) for p in profile]
         # Convex hull of the actual rectangular section's eight projected corners.
-        points = sorted(set(project(tuple(center[i] + u[i] * s + depth[i] * h + cross[i] * w for i in range(3))) for s in (-length / 2, length / 2) for h in (-finite(m.get('h')) / 2000, finite(m.get('h')) / 2000) for w in (-finite(m.get('b')) / 2000, finite(m.get('b')) / 2000)))
+        points = sorted(set(project(tuple(center[i] + u[i] * cut_station(s, h, w) + depth[i] * h + cross[i] * w for i in range(3))) for s in (-length / 2, length / 2) for h in (-finite(m.get('h')) / 2000, finite(m.get('h')) / 2000) for w in (-finite(m.get('b')) / 2000, finite(m.get('b')) / 2000)))
         if len(points) < 3:
             return points
         def turn(a, b, c):
@@ -1142,6 +1164,91 @@ class Album:
                 upper.pop()
             upper.append(p)
         return lower[:-1] + upper[:-1]
+
+    def plate_corner_details(self):
+        """Use explicit engine joint metadata; never synthesize corrected plate ends."""
+        details = []
+        for corner in self.r.get('corners') or []:
+            if corner.get('kind') != 'corner' or corner.get('point') is None:
+                continue
+            records = []
+            for member in self.members:
+                if member.get('role') != 'plate' or not member.get('start') or not member.get('end'):
+                    continue
+                position = member.get('platePosition'); layer = member.get('plateLayer')
+                if position not in ('bottom', 'top') or position == 'top' and layer not in (0, 1):
+                    continue
+                for joint in member.get('cornerEndJoints') or []:
+                    if joint.get('cornerId') == corner.get('id'):
+                        records.append({'member': member, 'joint': joint, 'position': position, 'layer': layer})
+            if records:
+                details.append({'corner': corner, 'records': records, 'number': len(details) + 1})
+        return details
+
+    def draw_platecorners(self, c, details, index):
+        layers = [('bottom', None, 'НИЖНЯЯ ОБВЯЗКА'), ('top', 0, 'ВЕРХНЯЯ · СЛОЙ 1'), ('top', 1, 'ВЕРХНЯЯ · СЛОЙ 2')]
+        for row, detail in enumerate(details or []):
+            corner, records = detail['corner'], detail['records']
+            x, y, w, h = 43, H - 421 - row * 312, W - 86, 294
+            c.setStrokeColor(LINE); c.rect(x, y, w, h, fill=0, stroke=1)
+            names = [self.wall_names.get(str(wid), clean(wid)) for wid in corner.get('wallIds') or []]
+            sections = list(dict.fromkeys(str(r['member'].get('b')) + ' × ' + str(r['member'].get('h')) + ' мм' for r in records))
+            text(c, 'Угол ' + str(detail['number']) + ' · этаж ' + clean(corner.get('level')) + ' · ' + ' / '.join(names) + ' · ' + '; '.join(sections), x + 12, y + h - 21, 10.5, 'Bold', GREEN)
+            point = xy(corner['point'])
+            text(c, clean(corner.get('id')) + ' · оси X=' + number(point[0], 3) + ' / Y=' + number(point[1], 3) + ' м', x + 12, y + h - 39, 6.8, 'Mono', MUTED)
+            wall_ids = sorted(corner.get('wallIds') or [])
+            wall_colors = {wid: (WOOD_DARK if j == 0 else GREEN) for j, wid in enumerate(wall_ids)}
+            depth = max([finite(r['member'].get('h')) / 1000 for r in records] or [.15])
+            radius = max(.25, depth * 2)
+            for column, (position, layer, title) in enumerate(layers):
+                xx = x + 12 + column * 231
+                text(c, title, xx, y + h - 62, 8, 'Bold')
+                card = (xx, y + 53, 215, 161)
+                fn, scale = transform([(point[0] - radius, point[1] - radius), (point[0] + radius, point[1] + radius)], card, 12)
+                current = [r for r in records if r['position'] == position and (position == 'bottom' or r['layer'] == layer)]
+                c.saveState(); clip = c.beginPath(); clip.rect(*card); c.clipPath(clip, stroke=0)
+                for wid in wall_ids:
+                    wall = self.wall_map.get(str(wid)) or {}
+                    if wall.get('a') is not None and wall.get('b') is not None:
+                        line(c, fn(xy(wall['a'])), fn(xy(wall['b'])), BLUE, .45, [4, 3])
+                for record in current:
+                    member = record['member']; wid = record['joint'].get('wallId', member.get('wallId'))
+                    color = wall_colors.get(wid, INK)
+                    shape = self.projected_member(member, lambda q: (q[0], q[2]))
+                    polygon(c, [fn(p) for p in shape], colors.HexColor('#eee0c6') if color == WOOD_DARK else colors.HexColor('#e1e9d9'), color, .95)
+                c.restoreState()
+                center = fn(point); line(c, (center[0] - 4, center[1]), (center[0] + 4, center[1]), BLUE, .55); line(c, (center[0], center[1] - 4), (center[0], center[1] + 4), BLUE, .55)
+                if current:
+                    marks = list(dict.fromkeys(self.marks.get(str(r['member'].get('id')), '-') for r in current))
+                    elevation = min(xyz(r['member']['start'])[1] - finite(r['member'].get('b')) / 2000 for r in current)
+                    text(c, ' / '.join(marks) + ' · низ +' + number(elevation, 3) + ' м', xx, y + 34, 7.2, 'Mono', width=215)
+                else:
+                    text(c, 'Метаданные слоя не переданы.', xx, y + 34, 7.2, color=ORANGE, width=215)
+            tx, ty, tw = x + 713, y + h - 62, w - 727
+            text(c, 'ДОСКИ И ТОРЦЫ ПО МОДЕЛИ', tx, ty, 8, 'Bold', GREEN); ty -= 19
+            columns = [('Слой / FG', .24), ('Стена / торец', .26), ('Стык / Δ, мм', .28), ('Lзаг, мм', .22)]
+            c.setFillColor(INK); c.rect(tx, ty - 24, tw, 24, fill=1, stroke=0)
+            left = tx
+            for label, fraction in columns:
+                text(c, label, left + 4, ty - 15, 6.4, 'Bold', colors.white); left += tw * fraction
+            ty -= 24
+            ordered = sorted(records, key=lambda r: (0 if r['position'] == 'bottom' else 1 + int(r['layer']), str(r['joint'].get('wallId')), str(r['member'].get('id'))))
+            for i, record in enumerate(ordered[:7]):
+                member, joint = record['member'], record['joint']; wid = joint.get('wallId', member.get('wallId'))
+                color = wall_colors.get(wid, INK)
+                layer_name = 'Низ' if record['position'] == 'bottom' else 'Верх ' + str(int(record['layer']) + 1)
+                joint_name = 'Проходная' if joint.get('through') is True else 'Встык' if joint.get('through') is False else '-'
+                values = [layer_name + ' / ' + self.marks.get(str(member.get('id')), '-'), self.wall_names.get(str(wid), clean(wid)) + ' / ' + {'start': 'A', 'end': 'B'}.get(joint.get('end'), '-'), joint_name + ' / ' + number(finite(joint.get('offset')) * 1000, 1), number(finite(member.get('cutLength', member.get('length'))) * 1000, 0)]
+                c.setFillColor(PAPER if i % 2 == 0 else colors.white); c.rect(tx, ty - 23, tw, 23, fill=1, stroke=0)
+                left = tx
+                for value, (_, fraction) in zip(values, columns):
+                    text(c, value, left + 4, ty - 14, 6.6, color=color, width=tw * fraction - 7); left += tw * fraction
+                ty -= 23
+            if len(ordered) > 7:
+                text(c, 'Остальные физические детали и торцы - CSV / JSON.', tx, ty - 12, 6.7, color=MUTED, width=tw)
+            text(c, 'Δ - смещение торца относительно конца оси стены: «−» выпуск, «+» отступ. Цвет соответствует стене. Размеры сечений и торцы - в ведомости FG.', tx, y + 37, 6.9, color=MUTED, width=tw)
+            text(c, 'Фрагменты планов обрезаны границами окон показа; это не дополнительные распилы досок.', x + 12, y + 14, 6.9, color=MUTED)
+        self.note(c, 'Геометрия слоёв воспроизведена из физических досок отчёта. Перекрытие стыков не подтверждает крепёж, пространственную работу, непрерывность плёнок и герметичность узла.', y=100, color=ORANGE)
 
     def draw_floorplan(self, c, level, index):
         self.draw_plan_base(c, level, (45, 145, 800, H - 265), wall_faces=True)
@@ -1677,46 +1784,160 @@ class Album:
             y = text(c, 'В' + str(j + 1) + ' · ' + clean(annex.get('name', annex.get('id'))) + ('\nКровля пристройки; основание и опоры - на общем монтажном плане.' if (annex.get('foundation') or {}).get('shared') else '\nКровля самостоятельной пристройки; подробный план и опоры - на её листе.'), x, y, 8, 'Bold', BLUE, width=240) - 16
         self.note(c, 'Пунктир - оси опорного контура; зелёный - покрытие дома; голубой - кровля веранды. Стрелки - сток; оранжевый - ендовы; красный - примыкания. Размерные линии свесов: от опорных осей, по горизонтали.', y=105)
 
+    def roof_frame_force_rows(self, zone):
+        frame = zone.get('frameAnalysis') or {}
+        labels = {'topChord': 'Стропило / верхний пояс', 'bottomChord': 'Нижняя затяжка', 'kneePost': 'Внутренний подкос', 'collarTie': 'Верхний ригель', 'ceilingHanger': 'Подвес потолка'}
+        rows = []
+        for member in frame.get('members') or []:
+            if not isinstance(member, dict): continue
+            actual = [m for m in getattr(self, 'members', []) if m.get('zoneId') == zone.get('id') and m.get('frameMemberId') == member.get('id')]
+            marks = list(dict.fromkeys(getattr(self, 'marks', {}).get(str(m.get('id'))) for m in actual if getattr(self, 'marks', {}).get(str(m.get('id')))))
+            title = clean(member.get('id')) + '\n' + labels.get(member.get('role'), ROLE.get(member.get('role'), clean(member.get('role'))))
+            if marks: title += '\n' + ', '.join(marks)
+            if member.get('localOwnWeightBending') is True: title += '\n+ локальный изгиб от своего веса'
+            rows.append([title, clean(member.get('b')) + ' × ' + clean(member.get('h')), number(member.get('length'), 3), number(member.get('maxAxial'), 3), number(member.get('maxShear'), 3), number(member.get('maxMoment'), 4), number(member.get('deflectionMM'), 3) + ' / ' + number(member.get('limitMM'), 3), number(member.get('utilization'), 4), STATUSES.get(member.get('status'), clean(member.get('status')))])
+        return rows
+
+    def roof_frame_model_rows(self, zone):
+        frame = zone.get('frameAnalysis') or {}; design = frame.get('design') or {}; service = frame.get('service') or {}
+        rows = [['Зона / статус расчёта', clean(zone.get('id')) + ' / ' + clean(frame.get('status'))], ['Узлы / элементы', str(len(frame.get('nodes') or [])) + ' / ' + str(len(frame.get('elements') or []))]]
+        settings = frame.get('input') or {}
+        for title, keys in [('Пролёт / шаг / предел прогиба', [('span', 'L, м'), ('spacing', 'Шаг рам, м'), ('ceilingSpacing', 'Грузовая ширина потолка, м'), ('deflectionRatio', 'Знаменатель L /')]), ('Постоянные и снег, кН/м²', [('roofDead', 'Кровля'), ('ceilingDead', 'Потолок'), ('snow', 'Снег'), ('mu', 'μ')]), ('Коэффициенты нагрузки', [('gammaG', 'γG'), ('gammaQ', 'γQ')])]:
+            values = [label + ': ' + number(settings.get(key), 4) for key, label in keys if optional_number(settings.get(key)) is not None]
+            if values: rows.append([title, '; '.join(values)])
+        results = {r.get('id'): r for r in design.get('elementResults') or [] if isinstance(r, dict)}
+        stiffness = collections.OrderedDict()
+        for element in frame.get('elements') or []:
+            result = results.get(element.get('id'), {})
+            key = (element.get('b'), element.get('h'), element.get('E'), result.get('EA'), result.get('EI'), element.get('releaseA', result.get('releaseA')), element.get('releaseB', result.get('releaseB')), element.get('kind', result.get('kind')))
+            stiffness.setdefault(key, []).append(clean(element.get('id')))
+        for (b, h, modulus, ea, ei, release_a, release_b, kind), ids in stiffness.items():
+            release = lambda value: 'освобождён' if value is True else 'не освобождён' if value is False else 'не задано'
+            rows.append(['Участки ' + ', '.join(ids), 'b × h = ' + clean(b) + ' × ' + clean(h) + ' мм; E = ' + number(modulus, 1) + ' МПа; EA = ' + number(ea, 3) + ' кН; EI = ' + number(ei, 4) + ' кН·м².\nПоворот A: ' + release(release_a) + '; B: ' + release(release_b) + '; тип элемента: ' + clean(kind) + '.' + (' Осевой элемент: изгибная жёсткость сечения в работе элемента не участвует.' if kind == 'truss' else '')])
+        for support in frame.get('supports') or []:
+            restraint = lambda value: 'закреплён' if value is True else 'свободен' if value is False else 'не задано'
+            rows.append(['Опора ' + clean(support.get('node')), 'ux: ' + restraint(support.get('ux')) + '; uy: ' + restraint(support.get('uy')) + '; rz: ' + restraint(support.get('rz')) + '.'])
+        for name, case in [('Расчётная нагрузка', design), ('Эксплуатационная нагрузка', service)]:
+            facts = []
+            if case.get('stable') is not None:
+                facts.append('Матрица решена.' if case['stable'] is True else 'Расчёт неустойчив / не решён.')
+            for reaction in case.get('reactions') or []:
+                if isinstance(reaction, dict) and any(abs(finite(reaction.get(k))) > 1e-10 for k in ('fx', 'fy', 'mz')):
+                    facts.append(clean(reaction.get('node')) + ': Rx = ' + number(reaction.get('fx'), 4) + ' кН; Ry = ' + number(reaction.get('fy'), 4) + ' кН; Mz = ' + number(reaction.get('mz'), 4) + ' кНм.')
+            if isinstance(case.get('equilibrium'), dict):
+                equilibrium = case['equilibrium']
+                facts.append('Невязка: ΣFx = ' + number(equilibrium.get('fx'), 7) + ' кН; ΣFy = ' + number(equilibrium.get('fy'), 7) + ' кН; ΣM = ' + number(equilibrium.get('moment'), 7) + ' кНм.')
+            if facts: rows.append([name + ' · реакции и равновесие', '\n'.join(facts)])
+        for member in frame.get('members') or []:
+            if member.get('localOwnWeightBending') is True:
+                rows.append(['Локальный скрининг ' + clean(member.get('id')), 'N получено из осевого элемента общей рамы. В M/V и прогиб добавлена отдельная балочная проверка на собственный вес по флагу localOwnWeightBending. Изгибная жёсткость ригеля в общей раме не учитывается.'])
+        assumptions = list(dict.fromkeys(clean(v) for v in frame.get('assumptions') or []))
+        for i, assumption in enumerate(assumptions, 1):
+            rows.append(['Допущение схемы ' + str(i), assumption])
+        solver_notes = list(dict.fromkeys(clean(v) for source in (design, service) for v in source.get('assumptions') or [] if clean(v) not in assumptions))
+        translations = {
+            'Linear small-displacement': 'Линейные элементы Эйлера–Бернулли при малых перемещениях. Сдвиговые деформации, P–Δ, потеря устойчивости, податливость соединений и работа из плоскости не моделируются.',
+            'Unreleased beam nodes': 'Узлы без освобождения поворота разделяют один поворот внутри непрерывной доски; это не доказывает жёсткость гвоздевого соединения.',
+            'Element end-moment releases': 'Концевые освобождения моментов учтены статической конденсацией с согласованными распределёнными нагрузками; локальные повороты и усилия восстановлены.',
+            'maxDeflection is': 'maxDeflection - абсолютное вертикальное перемещение в метрах; maxTransverseDeflection - поперечное перемещение относительно хорды концов элемента.'}
+        if solver_notes:
+            readable = [next((translation for prefix, translation in translations.items() if note.startswith(prefix)), note) for note in solver_notes]
+            rows.append(['Допущения численного решателя', '\n'.join('• ' + note for note in readable)])
+        for i, error in enumerate([*(frame.get('errors') or []), *(design.get('errors') or []), *(service.get('errors') or [])], 1):
+            rows.append(['Ошибка расчёта ' + str(i), clean(error)])
+        rows.append(['Граница подтверждения', '2D-модель по номинальным b × h. Податливость узлов, ослабление жёсткости запилами, крепёж, смятие и внеплоскостная устойчивость не подтверждены.'])
+        return rows
+
     def draw_roofsections(self, c, zones, index):
         for j, zone in enumerate(zones or []):
-            x, y, w, h = 43, H - 425 - j * 325, W - 86, 305
+            expanded = len(zones or []) == 1 and bool(zone.get('frameAnalysis'))
+            x, y, w, h = (43, 124, W - 86, H - 246) if expanded else (43, H - 425 - j * 325, W - 86, 305)
             c.setStrokeColor(LINE); c.rect(x, y, w, h, fill=0, stroke=1)
-            text(c, f'{zone.get("name", zone.get("id"))} · {zone.get("shape")} · {zone.get("effectiveFraming", "-")}', x + 14, y + h - 22, 11, 'Bold')
+            framing_name = 'Стропила с затяжкой · 2D-рама' if zone.get('effectiveFraming') == 'tiedRafters' else zone.get('effectiveFraming', '-')
+            text(c, f'{zone.get("name", zone.get("id"))} · {zone.get("shape")} · {framing_name}', x + 14, y + h - 22, 11, 'Bold')
             angle = math.radians(finite(zone.get('ridgeAngle')))
             vx, vz = -math.sin(angle), math.cos(angle)
             def local(p):
                 xx, yy, zz = xyz(p)
                 return xx * vx + zz * vz, yy
             members = [m for m in self.members if m.get('zoneId') == zone.get('id')]
-            pts = [local(m[k]) for m in members for k in ('start', 'end') if m.get(k)]
+            profiles = [(m, self.projected_member(m, local)) for m in members if m.get('start') and m.get('end')]
+            pts = [point for _, shape in profiles for point in shape]
             if not pts:
                 text(c, 'Физические элементы зоны отсутствуют в отчёте.', x + 20, y + 180, 10, color=ORANGE)
                 continue
-            fn, scale = transform(pts, (x + 15, y + 33, w * .61, h - 78), 25)
+            drawing_box = (x + 15, y + 238, w * .61, h - 300) if expanded else (x + 15, y + 33, w * .61, h - 78)
+            fn, scale = transform(pts, drawing_box, 25)
             seen = set()
-            for m in members:
-                if not m.get('start') or not m.get('end'):
-                    continue
-                aa, bb = local(m['start']), local(m['end'])
-                key = tuple(round(v, 3) for p in (aa, bb) for v in p)
+            for m, shape in profiles:
+                key = tuple(sorted((round(p[0], 5), round(p[1], 5)) for p in shape))
                 if key in seen:
                     continue
                 seen.add(key)
-                line(c, fn(aa), fn(bb), WOOD_DARK, max(1.1, min(6, finite(m.get('h'), 150) / 1000 * scale)))
+                role = str(m.get('role', '')).lower()
+                color = BLUE if 'collar' in role or 'ledger' in role else ORANGE if 'knee' in role else GREEN if 'tie' in role or 'bottomchord' in role else MUTED if 'hanger' in role else WOOD_DARK
+                polygon(c, [fn(p) for p in shape], colors.HexColor('#eee0c6'), color, .65)
             mn, lo, mx, hi = bounds(pts)
             dimension(c, fn((mn, lo)), fn((mx, lo)), -15, number((mx - mn) * 1000, 0))
             sx, sy = x + w * .66, y + h - 48
             text(c, 'Задано / принято: ' + clean(zone.get('requestedSection', zone.get('chordSection'))) + ' / ' + clean(zone.get('selectedSection', zone.get('effectiveSection'))), sx, sy, 8.5, 'Bold', width=w * .31)
             sy -= 28
             sy = text(c, zone.get('framingReason', ''), sx, sy, 8, width=w * .31) - 12
-            ra = zone.get('rafterAnalysis') or {}
-            if ra:
+            ra = zone.get('rafterAnalysis') or {}; frame = zone.get('frameAnalysis') or {}
+            if frame:
+                summaries = []
+                for key, label in [('bottomChordBottomY', 'Низ затяжки'), ('ceilingDatumY', 'Базовая отметка потолка'), ('ceilingInsulationTopY', 'Верх утепления потолка')]:
+                    if optional_number(zone.get(key)) is not None:
+                        summaries.append(label + ': +' + number(zone.get(key), 3) + ' м')
+                finished = zone.get('ceilingFinishBottomY', zone.get('finishedCeilingY'))
+                if optional_number(finished) is not None:
+                    summaries.append('Низ отделки потолка: +' + number(finished, 4) + ' м')
+                values = [finite(member.get('utilization')) for member in frame.get('members') or [] if optional_number(member.get('utilization')) is not None]
+                if values: summaries.append('Макс. использование η: ' + number(max(values), 4))
+                summaries.append('N / V / M и прогибы: следующие расчётные листы.')
+                for label in summaries:
+                    sy = text(c, label, sx, sy, 7.5, width=w * .31) - 7
+                if expanded:
+                    for role in ('topChord', 'bottomChord', 'collarTie', 'kneePost', 'ceilingHanger', 'ceilingLedger', 'ceilingBatten'):
+                        actual = [m for m in members if m.get('role') == role]
+                        if not actual: continue
+                        sections = list(dict.fromkeys(clean(m.get('b')) + ' × ' + clean(m.get('h')) for m in actual))
+                        sy = text(c, ROLE.get(role, role) + ': ' + '; '.join(sections) + ' мм · ' + str(len(actual)) + ' шт. в зоне', sx, sy - 3, 7.5, width=w * .31) - 8
+                    self.draw_roof_seats(c, zone, profiles, local, (x + 15, y + 25, w * .61, 180))
+            elif ra:
                 for label, value in [('Пролёт / длина ската', f'{number(ra.get("horizontalSpan"), 3)} / {number(ra.get("slopeLength"), 3)} м'), ('Напряжение изгиба', number(ra.get('stress'), 3) + ' МПа'), ('Вертикальный прогиб', number(ra.get('verticalDeflection'), 3) + ' / ' + number(ra.get('deflectionAllowed'), 3) + ' мм'), ('Использование η', number(ra.get('utilization'), 4))]:
                     sy = text(c, label + ': ' + value, sx, sy, 8, width=w * .31) - 7
             else:
                 analysis = zone.get('analysis') or {}
                 sy = text(c, 'Типовая ферма: ' + clean(zone.get('trussType')) + '\nСтатус: ' + clean(analysis.get('status')) + '\nПрименимость: ' + ('типовая схема применима' if zone.get('analysisApplicable') else 'к обрезанным/частичным элементам не подтверждена'), sx, sy, 8, width=w * .31)
-            text(c, 'Разрез - проекция повторяющихся рам зоны; совпадающие линии показаны один раз. Опорные узлы не рассчитаны.', sx, y + 40, 7.4, color=ORANGE, width=w * .31)
+            text(c, 'Проекция физических досок; совпадающие тела рам показаны один раз. Чистовые профили и скосы - по данным модели. Опорные узлы не рассчитаны.', sx, y + 40, 7.4, color=ORANGE, width=w * .31)
+
+    def draw_roof_seats(self, c, zone, roof_profiles, local, box):
+        bounds_ = zone.get('bearingBounds') or zone.get('bounds') or {}
+        low, high, eave = optional_number(bounds_.get('minV')), optional_number(bounds_.get('maxV')), optional_number(zone.get('eave'))
+        if low is None or high is None or eave is None:
+            text(c, 'Координаты опорных сечений не переданы.', box[0], box[1] + 30, 7.5, color=ORANGE); return
+        angle = math.radians(finite(zone.get('ridgeAngle')))
+        station = lambda point: -math.sin(angle) * xy(point)[0] + math.cos(angle) * xy(point)[1]
+        for side, center in enumerate((low, high)):
+            x, y, w, h = box[0] + side * (box[2] / 2 + 6), box[1], box[2] / 2 - 12, box[3]
+            c.setStrokeColor(LINE); c.rect(x, y, w, h, fill=0, stroke=1)
+            text(c, 'ПОСАДКА · КАРНИЗ ' + str(side + 1), x + 8, y + h - 16, 7.5, 'Bold', GREEN)
+            profiles = list(roof_profiles)
+            wall_ids = {str(wall.get('id')) for wall in self.p.get('walls') or [] if int(wall.get('level', 1)) == int(zone.get('levelIndex', 1)) and abs(station(wall.get('a')) - station(wall.get('b'))) < 1e-6 and abs(station(wall.get('a')) - center) < .02}
+            profiles += [(m, self.projected_member(m, local)) for m in self.members if m.get('category') == 'walls' and str(m.get('wallId')) in wall_ids and m.get('start') and m.get('end') and m.get('role') in ('stud', 'plate', 'corner')]
+            fn, _ = transform([(center - .27, eave - .18), (center + .27, eave + .32)], (x + 7, y + 23, w - 14, h - 49), 6)
+            c.saveState(); clip = c.beginPath(); clip.rect(x + 7, y + 23, w - 14, h - 49); c.clipPath(clip, stroke=0)
+            seen = set()
+            for member, shape in sorted(profiles, key=lambda entry: 0 if entry[0].get('category') == 'walls' else 1):
+                key = tuple(sorted((round(point[0], 5), round(point[1], 5)) for point in shape))
+                if key in seen: continue
+                seen.add(key)
+                color = GREEN if member.get('category') == 'walls' else WOOD_DARK
+                polygon(c, [fn(p) for p in shape], colors.HexColor('#e0e8d8') if member.get('category') == 'walls' else colors.HexColor('#eee0c6'), color, .7)
+            line(c, fn((center - .27, eave)), fn((center + .27, eave)), BLUE, .55, [3, 2])
+            c.restoreState()
+            text(c, 'Опорная отметка +' + number(eave, 3) + ' м · фактические тела', x + 8, y + 10, 6.5, color=MUTED, width=w - 16)
 
     def draw_spatial(self, c, space, index):
         poly = [xy(p) for p in space.get('polygon') or []]

@@ -5,3 +5,6 @@ dist/
 .env*
 work/engine-data/
 work/mcp-smoke/
+__pycache__/
+*.pyc
+tmp/

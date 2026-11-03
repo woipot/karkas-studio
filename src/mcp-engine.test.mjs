@@ -7,10 +7,22 @@ import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {Client} from '@modelcontextprotocol/client';
 import {StdioClientTransport} from '@modelcontextprotocol/client/stdio';
-import {createHouseEngine} from './house-engine.js';
+import {createHouseEngine,evaluateHouse,modelHash} from './house-engine.js';
+import {generateHouse} from './house-generator.js';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const near=(a,b,t=1e-7)=>assert.ok(Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<t,`${a} ≠ ${b}`);
+
+test('report preserves source planning so revision hash remains reproducible after room derivation',()=>{
+  const {project,planning}=generateHouse({width:8,depth:4});
+  planning.stale=true;planning.rooms=[{id:'old',name:'Старая комната',area:100,level:1}];
+  project.roomSchedule=[{id:'room',name:'Актуальная комната',level:1,polygon:[{x:.2,y:.2},{x:3.8,y:.2},{x:3.8,y:3.8},{x:.2,y:3.8}]}];
+  const report=evaluateHouse(project,planning);
+  assert.equal(report.planning.stale,false);assert.equal(report.sourcePlanning.stale,true);
+  assert.equal(report.planning.rooms[0].name,'Актуальная комната');assert.equal(report.sourcePlanning.rooms[0].name,'Старая комната');
+  assert.equal(modelHash({project:report.project,planning:report.sourcePlanning}),report.engine.hash);
+  assert.match(report.engine.hashBasis,/sourcePlanning/);
+});
 
 test('real MCP stdio: immutable revisions, atomic patches, physical reports, unsaved variants and verifiable exports', {timeout:45000}, async t=>{
   const dataDir=await mkdtemp(path.join(tmpdir(),'karkas-mcp-qa-'));
@@ -61,7 +73,7 @@ test('real MCP stdio: immutable revisions, atomic patches, physical reports, uns
   // Valid large prices must not defeat the documented "failed checks first"
   // order. A weighted scalar with a fixed 1e9 penalty selected the failed beam.
   const priorities=await call('compare_variants',{project_id,revision:2,variants:[{name:'cheap but failing',operations:[{op:'replace',path:'/floor/section',value:'50x50'},{op:'replace',path:'/prices/timberM3',value:1e9}]},{name:'expensive fewer failures',operations:[{op:'replace',path:'/floor/section',value:'100x600'},{op:'replace',path:'/prices/timberM3',value:1e9}]}]});
-  assert.ok(priorities.variants[0].summary.failedChecks>priorities.variants[1].summary.failedChecks);assert.ok(priorities.variants[0].summary.estimateRub<priorities.variants[1].summary.estimateRub);assert.equal(priorities.selectedIndex,1);assert.deepEqual(priorities.ranking,[1,0]);assert.deepEqual(await call('get_project',{project_id}),current);
+  assert.ok(priorities.variants[0].summary.failedChecks>priorities.variants[1].summary.failedChecks);assert.ok(priorities.variants[0].summary.estimateTotal<priorities.variants[1].summary.estimateTotal);assert.equal(priorities.selectedIndex,1);assert.deepEqual(priorities.ranking,[1,0]);assert.deepEqual(await call('get_project',{project_id}),current);
 
   const formats=['report_json','project_json','plan_svg','boards_csv','cutting_csv','estimate_csv','cutting_html','model_obj'];
   const exported=await call('export',{project_id,revision:2,formats});assert.equal(exported.revision,2);assert.equal(exported.hash,updated.hash);assert.deepEqual(exported.artifacts.map(a=>a.format).sort(),[...formats].sort());

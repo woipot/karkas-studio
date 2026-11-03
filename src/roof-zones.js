@@ -55,7 +55,35 @@ function contained(poly,building){
   return true;
 }
 
-export function calculateRoofZones(p,baseResult,{autoOrient=true}={}){
+// Two supported mono slopes can meet at a ridge without making a truss.
+// Their high ends must terminate in the SAME vertical plan plane. Square cuts
+// normal to the sloped axes otherwise occupy the same wedge below the ridge.
+function supportedRidgeCuts(out){
+  const dot=(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0),cross3=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],tolerance=1e-6;
+  const edge=z=>{const theta=z.ridgeAngle*Math.PI/180,v=p=>-p.x*Math.sin(theta)+p.y*Math.cos(theta);for(let i=0;i<z.polygon.length;i++){const a=z.polygon[i],b=z.polygon[(i+1)%z.polygon.length];if(Math.abs(v(a)-z.bounds.maxV)<tolerance&&Math.abs(v(b)-z.bounds.maxV)<tolerance)return {a,b};}return null;};
+  const eligible=out.zones.filter(z=>z.shape==='mono'&&z.effectiveFraming==='rafters'&&z.analysisApplicable&&z.partialFrames===0);
+  out.rafterJoints=[];
+  for(let i=0;i<eligible.length;i++)for(let j=0;j<i;j++){
+    const a=eligible[i],b=eligible[j];if(a.levelIndex!==b.levelIndex||Math.abs(Math.cos((a.ridgeAngle-b.ridgeAngle)*Math.PI/180)+1)>tolerance)continue;
+    const ea=edge(a),eb=edge(b);if(!ea||!eb)continue;const length=Math.hypot(ea.b.x-ea.a.x,ea.b.y-ea.a.y),u={x:(ea.b.x-ea.a.x)/length,y:(ea.b.y-ea.a.y)/length};
+    if(Math.abs(cross(ea.a,ea.b,eb.a))/length>tolerance||Math.abs(cross(ea.a,ea.b,eb.b))/length>tolerance)continue;
+    const station=p=>(p.x-ea.a.x)*u.x+(p.y-ea.a.y)*u.y,lo=Math.max(0,Math.min(station(eb.a),station(eb.b))),hi=Math.min(length,Math.max(station(eb.a),station(eb.b)));if(hi-lo<tolerance)continue;
+    const highA=a.eave+a.rise+(a.rafterAxisLift??0),highB=b.eave+b.rise+(b.rafterAxisLift??0);if(Math.abs(highA-highB)>tolerance)continue;
+    const members=[a,b].map(z=>out.instances.filter(m=>m.zoneId===z.id&&m.role==='rafter'&&Math.abs(cross(ea.a,ea.b,{x:m.end[0],y:m.end[2]}))/length<tolerance&&station({x:m.end[0],y:m.end[2]})>=lo-tolerance&&station({x:m.end[0],y:m.end[2]})<=hi+tolerance));
+    if(members.some(ms=>!ms.length)||members.some((ms,k)=>ms.some(m=>![a,b][k].rafterSupports?.some(s=>s.rafterId===m.id&&s.end==='high'&&s.mode==='wallBearing'&&s.wallId&&s.status!=='fail'))))continue;
+    const id=`RIDGE-CUT-${b.id}-${a.id}`,cutIds=[];
+    for(const board of members.flat()){
+      const dir=board.end.map((v,k)=>(v-board.start[k])/board.length),horizontal=Math.hypot(dir[0],dir[2]),normal=[dir[0]/horizontal,0,dir[2]/horizontal],raw=board.crossAxis??[1,0,0],projection=dot(raw,dir),width=raw.map((v,k)=>v-projection*dir[k]),magnitude=Math.hypot(...width),x=width.map(v=>v/magnitude),z=cross3(x,dir),ratio=dot(z,normal)/dot(dir,normal),angle=Math.atan(Math.abs(ratio))*180/Math.PI;
+      board.cutEnd={scheme:'miter',angle,plane:'depth',cutWidthMM:board.h,tiltSign:Math.sign(ratio)||1};
+      const allowance=cut=>cut?.scheme==='miter'?(cut.cutWidthMM??board.h)/2000*Math.tan(Math.abs(cut.angle??0)*Math.PI/180):0;
+      board.cutLength=board.length+allowance(board.cutStart)+allowance(board.cutEnd);board.rafterJointId=id;board.endCutPlane={point:[...board.end],normal};cutIds.push(board.id);
+    }
+    out.rafterJoints.push({id,type:'supportedRidge',zoneIds:[b.id,a.id],start:[ea.a.x+u.x*lo,highA,ea.a.y+u.y*lo],end:[ea.a.x+u.x*hi,highA,ea.a.y+u.y*hi],boardIds:cutIds,cutType:'vertical_plumb_miter',connectionVerified:false});
+    out.checks.push({id:id+'-geometry',label:'Общий поддержанный конёк: вертикальные торцы стропил',status:'pass',note:'Встречные стропила обрезаны в общей вертикальной плоскости по реальному базису доски. Силовое соединение, опорный запил и анкеры этим не подтверждаются.'});
+  }
+}
+
+export function calculateRoofZones(p,baseResult,{autoOrient=true,roofExtraDeadByZone={}}={}){
   const r=baseResult??{},geometry=r.geometry??{},levels=(geometry.levels??[]).filter(l=>l.closed&&l.polygon?.length>=3),platform=r.timber?.platformHeight??((sec(p.floor?.section)?.h??250)/1000+.035);
   const levelTop=l=>finite(l.topY)?l.topY:l.elevation+l.height;
   const fallbackEave=.72+(p.floors??1)*((p.height??2.8)+platform),last=levels.at(-1),defaultEave=last?levelTop(last):fallbackEave;
@@ -86,6 +114,7 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true}={}){
       if(z.elevation!==null&&z.elevation!==undefined&&(!finite(z.elevation)||z.elevation<0||z.elevation>100))throw Error('Высота зоны должна быть конечной положительной отметкой.');
       let chord=sec(z.chordSection);const web=sec(z.webSection);if(!chord||!web||chord.b<15||chord.h<chord.b||web.b<15||web.h<web.b)throw Error('Некорректное сечение доски.');
       const designated=levels.find(l=>l.index===z.levelIndex);
+      const extraDead=roofExtraDeadByZone[z.id]??0;if(!finite(extraDead)||extraDead<0)throw Error('Добавочный вес кровельных досок должен быть конечным и неотрицательным.');z.extraRoofDead=extraDead;
       z.eave=z.elevation??(designated?levelTop(designated):defaultEave);
       const level=designated??levels.find(l=>Math.abs(levelTop(l)-z.eave)<.01),allowed=level?.polygon??building;
       z.levelIndex=level?.index??z.levelIndex??last?.index??1;
@@ -96,12 +125,13 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true}={}){
       if(S<.1||L<.1)throw Error('Нулевая ширина или длина зоны.');
       if(Math.ceil((L-EPS)/z.spacing)>600)throw Error('Слишком много поперечных рам: разделите зону или увеличьте шаг.');
       const tl=Math.tan(z.pitchLeft*Math.PI/180),tr=Math.tan(z.pitchRight*Math.PI/180),rise=z.shape==='mono'?S*tl:S*tl*tr/(tl+tr),ridgeV=z.shape==='mono'?v1:v0+rise/tl;
+      if(z.loadSnowFactor!==undefined&&(!finite(z.loadSnowFactor)||z.loadSnowFactor<0||z.loadSnowFactor>4))throw Error('Множитель снега: 0…4.');
       z.area=area(poly);z.rise=rise;z.crestRatio=(ridgeV-v0)/S;z.bounds={minU:u0,maxU:u1,minV:v0,maxV:v1,length:L,span:S};
       const planes=z.shape==='mono'?[{a:0,b:tl,d:-tl*v0,kind:'left'}]:[{a:0,b:tl,d:-tl*v0,kind:'left'},{a:0,b:-tr,d:tr*v1,kind:'right'}];
       if(z.shape==='hip'){const th=(tl+tr)/2;planes.push({a:th,b:0,d:-th*u0,kind:'hip-start'},{a:-th,b:0,d:th*u1,kind:'hip-end'});z.warnings.push('Вальмовые скаты сформированы геометрически; накосные стропила, узлы и расчётная решётка не определены.');out.complete=false;}
       const height=(u,v)=>Math.min(...planes.map(p=>p.a*u+p.b*v+p.d));
       const triangles=triangulate(poly);z.surfaceArea=0;z.snowEffectiveArea=0;
-      for(let pi=0;pi<planes.length;pi++)for(const triangle of triangles){const plane=planes[pi];let part=triangle;for(let pj=0;pj<planes.length&&part.length>=3;pj++)if(pi!==pj){const other=planes[pj];part=clip(part,q=>(other.a-plane.a)*q.x+(other.b-plane.b)*q.y+other.d-plane.d);}if(part.length<3||area(part)<EPS)continue;const projected=area(part),actual=projected*Math.sqrt(1+plane.a**2+plane.b**2);z.surfaceArea+=actual;z.snowEffectiveArea+=projected*mu(Math.atan(Math.hypot(plane.a,plane.b))*180/Math.PI);out.surfaces.push({id:`${z.id}-S${out.surfaces.length+1}`,zoneId:z.id,kind:plane.kind,points:part.map(q=>toWorld(q.x,q.y,height(q.x,q.y))),area:actual,projectedArea:projected});}
+      for(let pi=0;pi<planes.length;pi++)for(const triangle of triangles){const plane=planes[pi];let part=triangle;for(let pj=0;pj<planes.length&&part.length>=3;pj++)if(pi!==pj){const other=planes[pj];part=clip(part,q=>(other.a-plane.a)*q.x+(other.b-plane.b)*q.y+other.d-plane.d);}if(part.length<3||area(part)<EPS)continue;const projected=area(part),actual=projected*Math.sqrt(1+plane.a**2+plane.b**2);z.surfaceArea+=actual;z.snowEffectiveArea+=projected*(z.loadSnowFactor??1)*mu(Math.atan(Math.hypot(plane.a,plane.b))*180/Math.PI);out.surfaces.push({id:`${z.id}-S${out.surfaces.length+1}`,zoneId:z.id,kind:plane.kind,points:part.map(q=>toWorld(q.x,q.y,height(q.x,q.y))),area:actual,projectedArea:projected});}
       let ridgeSegments=[];
       if(z.shape==='hip'){
         const th=(tl+tr)/2,run=rise/th;
@@ -118,7 +148,7 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true}={}){
       z.framingReason=z.shape==='hip'?'Вальмовая геометрия без расчётной пространственной схемы.':'Для двускатной зоны выбрана схема ферм.';
       z.rafterAnalysis=null;
       if(z.shape==='mono'){
-        const params={horizontalSpan:S,pitch:z.pitchLeft,b:chord.b,h:chord.h,spacing:z.actualSpacing,roofDead:p.loads?.roofDead??.5,snow:p.loads?.snow??1.5,mu:mu(z.pitchLeft),gammaG:p.loads?.gammaG??1.1,gammaQ:p.loads?.gammaQ??1.4,E,Fb:p.material?.Fb??13,Fv:p.material?.Fv??1.5,Ft:p.material?.Ft??8,Fc:p.material?.Fc??12,density,deflectionRatio:z.deflectionRatio};
+        const params={horizontalSpan:S,pitch:z.pitchLeft,b:chord.b,h:chord.h,spacing:z.actualSpacing,roofDead:(p.loads?.roofDead??.5)+extraDead,snow:(p.loads?.snow??1.5)*(z.loadSnowFactor??1),mu:mu(z.pitchLeft),gammaG:p.loads?.gammaG??1.1,gammaQ:p.loads?.gammaQ??1.4,E,Fb:p.material?.Fb??13,Fv:p.material?.Fv??1.5,Ft:p.material?.Ft??8,Fc:p.material?.Fc??12,density,deflectionRatio:z.deflectionRatio};
         const requestedAnalysis=calculateRafter(params);
         const candidates=[{id:z.chordSection,b:chord.b,h:chord.h},...timberSections.filter(q=>q.category==='board'&&q.b===chord.b&&q.h>chord.h&&q.h<=250).sort((a,b)=>a.h-b.h)];
         let chosen=null;
@@ -138,7 +168,7 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true}={}){
         for(const surface of out.surfaces.filter(q=>q.zoneId===z.id))for(const point of surface.points)point[1]+=z.rafterAxisLift;
       }
       z.effectiveSection=z.selectedSection;
-      z.analysis=z.shape==='hip'||z.effectiveFraming==='rafters'?null:buildTruss({type:z.shape==='mono'?'mono':(['king','queen','fink'].includes(z.trussType)?z.trussType:'fink'),span:S,rise,crestRatio:z.shape==='mono'?.5:z.crestRatio,chordB:chord.b,chordH:chord.h,webB:web.b,webH:web.h,spacing:z.actualSpacing,roofDead:p.loads?.roofDead??.5,snow:p.loads?.snow??1.5,mu:.8,muLeft:mu(z.pitchLeft),muRight:mu(z.pitchRight),gammaG:p.loads?.gammaG??1.1,gammaQ:p.loads?.gammaQ??1.4,E,tensionDesign:p.material?.Ft??8,compressionDesign:p.material?.Fc??12,timberDensity:density});
+      z.analysis=z.shape==='hip'||z.effectiveFraming==='rafters'?null:buildTruss({type:z.shape==='mono'?'mono':(['king','queen','fink'].includes(z.trussType)?z.trussType:'fink'),span:S,rise,crestRatio:z.shape==='mono'?.5:z.crestRatio,chordB:chord.b,chordH:chord.h,webB:web.b,webH:web.h,spacing:z.actualSpacing,roofDead:(p.loads?.roofDead??.5)+extraDead,snow:(p.loads?.snow??1.5)*(z.loadSnowFactor??1),mu:.8,muLeft:mu(z.pitchLeft),muRight:mu(z.pitchRight),gammaG:p.loads?.gammaG??1.1,gammaQ:p.loads?.gammaQ??1.4,E,tensionDesign:p.material?.Ft??8,compressionDesign:p.material?.Fc??12,timberDensity:density});
       z.analysisApplicable=rectangle&&(z.effectiveFraming==='rafters'?!!z.rafterAnalysis&&!z.rafterAnalysis.errors?.length:z.shape!=='hip'&&z.analysis?.stable===true);
       if(z.effectiveFraming==='truss'&&!z.analysis?.stable){z.warnings.push('Расчётная ферма не сформирована; показаны только геометрические стропила.');out.complete=false;}
       let partialFrames=0;const zoneMemberStart=out.instances.length;
@@ -185,6 +215,7 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true}={}){
     out.checks.push(...(supports.checks??[]));out.warnings.push(...(supports.warnings??[]));
     if(supports.checks?.some(c=>c.status==='fail'))out.complete=false;
   }
+  supportedRidgeCuts(out);
   const profileAreaGain=out.wallProfiles.filter(q=>q.mode==='continuous'&&p.walls.find(w=>w.id===q.wallId)?.kind==='exterior').reduce((sum,q)=>sum+q.topSamples.slice(1).reduce((a,b,i)=>a+(b.s-q.topSamples[i].s)*((b.topY+q.topSamples[i].topY)/2-q.nominalTopY),0),0);
   out.profileAreaGain=profileAreaGain;out.unprofiledGableArea=out.gableArea;
   out.gableArea=Math.max(0,out.gableArea-profileAreaGain);
@@ -193,11 +224,12 @@ export function calculateRoofZones(p,baseResult,{autoOrient=true}={}){
   out.status=out.checks.some(c=>c.status==='fail')?'fail':'unverified';
   out.assumptions=['Кровля задана отдельными полигонами зон; габаритный прямоугольник дома не используется как готовая крыша. Автоматическое разбиение ортогонального контура покрывает его точно, без перекрытия крыльев.','Высоты и координаты абсолютные, включая основание 0,72 м и этажные платформы. Автоматически покрываются открытые сверху части закрытых этажей; второй свет не вырезает внешний скат.','Двускатная асимметрия: h=S×tan(αL)×tan(αR)/(tan(αL)+tan(αR)); положение конька h/tan(αL). Односкатная высота S×tan(αL).','Скаты триангулированы и ограничены полигоном. Оси досок клиппируются по действительным поперечным интервалам, наружные вырезы не перекрываются. Длины по осям, рабочие запилы и узлы не назначены.','Форма скатов отделена от несущей схемы. Односкатный режим Авто сначала проверяет стропильные балки и сечения той же толщины до 250 мм; фермы предлагаются при отсутствии подходящего цельного стропила. Ручной выбор сохраняется.','FEM типовой фермы применён только к полным прямоугольным зонам, согласованным с направлением конька. Обрезанные рамы, вальмы, ендовы и пространственная устойчивость не подтверждены.','Возвращаются неразрезные идеальные доски. Закупочные 6 м и физическое наращивание выполняет геометрическое ядро отдельно; стык не создаёт опору и не уменьшает расчётный пролёт.','Вес кровельных слоёв должен считаться по area (фактические скаты), снег по projectedArea. Древесина mass/volume включается в общий вес один раз.'];
   out.assumptions.push(...new Set(out.zones.flatMap(z=>[...(z.rafterAnalysis?.assumptions??[]),...(z.supportAssumptions??[])])));
+  if(out.rafterJoints.length)out.assumptions.push('Исключение для запилов: на общей высокой кромке двух противоположных прямоугольных односкатных зон с найденными стеновыми опорами назначены вертикальные торцы стропил. Осевые длины и статическая модель сохранены; заготовка увеличена на припуск h/2·tan(угла). Остальные опорные запилы и крепления требуют рабочего узла.');
   const drainage=calculateRoofDrainage(p,r,out);
   if(autoOrient&&p.roof?.zones===undefined&&drainage.suggestions?.length){
     const fixed=orientRoofsAwayFromWalls(p,r,out);
     if(fixed.suggestions?.length&&fixed.zones?.length){
-      const corrected=calculateRoofZones({...p,roof:{...p.roof,zones:fixed.zones}},r,{autoOrient:false});
+      const corrected=calculateRoofZones({...p,roof:{...p.roof,zones:fixed.zones}},r,{autoOrient:false,roofExtraDeadByZone});
       corrected.autoDrainageAdjusted=true;
       corrected.assumptions.unshift('Автоматические нижние крылья ориентированы односкатно от высоких стен. Ручные зоны меняются только по команде пользователя.');
       return corrected;

@@ -12,6 +12,7 @@ export function resolvePrices(input={}){
     const value=numeric(input?.[key],fallback),maximum=key.endsWith('Percent')?300:1e9;
     p[key]=value<=maximum?value:fallback;
   }
+  p.currency=['RUB','EUR','USD'].includes(input?.currency)?input.currency:'RUB';
   p.sectionPrices={};
   if(input?.sectionPrices&&typeof input.sectionPrices==='object')for(const [id,value] of Object.entries(input.sectionPrices)){
     if(Number.isFinite(value)&&value>=0&&value<=1e9)p.sectionPrices[id]=value;
@@ -99,12 +100,19 @@ export function calculateEstimate(project={},result={},precomputedCutting){
   add('windows','Окна','м²',windowArea,'windowsM2',false,'Сумма площадей оконных проёмов; конфигурация и монтаж отдельно не моделируются.');
   add('doors','Двери','шт.',doorCount,'doorsEach',false,'Количество дверных проёмов модели.');
   add('fasteners','Крепёж · укрупнённая оценка','м³ каркаса',netTimber,'fastenersM3',false,'Условная расценка на м³ установленной древесины; состав и расчёт соединений отсутствуют.');
+  // Explicit envelope allowances, derived from the same geometry. These do
+  // not change structural masses: layer loads remain explicit load inputs.
+  const envelopeAreas={wall:netWall,roof:roofArea,groundFloor:numeric(geo.levels?.[0]?.area,numeric(geo.area)),allFloors:floorArea,wallAndRoof:netWall+roofArea};
+  for(const item of project.envelope?.costItems??[]){
+    const area=envelopeAreas[item.basis];if(!Number.isFinite(area)||!Number.isFinite(item.rate)||item.rate<0||!Number.isFinite(item.factor??1)||(item.factor??1)<0)throw new Error('Некорректная расценка слоя ограждения.');
+    const net=area*(item.factor??1),quantity=net*(item.waste?factor:1);rows.push({id:'envelope-'+item.id,name:item.name,category:'envelope',unit:'м²',netQuantity:net,quantity,unitPrice:item.rate,total:money(quantity*item.rate),note:item.note??'Заданная бюджетная расценка слоя; без рыночной котировки.',wasteQuantity:quantity-net,wasteCost:money((quantity-net)*item.rate)});
+  }
   const materialTotal=money(sum(rows.map(r=>r.total)));
   const laborTotal=money(materialTotal*prices.laborPercent/100);
   const reserve=money((materialTotal+laborTotal)*prices.contingencyPercent/100);
   const total=money(materialTotal+laborTotal+reserve);
   const procurementTimberVolume=sum(timberGroups.map(g=>g.procurementVolume));
-  return {rows,prices,timberGroups,materialTotal,materialsTotal:materialTotal,laborTotal,reserve,contingencyTotal:reserve,total,
+  return {rows,prices,currency:prices.currency,timberGroups,materialTotal,materialsTotal:materialTotal,laborTotal,reserve,contingencyTotal:reserve,total,
     netTimberVolume:netTimber,procurementTimberVolume,cutting,complete:geo.closed!==false&&(cutting?cutting.summary.complete:true),
     waste:{percent:prices.wastePercent,timberVolume:procurementTimberVolume-netTimber,materialCost:money(sum(rows.map(r=>r.wasteCost)))},
     wasteTotal:money(sum(rows.map(r=>r.wasteCost))),
@@ -114,17 +122,18 @@ export function calculateEstimate(project={},result={},precomputedCutting){
       `Запас ${fmt(prices.wastePercent)}% добавляется к обшивке, утеплению и кровельному покрытию.`,
       `Работы = ${fmt(prices.laborPercent)}% от материалов; резерв = ${fmt(prices.contingencyPercent)}% от материалов и работ.`,
       'Смета ограничена перечисленными позициями. Земля, изыскания, проектирование, доставка, инженерные системы, отделка и специальные узлы отдельно не оценены.',
-      'Расценки принимаются конечными в рублях. Налоговые надбавки и индексация автоматически не добавляются.',
+      `Расценки в ${prices.currency}. Это заданные ставки; НДС/налоговые надбавки и индексация автоматически не добавляются.`,
     ]};
 }
 
 /** Semicolon CSV with BOM, real CRLFs, quoted cells and units for spreadsheet use. */
 export function estimateRowsToCSV(estimate,projectName='Проект КАРКАС'){
   const e=Array.isArray(estimate)?{rows:estimate}:estimate;
+  const symbol=e.currency==='EUR'?'€':e.currency==='USD'?'$':'₽';
   const data=[['КАРКАС · предварительная смета',projectName],['Цены примера — замените на ваши'],
-    ['Позиция','Количество в модели','Закупочное количество','Единица','Цена, ₽/ед.','Сумма, ₽','Примечание'],
+    ['Позиция','Количество в модели','Закупочное количество','Единица',`Цена, ${symbol}/ед.`,`Сумма, ${symbol}`,'Примечание'],
     ...(e.rows??[]).map(r=>[r.name,r.netQuantity??r.quantity,r.quantity,r.unit,r.unitPrice,r.total,r.note??'']),
-    [],['Материалы, ₽',e.materialTotal??sum((e.rows??[]).map(r=>r.total))],['Работы, ₽',e.laborTotal??0],['Резерв, ₽',e.reserve??0],['Итого, ₽',e.total??sum((e.rows??[]).map(r=>r.total))],
+    [],[`Материалы, ${symbol}`,e.materialTotal??sum((e.rows??[]).map(r=>r.total))],[`Работы, ${symbol}`,e.laborTotal??0],[`Резерв, ${symbol}`,e.reserve??0],[`Итого, ${symbol}`,e.total??sum((e.rows??[]).map(r=>r.total))],
     ['Ограничение','Предварительная смета по геометрии; не коммерческое предложение']];
   const quote=value=>{
     let text=String(value??'');

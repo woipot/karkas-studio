@@ -1,0 +1,1563 @@
+#!/usr/bin/env python3
+"""Render a traceable, read-only A3 calculation album from a KARKAS report.
+
+Usage: structural-album.py report.json output.pdf [--assets-dir DIRECTORY]
+All geometry, quantities, member IDs and checks come from the report. This
+renderer deliberately performs no structural design or connection design.
+"""
+import argparse
+import collections
+import datetime
+import json
+import math
+import os
+import sys
+from pathlib import Path
+
+from reportlab.pdfgen import canvas
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A3, landscape
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+
+W, H = landscape(A3)
+INK = colors.HexColor('#22312f')
+MUTED = colors.HexColor('#68736e')
+LINE = colors.HexColor('#d6ded7')
+PAPER = colors.HexColor('#fafbf7')
+WOOD = colors.HexColor('#cba875')
+WOOD_DARK = colors.HexColor('#8c6942')
+GREEN = colors.HexColor('#3c735d')
+LIME = colors.HexColor('#d7e7ae')
+ORANGE = colors.HexColor('#aa6533')
+RED = colors.HexColor('#a0433d')
+BLUE = colors.HexColor('#597e96')
+STATUS = 'КР · расчётная проработка / НЕ РАБОЧАЯ ДОКУМЕНТАЦИЯ'
+
+
+def number(value, digits=2, dash='-'):
+    try:
+        value = float(value)
+        if not math.isfinite(value):
+            return dash
+        return f'{value:,.{digits}f}'.replace(',', ' ').replace('.', ',')
+    except (TypeError, ValueError):
+        return dash
+
+
+def finite(value, default=0):
+    try:
+        n = float(value)
+        return n if math.isfinite(n) else default
+    except (TypeError, ValueError):
+        return default
+
+
+def optional_number(value):
+    if value is None or value == '':
+        return None
+    try:
+        value = float(value)
+        return value if math.isfinite(value) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def clean(value):
+    if value is None:
+        return '-'
+    if isinstance(value, bool):
+        return 'да' if value else 'нет'
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, separators=(', ', ': '))
+    value = str(value).replace('\u2011', '-').replace('\u2013', '-').replace('\u2014', '-').replace('\x00', '')
+    # Arial does not contain every mathematical subscript in engine notes.
+    return value.translate(str.maketrans({'ᵥ': 'v', 'ₛ': 's', 'ₐ': 'a', 'ₜ': 't', 'ₘ': 'm', 'ₑ': 'e', 'ₖ': 'k', '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4', '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9', '⁴': '^4', '∥': '||', '⊥': 'перп.'}))
+
+
+def xy(point):
+    if isinstance(point, dict):
+        return finite(point.get('x')), finite(point.get('y', point.get('z')))
+    if isinstance(point, (list, tuple)) and len(point) >= 3:
+        return finite(point[0]), finite(point[2])
+    if isinstance(point, (list, tuple)) and len(point) >= 2:
+        return finite(point[0]), finite(point[1])
+    return 0, 0
+
+
+def xyz(point):
+    if isinstance(point, dict):
+        return finite(point.get('x')), finite(point.get('Y', point.get('height'))), finite(point.get('z', point.get('y')))
+    return tuple(finite(x) for x in (list(point or []) + [0, 0, 0])[:3])
+
+
+def bounds(points):
+    pts = list(points)
+    if not pts:
+        return 0, 0, 1, 1
+    return min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts)
+
+
+def scan_intervals(points, ordinate):
+    """Exact horizontal scanline intervals of a simple plan polygon."""
+    hits = []
+    for a, b in zip(points, points[1:] + points[:1]):
+        if (a[1] <= ordinate < b[1]) or (b[1] <= ordinate < a[1]):
+            hits.append(a[0] + (ordinate - a[1]) / (b[1] - a[1]) * (b[0] - a[0]))
+    hits.sort()
+    return list(zip(hits[::2], hits[1::2]))
+
+
+def subtract_intervals(base, voids):
+    result = list(base)
+    for a, b in voids:
+        output = []
+        for lo, hi in result:
+            if b <= lo or a >= hi:
+                output.append((lo, hi))
+            else:
+                if lo < a:
+                    output.append((lo, a))
+                if b < hi:
+                    output.append((b, hi))
+        result = output
+    return result
+
+
+def inside_polygon(point, polygon_):
+    x, y = point
+    inside = False
+    for a, b in zip(polygon_, polygon_[1:] + polygon_[:1]):
+        if (a[1] > y) != (b[1] > y):
+            crossing = a[0] + (y - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
+            if x < crossing:
+                inside = not inside
+    return inside
+
+
+def transform(points, box, padding=24, uniform=True):
+    x, y, w, h = box
+    a, b, c, d = bounds(points)
+    sx = (w - 2 * padding) / max(c - a, .01)
+    sy = (h - 2 * padding) / max(d - b, .01)
+    if uniform:
+        sx = sy = min(sx, sy)
+    ox = x + (w - (c - a) * sx) / 2
+    oy = y + (h - (d - b) * sy) / 2
+    return lambda p: (ox + (p[0] - a) * sx, oy + (p[1] - b) * sy), sx
+
+
+def register_fonts(assets=None):
+    options = [Path(assets)] if assets else []
+    options += [Path('/System/Library/Fonts/Supplemental'), Path('/usr/share/fonts/truetype/dejavu'), Path('/usr/share/fonts/truetype/liberation2')]
+    fonts = {
+        'Body': ('Arial.ttf', 'DejaVuSans.ttf', 'LiberationSans-Regular.ttf'),
+        'Bold': ('Arial Bold.ttf', 'DejaVuSans-Bold.ttf', 'LiberationSans-Bold.ttf'),
+        'Italic': ('Arial Italic.ttf', 'DejaVuSans-Oblique.ttf', 'LiberationSans-Italic.ttf'),
+        'Mono': ('Courier New.ttf', 'DejaVuSansMono.ttf', 'LiberationMono-Regular.ttf'),
+    }
+    for name, candidates in fonts.items():
+        path = next((folder / f for folder in options for f in candidates if (folder / f).exists()), None)
+        if not path:
+            raise RuntimeError('Не найден шрифт с кириллицей: ' + name)
+        pdfmetrics.registerFont(TTFont(name, str(path)))
+
+
+def wrap(text, width, font='Body', size=8):
+    text = clean(text)
+    output = []
+    for paragraph in text.split('\n'):
+        line = ''
+        for word in paragraph.split(' '):
+            candidate = (line + ' ' + word).strip()
+            if pdfmetrics.stringWidth(candidate, font, size) <= width:
+                line = candidate
+                continue
+            if line:
+                output.append(line)
+                line = ''
+            chunk = ''
+            for character in word:
+                if chunk and pdfmetrics.stringWidth(chunk + character, font, size) > width:
+                    output.append(chunk)
+                    chunk = ''
+                chunk += character
+            line = chunk
+        output.append(line)
+    return output or ['']
+
+
+def text(c, value, x, y, size=8, font='Body', color=INK, width=None, leading=None):
+    c.setFillColor(color)
+    c.setFont(font, size)
+    lines = wrap(value, width, font, size) if width else clean(value).split('\n')
+    leading = leading or size * 1.28
+    for line in lines:
+        c.drawString(x, y, line)
+        y -= leading
+    return y
+
+
+def line(c, a, b, color=LINE, width=.6, dash=None):
+    c.setStrokeColor(color)
+    c.setLineWidth(width)
+    c.setDash(dash or [])
+    c.line(a[0], a[1], b[0], b[1])
+    c.setDash([])
+
+
+def polygon(c, points, fill=None, stroke=INK, width=.8):
+    if len(points) < 2:
+        return
+    p = c.beginPath()
+    p.moveTo(*points[0])
+    for point in points[1:]:
+        p.lineTo(*point)
+    p.close()
+    c.setLineWidth(width)
+    c.setStrokeColor(stroke or colors.white)
+    c.setFillColor(fill or colors.white)
+    c.drawPath(p, stroke=int(stroke is not None), fill=int(fill is not None))
+
+
+def arrow(c, a, b, color=BLUE, width=1):
+    line(c, a, b, color, width)
+    angle = math.atan2(b[1] - a[1], b[0] - a[0])
+    for turn in (-.45, .45):
+        line(c, b, (b[0] - 5 * math.cos(angle + turn), b[1] - 5 * math.sin(angle + turn)), color, width)
+
+
+def badge(c, label, x, y, color=GREEN, size=7.5):
+    w = pdfmetrics.stringWidth(clean(label), 'Bold', size) + 13
+    c.setFillColor(color)
+    c.roundRect(x, y - 4, w, 16, 4, fill=1, stroke=0)
+    text(c, label, x + 6, y + 1, size, 'Bold', colors.white)
+    return w
+
+
+def dimension(c, a, b, offset=15, label=None):
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length = math.hypot(dx, dy)
+    if length < 1:
+        return
+    nx, ny = -dy / length, dx / length
+    aa, bb = (a[0] + nx * offset, a[1] + ny * offset), (b[0] + nx * offset, b[1] + ny * offset)
+    line(c, a, (aa[0] + nx * 3, aa[1] + ny * 3), MUTED, .4)
+    line(c, b, (bb[0] + nx * 3, bb[1] + ny * 3), MUTED, .4)
+    line(c, aa, bb, MUTED, .45)
+    for p in (aa, bb):
+        line(c, (p[0] - 2, p[1] - 3), (p[0] + 2, p[1] + 3), INK, .6)
+    label = clean(label or '')
+    tx, ty = (aa[0] + bb[0]) / 2, (aa[1] + bb[1]) / 2
+    c.saveState()
+    c.translate(tx, ty)
+    angle = math.degrees(math.atan2(dy, dx))
+    if angle > 90 or angle < -90:
+        angle += 180
+    c.rotate(angle)
+    tw = pdfmetrics.stringWidth(label, 'Body', 7)
+    c.setFillColor(colors.white)
+    c.rect(-tw / 2 - 3, -2, tw + 6, 10, fill=1, stroke=0)
+    text(c, label, -tw / 2, 1, 7)
+    c.restoreState()
+
+
+ROLE = {'stud': 'Стойка', 'plate': 'Обвязка', 'corner': 'Угол', 'joist': 'Лага', 'rim': 'Бортовая доска', 'voidHeader': 'Ригель проёма', 'voidTrimmer': 'Обрамление проёма', 'rafter': 'Стропило', 'truss': 'Ферма', 'letInBrace': 'Врезная укосина', 'blocking': 'Распорка', 'grillage': 'Ростверк', 'beam': 'Балка', 'header': 'Перемычка', 'kingStud': 'Стойка проёма', 'jackStud': 'Опорная стойка', 'sill': 'Подоконная доска'}
+STATUSES = {'pass': 'Частная проверка выполнена', 'fail': 'Не выполнено', 'warning': 'Требует уточнения', 'unverified': 'Не проверено', 'blocked': 'Заблокировано', 'complete': 'Сформировано'}
+
+
+class Album:
+    def __init__(self, report):
+        self.report = report
+        self.p = report.get('project') or {}
+        self.r = report.get('result') or {}
+        self.engine = report.get('engine') or {}
+        self.release = '.'.join(clean(self.engine.get('version', '4.0')).split('.')[:2])
+        self.planning = report.get('planning') or self.r.get('planning') or {}
+        self.cut = report.get('cutting') or {}
+        self.estimate = report.get('estimate') or {}
+        self.g = self.r.get('geometry') or {}
+        self.roof = self.r.get('roofModel') or {}
+        self.gr = self.r.get('grillageModel') or {}
+        self.members = (self.r.get('timber') or {}).get('instances') or []
+        self.marks = {str(m.get('id')): f'Д-{i + 1:04d}' for i, m in enumerate(self.members)}
+        self.wall_map = {str(w.get('id')): w for w in self.p.get('walls', [])}
+        self.wall_names = {str(w.get('id')): f'Стена {i + 1:02d}' for i, w in enumerate(self.p.get('walls', []))}
+        self.levels = self.g.get('levels') or []
+        self.pages = []
+        self.currency = self.estimate.get('currency') or (self.p.get('prices') or {}).get('currency') or 'RUB'
+        self.unit_money = {'EUR': 'EUR', 'RUB': 'RUB', 'USD': 'USD'}.get(self.currency, clean(self.currency))
+        self.plan()
+
+    def add(self, title, kind, data=None, subtitle=''):
+        self.pages.append({'title': title, 'kind': kind, 'data': data, 'subtitle': subtitle})
+
+    def table_pages(self, title, columns, rows, subtitle='', size=8):
+        """Paginate by measured cell height, including wrapping of full IDs."""
+        available = H - 250
+        pending, height = [], 0
+        widths = [(W - 84) * col[1] for col in columns]
+        for row in rows:
+            cell_lines = [wrap(cell, widths[i] - 12, 'Mono' if columns[i][2:] and columns[i][2] == 'mono' else 'Body', size) for i, cell in enumerate(row)]
+            rh = max(len(v) for v in cell_lines) * size * 1.25 + 10
+            if pending and height + rh > available:
+                self.add(title, 'table', (columns, pending, size), subtitle)
+                pending, height = [], 0
+            pending.append((row, rh))
+            height += rh
+        self.add(title, 'table', (columns, pending, size), subtitle)
+
+    def plan(self):
+        self.add('КР · расчётная проработка', 'cover')
+        self.add('Ведомость листов', 'contents')
+        self.add('Исходные данные, единицы и область расчёта', 'assumptions')
+        selection = self.report.get('foundationSelection') or self.r.get('foundationSelection') or (self.p.get('foundation') or {}).get('selection') or {}
+        if self.p.get('site') or selection:
+            self.add('Площадка и выбор фундамента', 'site')
+            if self.p.get('site'):
+                self.table_pages('Площадка · принятые нормативные исходные', [('Параметр', .35), ('Данные исходного отчёта', .65)], self.flatten_fields(self.p['site']), 'Регион, нормативная база и значения приняты из проекта; применимость требует подтверждения.', 8)
+            if selection:
+                candidates = selection.get('candidates') if isinstance(selection, dict) else None
+                if candidates:
+                    candidate_rows = []
+                    for candidate in candidates:
+                        note = '\n'.join([clean(candidate.get('notes', '')), 'Условия: ' + clean(candidate.get('conditions')), 'Исключения: ' + clean(candidate.get('exclusions'))])
+                        candidate_rows.append([candidate.get('name', candidate.get('type')), {'conditional': 'Предварительный вариант · требует проверки', 'excluded': 'Исключён'}.get(candidate.get('status'), candidate.get('status')), number(candidate.get('designResistance'), 2), number(candidate.get('pileLength'), 2), number(candidate.get('steelDiameter'), 0), note])
+                    self.table_pages('Фундамент · сравнение свайных систем', [('Система', .17), ('Статус', .13), ('Rd, кН', .08), ('Длина, м', .08), ('Ø, мм', .08), ('Условия и ограничения', .46)], candidate_rows, '«-» означает, что значение не задано. Условный выбор не подтверждает грунт, сопротивление или размеры сваи.', 8)
+                    remaining = {k: v for k, v in selection.items() if k != 'candidates'}
+                else:
+                    remaining = selection
+                self.table_pages('Фундамент · исходные выбора и исследования', [('Параметр / вариант', .35), ('Данные исходного отчёта', .65)], self.flatten_fields(remaining), 'Данные задания и сравнения систем, не подтверждённый геотехнический расчёт.', 8)
+        for level in self.levels:
+            self.add(f'План этажа {level.get("index", 1)}', 'floorplan', level, 'Контуры по осям стен. Размеры в миллиметрах, координаты и отметки в метрах.')
+        openings = self.p.get('openings') or []
+        if openings:
+            self.table_pages('Проёмы · ведомость окон и дверей', [('ID проёма', .2, 'mono'), ('Стена', .12), ('Тип / этаж', .12), ('От A, мм', .12), ('Ширина, мм', .12), ('Высота, мм', .12), ('Низ от основания стены, мм', .2)], [[o.get('id'), self.wall_names.get(str(o.get('wallId')), o.get('wallId')), ('Дверь' if o.get('type') == 'door' else 'Окно') + f' / {o.get("floor", o.get("level", "-"))}', number(finite(o.get('offset')) * 1000, 0), number(finite(o.get('width')) * 1000, 0), number(finite(o.get('height')) * 1000, 0), number(finite(o.get('sill')) * 1000, 0)] for o in openings], 'Отступ измеряется вдоль локальной оси стены A → B. Конструктивные перемычки и опорные стойки - на фасадах каркаса.', 8)
+        if self.planning.get('rooms'):
+            self.table_pages('Помещения · экспликация', [('ID', .2, 'mono'), ('Этаж', .1), ('Наименование', .45), ('Площадь, м²', .25)], [[room.get('id'), room.get('level', room.get('floor')), room.get('name'), number(room.get('area'), 3)] for room in self.planning['rooms']], 'Экспликация из планировочных данных отчёта; площади помещений не пересчитываются рендерером.', 8)
+        self.add('Свайное поле', 'piles', subtitle='Положение и расчётные реакции по модели. Несущая способность грунта не подтверждена геологией.')
+        self.add('Ростверк · общий план и уровни', 'grillage')
+        beams = self.gr.get('beams') or []
+        for i in range(0, len(beams), 3):
+            self.add('Ростверк · раскладка пакетов по слоям', 'beamcards', beams[i:i + 3], 'Только фактические доски и стыки из модели; длина исходной доски 6 000 мм.')
+        span_rows = []
+        for s in self.gr.get('spans') or []:
+            q = s.get('check') or {}
+            span_rows.append([s.get('id'), f'{s.get("startPileId", "-")} / {s.get("endPileId", "-")}', number(s.get('length'), 3), number(s.get('designTotal'), 3), number(s.get('serviceTotal'), 3), number(q.get('bendingStress'), 3), number(q.get('shearStress'), 3), f'{number(q.get("deflection"), 3)} / {number(q.get("deflectionLimit"), 3)}', number(q.get('utilization'), 3), STATUSES.get(q.get('status'), q.get('status', '-'))])
+        self.table_pages('Ростверк · пролёты и частные проверки', [('Пролёт', .12, 'mono'), ('Опоры', .12, 'mono'), ('L, м', .065), ('Fd, кН', .075), ('Fk, кН', .075), ('σm, МПа', .085), ('τ, МПа', .08), ('f / flim, мм', .13), ('η', .065), ('Результат', .185)], span_rows, 'Сборка пакета, оголовки, анкеры и грунт отдельно не рассчитаны.', 7.4)
+        piles = self.gr.get('piles') or self.r.get('piles') or []
+        self.table_pages('Ведомость свай и реакций', [('Свая', .13, 'mono'), ('X, м', .1), ('Y, м', .1), ('Fd, кН', .13), ('Fk, кН', .13), ('η', .1), ('Оголовок, мм', .12), ('Статус модели', .19)], [[p.get('id'), number(p.get('x'), 3), number(p.get('y'), 3), number(p.get('reaction'), 3), number(p.get('reactionCharacteristic'), 3), number(p.get('utilization'), 3), number(p.get('capSize'), 0), STATUSES.get(p.get('status'), p.get('status', '-'))] for p in piles], 'Реакция сваи не является подтверждением её геотехнической несущей способности.')
+        for level in self.levels:
+            self.add(f'Перекрытие этажа {level.get("index", 1)}', 'floorframing', level, 'Фактические доски, обрамление проёмов и опоры. Узлы передачи усилий требуют проектирования.')
+        floor_openings = self.r.get('floorOpenings')
+        if isinstance(floor_openings, dict):
+            rows, remarks = [], []
+            support_labels = {'lowerWallEnds': 'Концы на стенах нижнего этажа', 'continuousWall': 'Непрерывная опора на стену', 'trimmerFaces': 'Торцы у продольных балок'}
+            for board in floor_openings.get('instances') or []:
+                if not isinstance(board, dict):
+                    continue
+                check = board.get('check') if isinstance(board.get('check'), dict) else {}
+                support_rows = []
+                for support in board.get('supports') or []:
+                    if not isinstance(support, dict):
+                        continue
+                    if support.get('wallId') is not None:
+                        support_rows.append(self.wall_names.get(str(support['wallId']), 'Стена') + '\n' + clean(support['wallId']))
+                    elif support.get('memberId') is not None:
+                        support_rows.append('Балка\n' + clean(support['memberId']))
+                mode = clean(board.get('supportMode'))
+                status = STATUSES.get(check.get('status'), clean(check.get('status'))) if check else 'Балочная проверка не передана'
+                mark = self.marks.get(str(board.get('id')))
+                rows.append([(mark + '\n' if mark else '') + clean(board.get('id')), board.get('voidId'), f'{board.get("b", "-")} × {board.get("h", "-")}', number(board.get('analyticalSpan'), 3) + ' / ' + number(board.get('clearSpan'), 3), '\n'.join(support_rows) or '-', number(check.get('maxMoment'), 4), number(check.get('maxShear'), 4), number(check.get('deflection'), 3) + ' / ' + number(check.get('deflectionLimit'), 3), number(check.get('utilization'), 4), support_labels.get(mode, mode) + '\n' + mode + '\n' + status])
+                loads = board.get('loads') if isinstance(board.get('loads'), dict) else {}
+                notes = ['Роль: ' + clean(board.get('role')) + '; опорная схема: ' + mode + '.']
+                if loads:
+                    notes.append('Грузовая модель: ' + clean(loads.get('method')) + '; qd / qk = ' + number(loads.get('designLineLoad'), 4) + ' / ' + number(loads.get('serviceLineLoad'), 4) + ' кН/м.')
+                    for reaction in loads.get('headerReactions') or []:
+                        if isinstance(reaction, dict):
+                            notes.append('Реакция балки ' + clean(reaction.get('sourceHeaderId')) + ': x=' + number(reaction.get('at'), 3) + ' м; Fd / Fk=' + number(reaction.get('design'), 4) + ' / ' + number(reaction.get('characteristic'), 4) + ' кН.')
+                if check:
+                    notes.append('Концевые реакции A / B: ' + number(check.get('reactionStart'), 4) + ' / ' + number(check.get('reactionEnd'), 4) + ' кН; Fd=' + number(check.get('designTotal'), 4) + ' кН.')
+                else:
+                    notes.append('Проверка M/V/прогиба не передана; значения не подставлены.')
+                direct = board.get('directWallReaction') if isinstance(board.get('directWallReaction'), dict) else {}
+                if direct:
+                    notes.append('Прямая передача на нижнюю стену: Fd / Fk = ' + number(direct.get('design'), 4) + ' / ' + number(direct.get('service'), 4) + ' кН; стены: ' + ', '.join(clean(v) for v in direct.get('wallIds', [direct.get('wallId')])) + '.')
+                if board.get('connectionVerified') is not True:
+                    notes.append('Соединения, смятие, эксцентриситет, боковая устойчивость и передача усилий через стену не подтверждены.')
+                remarks.append([board.get('id'), '\n'.join(notes)])
+            for i, assumption in enumerate(floor_openings.get('assumptions') or []):
+                remarks.append([f'Допущение обрамления {i + 1:02d}', clean(assumption)])
+            self.table_pages('Обрамление второго света и лестницы · опоры и проверки', [('Доска / марка', .18, 'mono'), ('ID проёма', .12, 'mono'), ('b × h, мм', .06), ('Lрасч. / Lчист., м', .09), ('Опорные стены / балки', .14), ('Mmax, кНм', .065), ('Vmax, кН', .065), ('δ / δlim, мм', .09), ('η', .055), ('Опорная схема / статус', .135)], rows, 'Нагрузки и частные проверки фактического обрамления. «-» означает отсутствие значения, не нулевое усилие.', 7)
+            self.table_pages('Обрамление проёмов · передача нагрузок и допущения', [('Доска / раздел', .23, 'mono'), ('Данные модели и границы расчёта', .77)], remarks, 'Конструктивные соединения, ползучесть, вибрация, смятие и пространственная работа не подтверждены.', 7.3)
+        walls = self.p.get('walls') or []
+        # Two walls per sheet keeps IDs, openings and high/raked profiles readable.
+        for i in range(0, len(walls), 2):
+            self.add('Фасады каркаса стен', 'wallframes', walls[i:i + 2], 'Вид со стороны локальной оси стены A → B; размеры в мм, отметки в м.')
+        self.add('Кровля · план зон и сток', 'roofplan')
+        zones = self.roof.get('zones') or []
+        for i in range(0, len(zones), 2):
+            self.add('Кровля · несущие схемы и разрезы', 'roofsections', zones[i:i + 2], 'Показана геометрия фактических элементов. Опорные узлы и крепёж не подтверждены.')
+        self.add('Разрез здания через второй свет', 'section', subtitle='Отметки по фактической модели; пересечение выбрано через пустоту перекрытия.')
+        self.add('Типовые узлы · геометрия сборки', 'details', subtitle='ГЕОМЕТРИЯ. Крепёж, анкеры, опирание и совместная работа отдельно не рассчитаны.')
+        bracing = self.r.get('bracingModel') or {}
+        if bracing.get('wallLines'):
+            rows = [[self.wall_names.get(str(w.get('wallId')), w.get('wallId')), w.get('level'), number(w.get('length'), 3), number(w.get('availableLength'), 3), number(w.get('demandShear'), 3), number(w.get('designShear'), 3), number(w.get('capacity'), 3), number(w.get('utilization'), 3), '; '.join(clean(q.get('note') or q.get('label')) for q in w.get('checks', []))] for w in bracing['wallLines']]
+            self.table_pages('Пространственная жёсткость стен', [('Стена', .105), ('Этаж', .05), ('L, м', .065), ('Раб. L, м', .075), ('Vd, кН', .075), ('Rd, кН/м', .075), ('R, кН', .065), ('η', .05), ('Проверки и ограничения', .44)], rows, 'Диафрагмы/врезные укосины по модели; крепёж, анкеры и путь усилий должны быть подтверждены.', 7.2)
+        self.add('Нагрузки · сводка и исходные значения', 'loads')
+        snow = self.r.get('snowAssessment')
+        if isinstance(snow, dict):
+            cases = snow.get('cases') if isinstance(snow.get('cases'), list) else []
+            for offset in range(0, max(1, len(cases)), 4):
+                self.add('Снег · фиксированные сечения и сценарии', 'snow', (snow, cases[offset:offset + 4]), 'Распределения нагрузки из отчёта. Автоподбор сечений между снеговыми случаями отключён.')
+            failures = []
+            for case in cases:
+                if not isinstance(case, dict):
+                    continue
+                for q in case.get('failures') or []:
+                    if isinstance(q, dict):
+                        failures.append([case.get('name', case.get('id')), q.get('label', q.get('id')), self.check_value(q), q.get('note', '')])
+            if failures:
+                self.table_pages('Снег · невыполненные частные проверки', [('Случай', .18), ('Проверка', .24), ('Значение / предел', .18), ('Пояснение', .4)], failures, 'Данные каждого снегового случая; не заменяют нормативную огибающую сочетаний.', 7.8)
+        envelope = self.r.get('envelope')
+        assemblies = envelope.get('assemblies') if isinstance(envelope, dict) else []
+        for assembly in assemblies or []:
+            if not isinstance(assembly, dict):
+                continue
+            name = assembly.get('name') or assembly.get('id') or 'Ограждение'
+            self.add('Ограждение · ' + clean(name), 'envelope', assembly, 'Стационарный 1D скрининг теплопередачи и диффузии. НЕ годовой расчёт влажностного режима.')
+            rows = []
+            for q in assembly.get('checks') or []:
+                if isinstance(q, dict):
+                    rows.append(['Проверка · ' + clean(q.get('label', q.get('id'))), STATUSES.get(q.get('status'), clean(q.get('status'))) + '\n' + self.check_value(q) + '\n' + clean(q.get('note', ''))])
+            for value in assembly.get('warnings') or []:
+                rows.append(['Предупреждение', clean(value)])
+            for i, value in enumerate(assembly.get('assumptions') or []):
+                rows.append([f'Допущение {i + 1:02d}', clean(value)])
+            for value in assembly.get('sources') or []:
+                rows.append(['Источник', (clean(value.get('title')) + '\n' + clean(value.get('url'))) if isinstance(value, dict) else clean(value)])
+            if rows:
+                self.table_pages('Ограждение · ' + clean(name) + ' · проверки и допущения', [('Раздел', .28), ('Данные и границы метода', .72)], rows, 'screen_pass относится только к заданной стационарной паре условий; годовой режим, воздухопроницание и реальные узлы не подтверждены.', 7)
+            layers = assembly.get('layers') if isinstance(assembly.get('layers'), list) else []
+            interfaces = assembly.get('interfaces') if isinstance(assembly.get('interfaces'), list) else []
+            if len(layers) > 9:
+                self.table_pages('Ограждение · ' + clean(name) + ' · полный состав слоёв', [('Слой изнутри наружу', .38), ('d, мм', .14), ('λ, Вт/(мК)', .16), ('μ', .14), ('sd, м', .18)], [[v.get('name', v.get('id')), number(optional_number(v.get('thickness')) * 1000 if optional_number(v.get('thickness')) is not None else None, 3), number(v.get('lambda'), 4), number(v.get('mu'), 3), number(v.get('sd'), 4)] for v in layers if isinstance(v, dict)], 'Номинальные свойства из отчёта, не подтверждение свойств конкретного изделия.', 8)
+            if len(interfaces) > 9:
+                self.table_pages('Ограждение · ' + clean(name) + ' · все межслойные границы', [('Граница', .36), ('x, мм', .13), ('T, °C', .13), ('RH, %', .12), ('pv, Па', .13), ('psat, Па', .13)], [[v.get('name', v.get('id')), number(optional_number(v.get('x')) * 1000 if optional_number(v.get('x')) is not None else None, 3), number(v.get('temperature'), 3), number(v.get('rh'), 2), number(v.get('pVapor'), 2), number(v.get('pSat'), 2)] for v in interfaces if isinstance(v, dict)], 'Давление свободного диффузионного профиля и давление насыщения; масса конденсата не вычисляется.', 8)
+        checks = self.r.get('checks') or []
+        self.table_pages('Расчётные проверки · полный реестр', [('Проверка', .23), ('Статус', .14), ('Значение / предел', .16), ('Пояснение из движка', .47)], [[q.get('label', q.get('id')), STATUSES.get(q.get('status'), q.get('status', '-')), self.check_value(q), q.get('note', '')] for q in checks], 'Частные проверки модели не заменяют общий расчёт здания и рабочую документацию.', 7.7)
+        schedule = (self.r.get('timber') or {}).get('schedule') or []
+        self.table_pages('Спецификация · сводка досок', [('Марка группы', .1, 'mono'), ('Назначение', .27), ('Сечение, мм', .12), ('Длина, м', .1), ('Кол-во', .08), ('Объём, м³', .12), ('Масса, кг', .11), ('Категория', .1)], [[s.get('id'), s.get('name'), f'{s.get("b")} × {s.get("h")}', number(s.get('length'), 3), s.get('count'), number(s.get('volume'), 4), number(s.get('mass'), 2), s.get('category')] for s in schedule], 'Сводка движка; полный реестр физических досок и их исходных ID приведён далее.', 7.7)
+        rows = []
+        for m in self.members:
+            rows.append([self.marks[str(m.get('id'))], m.get('id'), self.wall_names.get(str(m.get('wallId')), m.get('beamId') or m.get('zoneId') or '-'), f'{m.get("floor", m.get("level", "-"))} / {m.get("name", ROLE.get(m.get("role"), m.get("role", "-")))}', f'{m.get("b")} × {m.get("h")}', number(m.get('length'), 3), number(m.get('cutLength', m.get('actualCutLength', m.get('length'))), 3), number(m.get('mass'), 3), self.ends(m.get('cutStart'), m.get('cutEnd'))])
+        self.table_pages('Спецификация · все физические детали', [('Марка', .065), ('Полный ID детали', .205, 'mono'), ('Конструкция', .12), ('Этаж / назначение', .16), ('b × h, мм', .08), ('L ось, м', .065), ('Загот., м', .075), ('Масса, кг', .07), ('Торцы / соединения', .16)], rows, 'Марки Д-xxxx используются на чертежах. Заготовочная длина учитывает переданные движком припуски; масса может быть нетто после выборок.', 7.2)
+        erows = [[r.get('name'), r.get('unit'), number(r.get('netQuantity'), 3), number(r.get('quantity'), 3), number(r.get('unitPrice'), 2), number(r.get('total'), 2), r.get('note', '')] for r in self.estimate.get('rows', [])]
+        self.table_pages('Смета · материалы и закупка', [('Позиция', .25), ('Ед.', .05), ('Нетто', .08), ('Закупка', .085), (f'Цена, {self.unit_money}', .12), (f'Сумма, {self.unit_money}', .13), ('Основание количества', .285)], erows, 'Цены из отчёта, не коммерческое предложение. Доски закупаются по полной карте 6 м.', 7.5)
+        self.add('Смета · итог и состав стоимости', 'estimate')
+        self.add('Полная карта раскроя 6 м · правила и сводка', 'cutsummary')
+        cards = []
+        for stock in self.cut.get('stocks') or []:
+            if abs(finite(stock.get('length'), 6) - 6) > 1e-7:
+                raise ValueError('Карта содержит исходную доску иной длины, чем 6 м: ' + clean(stock.get('id')))
+            pieces = stock.get('pieces') or []
+            # A long stock can occupy continuation cards; no piece IDs are hidden.
+            for offset in range(0, max(1, len(pieces)), 8):
+                cards.append((stock, offset, pieces[offset:offset + 8]))
+        for i in range(0, len(cards), 4):
+            self.add('Полная карта раскроя 6 м', 'cutcards', cards[i:i + 4], 'Все исходные доски по 6 000 мм. Красные промежутки - пропил; серый сегмент - остаток.')
+        if self.cut.get('overlength') or self.cut.get('invalid'):
+            self.table_pages('Раскрой · неразмещённые и некорректные детали', [('Исходные данные', 1)], [[clean(item)] for item in (self.cut.get('overlength') or []) + (self.cut.get('invalid') or [])], 'Эти детали не включены в подтверждённую закупочную раскладку.')
+        # Insert extra contents sheets without circular count dependencies.
+        count = math.ceil((len(self.pages) + 2) / 48)
+        for _ in range(max(0, count - 1)):
+            self.pages.insert(2, {'title': 'Ведомость листов · продолжение', 'kind': 'contents', 'data': None, 'subtitle': ''})
+
+    def check_value(self, q):
+        value = q.get('value')
+        out = number(value, 4) if isinstance(value, (int, float)) else clean(value) if value is not None else '-'
+        if q.get('limit') is not None:
+            out += ' / ' + (number(q.get('limit'), 4) if isinstance(q.get('limit'), (int, float)) else clean(q.get('limit')))
+        if q.get('unit'):
+            out += ' ' + clean(q['unit'])
+        if q.get('utilization') is not None:
+            out += '\nη = ' + number(q['utilization'], 4)
+        return out
+
+    def flatten_fields(self, data, prefix=''):
+        labels = {'region': 'Регион', 'country': 'Страна', 'selected': 'Выбран', 'type': 'Тип', 'name': 'Название', 'reason': 'Основание выбора', 'status': 'Статус', 'capacity': 'Несущая способность', 'diameter': 'Диаметр', 'length': 'Длина', 'unitPrice': 'Цена единицы', 'currency': 'Валюта', 'assumptions': 'Допущения', 'alternatives': 'Варианты', 'options': 'Варианты', 'selectedType': 'Выбранный тип', 'note': 'Примечание', 'notes': 'Примечания', 'geotechnicalStatus': 'Геотехнический статус'}
+        rows = []
+        if isinstance(data, dict):
+            for key, value in data.items():
+                path = (prefix + ' / ' if prefix else '') + labels.get(key, key)
+                rows += self.flatten_fields(value, path)
+        elif isinstance(data, list):
+            for i, value in enumerate(data):
+                rows += self.flatten_fields(value, prefix + f' [{i + 1}]')
+        else:
+            # Split long prose into continuation rows instead of letting a row cross a page.
+            value = clean(data)
+            chunks = [value[i:i + 1200] for i in range(0, max(1, len(value)), 1200)]
+            rows += [[prefix + (' · продолжение' if i else ''), chunk] for i, chunk in enumerate(chunks)]
+        return rows
+
+    def ends(self, a, b):
+        return 'A: ' + self.end_label(a) + '; B: ' + self.end_label(b)
+
+    def end_label(self, end):
+        end = end or {}
+        scheme = end.get('scheme', 'butt')
+        labels = {'butt': 'прямой', 'none': 'прямой', 'square': 'прямой', 'miter': 'косой', 'halfLap': 'вполдерева', 'scarf': 'косой замок', 'fishplate': 'накладки'}
+        label = labels.get(scheme, scheme)
+        if abs(finite(end.get('angle'))) > .001:
+            label += ' ' + number(end.get('angle'), 2) + '°'
+        if finite(end.get('lapLength')):
+            label += ' L=' + number(finite(end['lapLength']) * 1000, 0) + ' мм'
+        if end.get('lapSide'):
+            label += ' ' + {'top': 'верх', 'bottom': 'низ'}.get(end['lapSide'], clean(end['lapSide']))
+        return label
+
+    def frame(self, c, index, page):
+        c.setFillColor(colors.white)
+        c.rect(0, 0, W, H, fill=1, stroke=0)
+        c.setStrokeColor(INK)
+        c.setLineWidth(.7)
+        c.rect(18, 18, W - 36, H - 36, fill=0, stroke=1)
+        text(c, f'КАРКАС ENGINE {self.release}   /   MCP', 34, H - 42, 9, 'Bold', GREEN)
+        text(c, page['title'], 34, H - 72, 20, 'Bold')
+        if page.get('subtitle'):
+            text(c, page['subtitle'], 35, H - 90, 8, color=MUTED, width=W - 90)
+        line(c, (30, 78), (W - 30, 78), INK, .7)
+        text(c, STATUS, 34, 61, 7.5, 'Bold')
+        text(c, 'Крепёж / анкеры / грунт: не подтверждены. Геометрия и частные проверки из цифровой модели.', 34, 46, 7, color=MUTED)
+        text(c, f'Проект {self.engine.get("projectId", "-")}   |   ревизия {self.engine.get("revision", "-")}', W - 395, 61, 7.5, 'Bold')
+        text(c, f'SHA-256 {clean(self.engine.get("hash", "-"))[:20]}…', W - 395, 46, 7, 'Mono', MUTED)
+        line(c, (W - 122, 18), (W - 122, 78), INK, .6)
+        text(c, 'ЛИСТ / ЛИСТОВ', W - 110, 61, 6.5, color=MUTED)
+        text(c, f'{index + 1:03d} / {len(self.pages):03d}', W - 110, 38, 15, 'Bold')
+        c.bookmarkPage(f'page-{index + 1}')
+        c.addOutlineEntry(f'{index + 1:03d} {page["title"]}', f'page-{index + 1}', level=0, closed=False)
+
+    def render(self, output):
+        c = canvas.Canvas(str(output), pagesize=(W, H), pageCompression=1)
+        c.setTitle(clean(self.p.get('name', 'КАРКАС ENGINE')) + ' - КР · расчётная проработка')
+        c.setAuthor(f'КАРКАС ENGINE {self.release} / MCP')
+        c.setSubject('Расчётный альбом из цифровой модели; не рабочая документация')
+        for i, page in enumerate(self.pages):
+            self.frame(c, i, page)
+            getattr(self, 'draw_' + page['kind'])(c, page.get('data'), i)
+            c.showPage()
+        c.save()
+        return len(self.pages)
+
+    def note(self, c, value, x=42, y=118, width=W - 90, color=MUTED):
+        return text(c, value, x, y, 8, color=color, width=width)
+
+    def draw_cover(self, c, data, index):
+        x, y = 45, H - 133
+        badge(c, 'НЕ РАБОЧАЯ ДОКУМЕНТАЦИЯ', x, y, ORANGE, 9)
+        y -= 43
+        y = text(c, self.p.get('name', 'Каркасный дом'), x, y, 28, 'Bold', width=540, leading=34) - 20
+        site = self.p.get('site') or {}
+        text(c, site.get('region') or site.get('location') or 'Площадка: в отчёте не задана', x, y, 11, color=MUTED, width=535)
+        y -= 35
+        facts = [('Площадь контура', number(self.g.get('area'), 2) + ' м²'), ('Этажи / чистая площадь', f'{len(self.levels)} / {number(self.g.get("totalFloorArea"), 2)} м²'), ('Физические детали', f'{len(self.members)} шт.'), ('Доски закупки 6 м', f'{len(self.cut.get("stocks", []))} шт.'), ('Масса древесины', number((self.r.get('timber') or {}).get('mass'), 0) + ' кг'), ('Расчётная вертикальная нагрузка', number((self.r.get('loads') or {}).get('totalDesign'), 3) + ' кН')]
+        for label, value in facts:
+            text(c, label, x, y, 10, color=MUTED)
+            text(c, value, x + 285, y, 11, 'Bold')
+            line(c, (x, y - 10), (x + 510, y - 10))
+            y -= 34
+        self.draw_iso(c, (600, 195, W - 650, H - 330))
+        text(c, 'Фактическая геометрия модели', 620, 175, 8, color=MUTED)
+        meta_y = 170
+        text(c, 'ИДЕНТИФИКАЦИЯ ОТЧЁТА', x, meta_y, 8, 'Bold', GREEN)
+        text(c, f'Проект: {self.engine.get("projectId", "-")}   Ревизия: {self.engine.get("revision", "-")}   Схема: {self.engine.get("schemaVersion", "-")}', x, meta_y - 18, 8)
+        text(c, f'Создан: {self.engine.get("generatedAt", "-")}   Движок: {self.engine.get("version", "-")}', x, meta_y - 34, 8)
+        text(c, 'SHA-256: ' + clean(self.engine.get('hash')), x, meta_y - 51, 7.8, 'Mono')
+        text(c, 'Принятые исходные Eurocode / Finnish National Annex отображаются из отчёта площадки. Полное нормативное соответствие не подтверждено.', 45, 98, 8, color=ORANGE, width=W - 100)
+
+    def draw_iso(self, c, box):
+        def project(p):
+            a, b, d = xyz(p)
+            return (a - d) * .866, b + (a + d) * .32
+        segments = [(m, project(m['start']), project(m['end'])) for m in self.members if m.get('start') and m.get('end')]
+        fn, scale = transform([p for _, a, b in segments for p in (a, b)], box, 12)
+        for m, a, b in sorted(segments, key=lambda s: sum(xyz(s[0]['start'])[::2])):
+            line(c, fn(a), fn(b), WOOD_DARK if m.get('category') == 'foundation' else WOOD, max(.45, min(3.3, finite(m.get('b'), 50) / 1000 * scale)))
+
+    def draw_contents(self, c, data, index):
+        contents_indices = [i for i, p in enumerate(self.pages) if p['kind'] == 'contents']
+        offset = contents_indices.index(index) * 48
+        entries = list(enumerate(self.pages))[offset:offset + 48]
+        x, top = 43, H - 130
+        colw = (W - 115) / 2
+        for j, (page_index, page) in enumerate(entries):
+            col, row = j // 24, j % 24
+            xx, yy = x + col * (colw + 28), top - row * 23
+            text(c, f'{page_index + 1:03d}', xx, yy, 9, 'Mono', GREEN)
+            text(c, page['title'], xx + 40, yy, 8.5, width=colw - 45)
+            line(c, (xx, yy - 8), (xx + colw, yy - 8))
+        self.note(c, 'Альбом включает все физические детали и все исходные доски закупки. Идентификаторы сохраняют связь с JSON-отчётом.', y=104)
+
+    def draw_assumptions(self, c, data, index):
+        columns = [(43, 520), (620, 520)]
+        units = ['Координаты в плане X / Y и абсолютные отметки: метры.', 'Размеры чертежей и сечения b × h: миллиметры; размеры по осям, если не подписано иное.', 'Длина оси и заготовочная длина различаются при припусках/нахлёстах.', 'Нагрузки и реакции: кН; поверхностные нагрузки: кН/м²; напряжения: МПа.', 'Прогиб: мм; модуль упругости: МПа; масса: кг; объём: м³.', f'Валюта сметы: {self.unit_money}; цены взяты из исходного отчёта.', 'Лесоматериал: номинальные сечения каталога. Влажность, сортность, фактические размеры и класс материала требуют подтверждения.', 'Масштаб каждой схемы подобран по размеру листа. Для изготовления используйте размеры и ID, не измерение PDF линейкой.']
+        limits = ['Это расчётная проработка цифровой модели, НЕ РАБОЧАЯ ДОКУМЕНТАЦИЯ.', 'Геология, геотехнический расчёт, коррозия, морозное пучение и осадки основания не подтверждены.', 'Крепёж, анкеры, опирание, сборка пакетных балок и пространственная работа не проектируются этим рендерером.', 'Узлы показаны геометрически. Нарисованные линии не являются схемой гвоздей или болтов.', 'Лестница показана по метаданным проекта; её конструкция, ограждения, эвакуация и проём требуют отдельного расчёта.', 'Перед изготовлением: проверить размеры на площадке, сорт/влажность древесины, рабочие узлы, опирание и нормативные сочетания.', 'Приоритет имеют числовые данные и статусы исходного JSON. Отсутствующее значение не заменено оценкой.']
+        for (x, width), title, lines_ in zip(columns, ('ЕДИНИЦЫ И ПРАВИЛА ЧТЕНИЯ', 'ГРАНИЦЫ РАСЧЁТА'), (units, limits)):
+            y = H - 132
+            text(c, title, x, y, 11, 'Bold', GREEN)
+            y -= 28
+            for i, value in enumerate(lines_):
+                text(c, f'{i + 1:02d}', x, y, 8, 'Mono', MUTED)
+                y = text(c, value, x + 28, y, 9, width=width - 40, leading=13) - 17
+        source_notes = list(dict.fromkeys(clean(v) for v in (self.r.get('assumptions') or []) + (self.planning.get('assumptions') or [])))
+        if source_notes:
+            text(c, 'ИЗ ДОПУЩЕНИЙ ДВИЖКА', 43, 230, 9, 'Bold')
+            y = 210
+            for value in source_notes[:5]:
+                y = text(c, '• ' + value, 43, y, 7.8, width=W - 95) - 5
+
+    def draw_site(self, c, data, index):
+        site = self.p.get('site') or {}
+        selection = self.report.get('foundationSelection') or self.r.get('foundationSelection') or (self.p.get('foundation') or {}).get('selection') or {}
+        y = H - 132
+        choice = selection.get('provisionalChoice') or selection if isinstance(selection, dict) else selection
+        for title, value in [('ПЛОЩАДКА И НОРМАТИВНЫЕ ИСХОДНЫЕ', site), ('УСЛОВНЫЙ ВЫБОР ФУНДАМЕНТА · НЕ ПОДТВЕРЖДЁН', choice)]:
+            text(c, title, 43, y, 11, 'Bold', GREEN)
+            y -= 25
+            if isinstance(value, dict):
+                for key, val in value.items():
+                    if isinstance(val, list) and len(val) > 5:
+                        val = '; '.join(clean(x) for x in val)
+                    yy = text(c, clean(key), 43, y, 8, 'Bold', width=210)
+                    yy2 = text(c, clean(val), 270, y, 8, width=W - 320)
+                    y = min(yy, yy2) - 11
+                    if y < 135:
+                        break
+            else:
+                y = text(c, clean(value), 43, y, 8, width=W - 95) - 20
+            y -= 18
+        self.note(c, 'Нормативные значения и тип фундамента приняты из задания. Проверка местных условий и подтверждение геологии выполняются проектировщиком.', y=108, color=ORANGE)
+
+    def level_polygon(self, level=None):
+        return [xy(p) for p in ((level or {}).get('polygon') or self.g.get('polygon') or [])]
+
+    def draw_stair_plan(self, c, stair, fn):
+        points = [xy(p) for p in stair.get('polygon', [])]
+        if len(points) < 3:
+            return
+        polygon(c, [fn(p) for p in points], None, BLUE, 1)
+        a, b, d, e = bounds(points)
+        direction = clean(stair.get('direction', '')).lower()
+        width = optional_number(stair.get('clearFlightWidth', stair.get('width')))
+        landing = optional_number(stair.get('landingLength'))
+        tread = optional_number(stair.get('tread'))
+        risers = int(finite(stair.get('risers')))
+        # This orientation is explicit in the final project metadata. Do not
+        # turn an unknown U-stair into an invented northbound straight flight.
+        east_west_east = 'востока на запад' in direction and 'восточн' in direction
+        valid_u = stair.get('kind') == 'u-turn' and east_west_east and width is not None and landing is not None and width > 0 and landing > 0 and d - a > landing and e - b >= 2 * width - 1e-7
+        if valid_u:
+            inner = a + landing
+            lower = [(inner, b), (d, b), (d, b + width), (inner, b + width)]
+            upper = [(inner, e - width), (d, e - width), (d, e), (inner, e)]
+            turn = [(a, b), (inner, b), (inner, e), (a, e)]
+            for piece in (lower, upper, turn):
+                polygon(c, [fn(p) for p in piece], colors.HexColor('#f0f6f8'), BLUE, .55)
+            run = d - inner
+            treads_per_flight = round(run / tread) if tread is not None and tread > 0 else 0
+            # Step divisions are shown only when tread/run/total risers agree.
+            if treads_per_flight > 0 and abs(treads_per_flight * tread - run) < .002 and 2 * (treads_per_flight + 1) == risers:
+                for j in range(1, treads_per_flight):
+                    xx = inner + j * tread
+                    line(c, fn((xx, b)), fn((xx, b + width)), BLUE, .45)
+                    line(c, fn((xx, e - width)), fn((xx, e)), BLUE, .45)
+            low_y, high_y, turn_x = b + width / 2, e - width / 2, a + landing / 2
+            arrow(c, fn((d - .12, low_y)), fn((turn_x, low_y)), BLUE, .9)
+            line(c, fn((turn_x, low_y)), fn((turn_x, high_y)), BLUE, .9)
+            arrow(c, fn((turn_x, high_y)), fn((d - .12, high_y)), BLUE, .9)
+            text(c, 'ВВЕРХ → ВОСТОЧНАЯ ГАЛЕРЕЯ', *fn((inner + .05, e + .12)), 5.6, 'Bold', BLUE)
+            text(c, f'{risers} подъёмов · h={number(finite(stair.get("riser")) * 1000, 1)} мм · b={number(tread * 1000 if tread is not None else None, 0)} мм', *fn((a + .05, b - .18)), 5.8, color=BLUE)
+        else:
+            # Explicit polyline geometry is preferred for other orientations.
+            route = stair.get('travelPath') or stair.get('path')
+            route = [xy(p) for p in route] if isinstance(route, list) else []
+            for start, end in zip(route[:-2], route[1:-1]):
+                line(c, fn(start), fn(end), BLUE, .8)
+            if len(route) >= 2:
+                arrow(c, fn(route[-2]), fn(route[-1]), BLUE, .8)
+            text(c, 'ЛЕСТНИЦА · КОНТУР', *fn((a + .05, b + .1)), 6, 'Bold', BLUE)
+
+    def draw_plan_base(self, c, level, box, rooms=True, openings=True, axes=True):
+        level_index = level.get('index', 1)
+        pts = self.level_polygon(level)
+        walls = [w for w in self.p.get('walls', []) if int(w.get('level', w.get('floor', 1))) == int(level_index)]
+        allpts = pts + [xy(w[k]) for w in walls for k in ('a', 'b')]
+        fn, scale = transform(allpts, box, 54)
+        polygon(c, [fn(p) for p in pts], PAPER, LINE)
+        if axes:
+            xs = sorted(set(round(p[0], 4) for p in allpts))
+            ys = sorted(set(round(p[1], 4) for p in allpts))
+            a, b, d, e = bounds(allpts)
+            for n, xx in enumerate(xs):
+                aa, bb = fn((xx, b)), fn((xx, e))
+                line(c, (aa[0], aa[1] - 22), (bb[0], bb[1] + 22), LINE, .5, [5, 3])
+                c.setFillColor(colors.white); c.setStrokeColor(MUTED); c.circle(aa[0], aa[1] - 30, 9, fill=1, stroke=1)
+                text(c, str(n + 1), aa[0] - 2, aa[1] - 33, 7)
+            for n, yy in enumerate(ys):
+                aa, bb = fn((a, yy)), fn((d, yy))
+                line(c, (aa[0] - 22, aa[1]), (bb[0] + 22, bb[1]), LINE, .5, [5, 3])
+                c.setFillColor(colors.white); c.setStrokeColor(MUTED); c.circle(aa[0] - 30, aa[1], 9, fill=1, stroke=1)
+                text(c, chr(65 + n), aa[0] - 33, aa[1] - 2, 7)
+            for x1, x2 in zip(xs, xs[1:]):
+                dimension(c, fn((x1, b)), fn((x2, b)), -49, number((x2 - x1) * 1000, 0))
+            for y1, y2 in zip(ys, ys[1:]):
+                dimension(c, fn((a, y1)), fn((a, y2)), 49, number((y2 - y1) * 1000, 0))
+            dimension(c, fn((a, e)), fn((d, e)), 28, number((d - a) * 1000, 0))
+        if rooms:
+            for i, room in enumerate(self.planning.get('rooms') or []):
+                if int(room.get('level', room.get('floor', 1))) != int(level_index):
+                    continue
+                rp = [xy(p) for p in room.get('polygon', [])]
+                if len(rp) < 3:
+                    continue
+                polygon(c, [fn(p) for p in rp], colors.Color(.85, .9, .79, alpha=.22), LINE, .4)
+                center = (sum(p[0] for p in rp) / len(rp), sum(p[1] for p in rp) / len(rp))
+                exclusions = []
+                for void in self.p.get('voids') or []:
+                    if int(void.get('level', 2)) == int(level_index):
+                        exclusions.append(bounds([xy(p) for p in void.get('polygon', [])]))
+                stair = self.p.get('staircase') or {}
+                if stair and int(level_index) in (int(stair.get('levelFrom', 1)), int(stair.get('levelTo', 2))):
+                    exclusions.append(bounds([xy(p) for p in stair.get('polygon', [])]))
+                # Label placement only: keep room names off actual voids and
+                # the stair drawing, without changing any planning geometry.
+                def obstructed(point):
+                    return any(a - .1 <= point[0] <= d + .1 and b - .1 <= point[1] <= e + .1 for a, b, d, e in exclusions)
+                if obstructed(center):
+                    a, b, d, e = bounds(rp)
+                    xs = sorted(set([a, d] + [max(a, min(d, v)) for hole in exclusions for v in (hole[0], hole[2])]))
+                    ys = sorted(set([b, e] + [max(b, min(e, v)) for hole in exclusions for v in (hole[1], hole[3])]))
+                    candidates = []
+                    for xa, xb in zip(xs, xs[1:]):
+                        for ya, yb in zip(ys, ys[1:]):
+                            point = ((xa + xb) / 2, (ya + yb) / 2)
+                            if inside_polygon(point, rp) and not obstructed(point):
+                                candidates.append(((xb - xa) * (yb - ya), point))
+                    if candidates:
+                        center = max(candidates)[1]
+                xx, yy = fn(center)
+                label_y = text(c, room.get('name', f'Помещение {i + 1}'), xx - 47, yy + 4, 8, 'Bold', width=100)
+                text(c, number(room.get('area'), 2) + ' м²', xx - 30, label_y - 4, 8, color=MUTED)
+        for void in self.p.get('voids') or []:
+            if int(void.get('level', 2)) != int(level_index):
+                continue
+            vp = [xy(p) for p in void.get('polygon', [])]
+            polygon(c, [fn(p) for p in vp], colors.white, ORANGE, 1)
+            a, b, d, e = bounds(vp)
+            detailed_stair = void.get('kind') in ('stair', 'staircase') and bool(self.p.get('staircase'))
+            if not detailed_stair:
+                line(c, fn((a, b)), fn((d, e)), ORANGE, .5, [3, 3])
+                line(c, fn((a, e)), fn((d, b)), ORANGE, .5, [3, 3])
+                xx, yy = fn(((a + d) / 2, (b + e) / 2))
+                text(c, 'ВТОРОЙ СВЕТ' if void.get('kind') == 'doubleHeight' else 'ЛЕСТНИЧНЫЙ ПРОЁМ', xx - 48, yy, 7, 'Bold', ORANGE)
+        for wall in walls:
+            aa, bb = xy(wall.get('a')), xy(wall.get('b'))
+            line(c, fn(aa), fn(bb), INK, 4)
+            dx, dy = bb[0] - aa[0], bb[1] - aa[1]
+            length = math.hypot(dx, dy)
+            if not length:
+                continue
+            u = dx / length, dy / length
+            wall_openings = [op for op in (self.p.get('openings') or []) if str(op.get('wallId')) == str(wall.get('id'))]
+            free = subtract_intervals([(0, length)], [(finite(op.get('offset')), finite(op.get('offset')) + finite(op.get('width'))) for op in wall_openings])
+            best = max(free, key=lambda span: span[1] - span[0]) if free else (0, length)
+            station = (best[0] + best[1]) / 2
+            mid = fn((aa[0] + u[0] * station, aa[1] + u[1] * station))
+            label = self.wall_names.get(str(wall.get('id')), '')
+            label_width = pdfmetrics.stringWidth(label, 'Body', 7)
+            # Opening marks stay above/right; wall marks use the opposite
+            # side and a solid wall segment, so identical midpoints cannot clash.
+            if abs(dx) >= abs(dy):
+                text(c, label, mid[0] - label_width / 2, mid[1] - 12, 7, color=GREEN)
+            else:
+                left_boundary = abs(aa[0] - bounds(allpts)[0]) < 1e-6 and abs(bb[0] - bounds(allpts)[0]) < 1e-6
+                label_x = mid[0] + 6 if left_boundary else mid[0] - label_width - 6
+                text(c, label, label_x, mid[1] - 3, 7, color=GREEN)
+            if not openings:
+                continue
+            for op in wall_openings:
+                start = finite(op.get('offset')); width = finite(op.get('width'))
+                op_a = fn((aa[0] + u[0] * start, aa[1] + u[1] * start))
+                op_b = fn((aa[0] + u[0] * (start + width), aa[1] + u[1] * (start + width)))
+                line(c, op_a, op_b, colors.white, 5)
+                line(c, op_a, op_b, BLUE if op.get('type') != 'door' else ORANGE, 1.1)
+                text(c, ('Д' if op.get('type') == 'door' else 'О') + ' ' + number(width * 1000, 0), (op_a[0] + op_b[0]) / 2 + 2, (op_a[1] + op_b[1]) / 2 + 7, 6.5, color=BLUE)
+        stair = self.p.get('staircase') or {}
+        if stair and int(level_index) in (int(stair.get('levelFrom', 1)), int(stair.get('levelTo', 2))):
+            self.draw_stair_plan(c, stair, fn)
+        return fn, scale
+
+    def draw_floorplan(self, c, level, index):
+        self.draw_plan_base(c, level, (45, 145, 800, H - 265))
+        x, y = 885, H - 138
+        text(c, level.get('name', f'Этаж {level.get("index")}'), x, y, 14, 'Bold')
+        y -= 30
+        for label, value in [('Контур', number(level.get('area'), 2) + ' м²'), ('Чистая площадь', number(level.get('netFloorArea'), 2) + ' м²'), ('Проёмы перекрытия', number(level.get('voidArea'), 2) + ' м²'), ('Низ платформы', '+' + number(level.get('platformBase'), 3)), ('Основание стены', '+' + number(level.get('wallBaseY'), 3)), ('Номинальный верх', '+' + number(level.get('topY'), 3))]:
+            text(c, label, x, y, 8, color=MUTED)
+            text(c, value, x, y - 17, 12, 'Bold')
+            y -= 51
+        if not self.planning.get('rooms'):
+            text(c, 'Разбивка помещений отсутствует в исходном отчёте.', x, y - 6, 8, color=ORANGE, width=245)
+        if not self.p.get('staircase'):
+            text(c, 'Геометрия лестницы в отчёте не задана.', x, y - 48, 8, color=ORANGE, width=245)
+        self.note(c, 'О - окно; Д - дверь. Отметки относительно единого нуля модели. Схема лестницы не подтверждает её конструктивный расчёт.', y=103)
+
+    def draw_piles(self, c, data, index):
+        level = self.levels[0] if self.levels else {}
+        fn, scale = self.draw_plan_base(c, level, (40, 135, 850, H - 245), rooms=False, openings=False)
+        for beam in self.gr.get('beams') or []:
+            line(c, fn(xy(beam['a'])), fn(xy(beam['b'])), WOOD_DARK, 2)
+        piles = self.gr.get('piles') or self.r.get('piles') or []
+        for p in piles:
+            xx, yy = fn(xy(p))
+            c.setFillColor(colors.white); c.setStrokeColor(INK); c.circle(xx, yy, 7, fill=1, stroke=1)
+            line(c, (xx - 3, yy), (xx + 3, yy), INK); line(c, (xx, yy - 3), (xx, yy + 3), INK)
+            text(c, p.get('id'), xx + 9, yy + 10, 6.5, 'Mono')
+            text(c, number(p.get('reaction'), 2) + ' кН', xx + 9, yy - 1, 6.5, color=GREEN)
+        foundation = self.r.get('foundation') or {}
+        x, y = 930, H - 145
+        text(c, 'РЕАКЦИИ И ОПОРЫ', x, y, 10, 'Bold', GREEN)
+        y -= 30
+        for label, value in [('Свай', str(len(piles))), ('Сумма Fd', number(foundation.get('reactionSum'), 3) + ' кН'), ('Макс. реакция', number(foundation.get('maxReaction'), 3) + ' кН'), ('Заданная способность', number((self.p.get('foundation') or {}).get('capacity'), 2) + ' кН'), ('Оголовок', number(self.gr.get('capSize'), 0) + ' мм')]:
+            text(c, label, x, y, 8, color=MUTED); text(c, value, x, y - 18, 13, 'Bold'); y -= 56
+        text(c, 'Реакции рассчитаны по ростверку. Принятая способность сваи требует геологии, проверки выбранной системы и погружения.', x, y - 8, 8.5, color=ORANGE, width=205)
+
+    def draw_grillage(self, c, data, index):
+        level = self.levels[0] if self.levels else {}
+        fn, scale = self.draw_plan_base(c, level, (40, 135, 770, H - 250), rooms=False, openings=False)
+        for beam in self.gr.get('beams') or []:
+            line(c, fn(xy(beam['a'])), fn(xy(beam['b'])), WOOD, max(3, finite(beam.get('width'), .15) * scale))
+            aa, bb = fn(xy(beam['a'])), fn(xy(beam['b']))
+            text(c, beam.get('id'), (aa[0] + bb[0]) / 2 + 4, (aa[1] + bb[1]) / 2 + 7, 7.5, 'Mono', WOOD_DARK)
+        for p in self.gr.get('piles') or []:
+            xx, yy = fn(xy(p)); c.setFillColor(INK); c.circle(xx, yy, 3, fill=1, stroke=0)
+        x, y = 865, H - 145
+        text(c, 'ПАКЕТ НА РЕБРО', x, y, 12, 'Bold', GREEN)
+        y -= 28
+        text(c, f'{self.gr.get("plies", "-")} × {self.gr.get("section", "-")}', x, y, 16, 'Bold')
+        section = (self.p.get('foundation') or {}).get('grillage') or {}
+        b, h = self.section_size(section.get('section', '50x200'))
+        plies = int(finite(self.gr.get('plies'), 3))
+        scale2 = .65
+        base = 370
+        for j in range(plies):
+            c.setFillColor(WOOD); c.setStrokeColor(WOOD_DARK); c.rect(x + j * b * scale2, base, b * scale2, h * scale2, fill=1, stroke=1)
+        line(c, (x - 18, base - 10), (x + plies * b * scale2 + 18, base - 10), INK, 4)
+        text(c, 'Оголовок', x - 10, base - 30, 8)
+        dimension(c, (x, base), (x + plies * b * scale2, base), -48, f'{plies} × {number(b, 0)} = {number(plies * b, 0)} мм')
+        text(c, 'УРОВНИ', x, 270, 9, 'Bold', GREEN)
+        text(c, 'Оголовок / низ пакета  +' + number(self.gr.get('pileHeadY'), 3), x, 247, 9)
+        text(c, 'Верх ростверка             +' + number(self.gr.get('topY'), 3), x, 228, 9)
+        text(c, 'Совместная работа слоёв и закрепление на оголовке не подтверждены.', x, 190, 8.5, color=ORANGE, width=245)
+
+    def section_size(self, value):
+        if isinstance(value, dict):
+            return finite(value.get('b'), 50), finite(value.get('h'), 200)
+        parts = clean(value).lower().replace('×', 'x').replace(' ', '').split('x')
+        return (finite(parts[0], 50), finite(parts[1], 200)) if len(parts) > 1 else (50, 200)
+
+    def draw_beamcards(self, c, beams, index):
+        for j, beam in enumerate(beams or []):
+            x, y, w, h = 43, H - 310 - j * 195, W - 86, 175
+            c.setStrokeColor(LINE); c.setFillColor(PAPER); c.roundRect(x, y, w, h, 6, fill=1, stroke=1)
+            text(c, f'{beam.get("id")}   /   {number(beam.get("length"), 3)} м   /   {beam.get("plies", self.gr.get("plies", "-"))} слоя', x + 14, y + h - 22, 11, 'Bold')
+            bx, bw = x + 100, w - 130
+            length = max(.001, finite(beam.get('length')))
+            instances = [m for m in self.gr.get('instances', []) if m.get('beamId') == beam.get('id')]
+            plies = sorted(set(int(m.get('plyIndex', 0)) for m in instances))
+            ply_step = min(30, 72 / max(1, len(plies) - 1))
+            bar_height = min(18, max(7, ply_step - 4))
+            for k, ply in enumerate(plies):
+                yy = y + h - 52 - k * ply_step
+                text(c, f'Слой {ply + 1}', x + 15, yy + 3, 8, 'Bold')
+                for m in sorted((m for m in instances if int(m.get('plyIndex', 0)) == ply), key=lambda m: finite(m.get('stationStart'))):
+                    s, e = finite(m.get('stationStart')), finite(m.get('stationEnd'))
+                    sx, ex = bx + s / length * bw, bx + e / length * bw
+                    c.setFillColor(WOOD if ply % 2 == 0 else LIME); c.setStrokeColor(WOOD_DARK); c.rect(sx, yy - 3, max(.2, ex - sx), bar_height, fill=1, stroke=1)
+                    label = self.marks.get(str(m.get('id')), clean(m.get('id')))
+                    text(c, label + ' · ' + number(m.get('cutLength', m.get('length')), 3) + ' м', sx + 4, yy + (3 if bar_height >= 15 else -.5), 7 if bar_height >= 15 else 6.1, width=max(10, ex - sx - 7))
+                for station in beam.get('stations') or []:
+                    xx = bx + finite(station.get('station')) / length * bw
+                    line(c, (xx, yy - 8), (xx, yy + 19), MUTED, .5, [2, 2])
+            for station in beam.get('stations') or []:
+                xx = bx + finite(station.get('station')) / length * bw
+                polygon(c, [(xx - 4, y + 19), (xx + 4, y + 19), (xx, y + 25)], INK, None)
+                text(c, station.get('pileId', '-'), xx - 16, y + 7, 6, 'Mono')
+            joints = [q for q in self.gr.get('joints', []) if q.get('beamId') == beam.get('id')]
+            text(c, f'Фактические стыки: {len(joints)}; опоры и станции показаны пунктиром. Полные ID досок - в спецификации.', x + 14, y + 39, 7, color=MUTED)
+
+    def draw_floorframing(self, c, level, index):
+        fn, scale = self.draw_plan_base(c, level, (40, 135, 870, H - 245), rooms=False, openings=False)
+        members = [m for m in self.members if m.get('category') == 'floor' and int(m.get('floor', m.get('level', 1))) == int(level.get('index', 1))]
+        for j, m in enumerate(members):
+            if not m.get('start') or not m.get('end'):
+                continue
+            a, b = fn(xy(m['start'])), fn(xy(m['end']))
+            is_opening = bool(m.get('voidId')) or clean(m.get('role')).startswith('opening')
+            color = ORANGE if is_opening or 'void' in clean(m.get('role')).lower() or 'header' in clean(m.get('role')).lower() else WOOD_DARK
+            line(c, a, b, color, max(1.2, min(5, finite(m.get('b'), 50) / 1000 * scale)))
+            if is_opening or len(members) < 50 or j % 2 == 0:
+                xx, yy = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+                text(c, self.marks.get(str(m.get('id')), ''), xx + 3, yy + 3, 6, 'Mono', color)
+        marked = set()
+        for member in (self.r.get('floorOpenings') or {}).get('instances', []):
+            if int(member.get('floor', member.get('level', 1))) != int(level.get('index', 1)):
+                continue
+            for support in member.get('supports') or []:
+                position = support.get('position') or support.get('point')
+                if position is None:
+                    continue
+                point = xy(position)
+                key = (round(point[0], 5), round(point[1], 5), support.get('wallId') or support.get('memberId'))
+                if key in marked:
+                    continue
+                marked.add(key)
+                xx, yy = fn(point)
+                c.setFillColor(colors.white); c.setStrokeColor(BLUE); c.circle(xx, yy, 3.5, fill=1, stroke=1)
+                label = self.wall_names.get(str(support.get('wallId'))) or self.marks.get(str(support.get('memberId')), '')
+                text(c, label, xx + 5, yy - 9, 5.8, color=BLUE)
+        x, y = 950, H - 145
+        text(c, 'ПЕРЕКРЫТИЕ', x, y, 11, 'Bold', GREEN); y -= 30
+        grouped = collections.Counter((m.get('b'), m.get('h'), m.get('role')) for m in members)
+        for (b, h, role), count in grouped.items():
+            y = text(c, f'{ROLE.get(role, role)}\n{b} × {h} мм · {count} шт.', x, y, 8.5, width=190) - 18
+        text(c, 'Оранжевым - обрамление пустот. Синие кружки - переданные моделью опоры. Сдвоенные элементы показаны по фактическим осям.', x, max(180, y - 10), 8, color=MUTED, width=190)
+
+    def wall_members(self, wall):
+        wid = str(wall.get('id'))
+        return [m for m in self.members if str(m.get('wallId')) == wid or wid in [str(x) for x in m.get('wallIds', [])]]
+
+    def draw_wallframes(self, c, walls, index):
+        for i, wall in enumerate(walls or []):
+            x, y, w, h = 43, H - 420 - i * 325, W - 86, 305
+            members = self.wall_members(wall)
+            a, b = xy(wall.get('a')), xy(wall.get('b'))
+            length = math.hypot(b[0] - a[0], b[1] - a[1])
+            ux, uy = ((b[0] - a[0]) / max(length, .001), (b[1] - a[1]) / max(length, .001))
+            def local(p):
+                xx, yy, zz = xyz(p)
+                return (xx - a[0]) * ux + (zz - a[1]) * uy, yy
+            pts = [local(m[k]) for m in members for k in ('start', 'end') if m.get(k)]
+            level = next((v for v in self.levels if int(v.get('index', 1)) == int(wall.get('level', 1))), {})
+            base = finite(level.get('wallBaseY'))
+            pts += [(0, base), (length, base)]
+            fn, scale = transform(pts, (x + 35, y + 32, w - 310, h - 62), 20)
+            c.setStrokeColor(LINE); c.rect(x, y, w, h, fill=0, stroke=1)
+            title = f'{self.wall_names.get(str(wall.get("id")), "Стена")} · этаж {wall.get("level", 1)} · {number(length * 1000, 0)} мм'
+            text(c, title, x + 13, y + h - 20, 11, 'Bold')
+            text(c, wall.get('id'), x + w - 275, y + h - 20, 7, 'Mono', MUTED)
+            for op in self.p.get('openings') or []:
+                if str(op.get('wallId')) != str(wall.get('id')):
+                    continue
+                s = finite(op.get('offset')); sill = finite(op.get('sill')); oh = finite(op.get('height')); ow = finite(op.get('width'))
+                polygon(c, [fn((s, base + sill)), fn((s + ow, base + sill)), fn((s + ow, base + sill + oh)), fn((s, base + sill + oh))], colors.HexColor('#edf5f7'), BLUE, .6)
+                aa, bb = fn((s, base + sill + oh / 2)), fn((s + ow, base + sill + oh / 2))
+                text(c, f'{number(ow * 1000, 0)} × {number(oh * 1000, 0)}', (aa[0] + bb[0]) / 2 - 27, aa[1], 6.5, color=BLUE)
+            for j, m in enumerate(members):
+                if not m.get('start') or not m.get('end'):
+                    continue
+                aa, bb = fn(local(m['start'])), fn(local(m['end']))
+                is_brace = m.get('role') == 'letInBrace'
+                thickness = finite(m.get('h') if is_brace else m.get('b'), 50) / 1000 * scale
+                line(c, aa, bb, GREEN if is_brace else WOOD_DARK, max(.8, min(7, thickness)))
+                # Labels are spread over two bands; full detail IDs remain in registry.
+                if j % max(1, math.ceil(len(members) / 20)) == 0:
+                    mx, my = (aa[0] + bb[0]) / 2, (aa[1] + bb[1]) / 2
+                    text(c, self.marks.get(str(m.get('id')), ''), mx + 3, my + (5 if j % 2 else -8), 5.8, 'Mono', GREEN if is_brace else INK)
+                for notch in m.get('notches') or []:
+                    poly = [local(p) for p in notch.get('polygon', [])]
+                    if len(poly) >= 3:
+                        polygon(c, [fn(p) for p in poly], None, RED, .6)
+            low, high = bounds(pts)[1], bounds(pts)[3]
+            dimension(c, fn((0, low)), fn((length, low)), -17, number(length * 1000, 0))
+            dimension(c, fn((0, low)), fn((0, high)), 20, number((high - low) * 1000, 0))
+            sx, sy = x + w - 270, y + h - 47
+            text(c, f'Низ +{number(low, 3)}  /  верх +{number(high, 3)}', sx, sy, 8, 'Bold')
+            sy -= 23
+            profile = next((p for p in self.g.get('wallProfiles', []) if str(p.get('wallId')) == str(wall.get('id'))), {})
+            if profile:
+                mode = {'continuous': 'Цельные стойки', 'stacked': 'Составная стена', 'blocked': 'Не подобрано'}.get(profile.get('mode'), clean(profile.get('mode')))
+                sy = text(c, mode + ' · макс. стойка ' + number(profile.get('studMaxLength'), 3) + ' м', sx, sy, 7.5, 'Bold', GREEN, width=250) - 8
+            groups = collections.Counter((m.get('b'), m.get('h'), m.get('role')) for m in members)
+            for (mb, mh, role), count in list(groups.items())[:9]:
+                sy = text(c, f'{mb} × {mh} · {ROLE.get(role, role)} · {count} шт.', sx, sy, 7.5, width=250) - 6
+            text(c, f'Всего {len(members)} физических деталей.\nКрасным - переданные геометрические выборки.\nМарки и полные ID - в спецификации.', sx, y + 49, 7, color=MUTED, width=250)
+
+    def draw_roofplan(self, c, data, index):
+        pts = [xy(p) for s in self.roof.get('surfaces', []) for p in s.get('points', [])] + self.level_polygon()
+        fn, scale = transform(pts, (45, 135, 800, H - 245), 45)
+        polygon(c, [fn(p) for p in self.level_polygon()], None, LINE, 1)
+        palette = [colors.HexColor(s) for s in ('#d9e5c7', '#e8d5b6', '#cddfe5', '#e0d7e8')]
+        zones = self.roof.get('zones') or []
+        for surface in self.roof.get('surfaces') or []:
+            zi = next((j for j, z in enumerate(zones) if z.get('id') == surface.get('zoneId')), 0)
+            polygon(c, [fn(xy(p)) for p in surface.get('points', [])], palette[zi % len(palette)], colors.white, .5)
+        for ridge in self.roof.get('ridges') or []:
+            line(c, fn(xy(ridge.get('start'))), fn(xy(ridge.get('end'))), GREEN, 2)
+        drainage = self.roof.get('drainage') or {}
+        for flow in drainage.get('arrows') or []:
+            arrow(c, fn(xy(flow.get('start'))), fn(xy(flow.get('end'))), BLUE, 1)
+        for edge in drainage.get('edges') or []:
+            color = {'valley': ORANGE, 'wall-abutment': RED, 'eave': BLUE, 'ridge': GREEN}.get(edge.get('type'))
+            if color and edge.get('start') and edge.get('end'):
+                line(c, fn(xy(edge['start'])), fn(xy(edge['end'])), color, 1.2)
+        x, y = 885, H - 140
+        text(c, 'ЗОНЫ КРОВЛИ', x, y, 11, 'Bold', GREEN)
+        for j, zone in enumerate(zones):
+            zp = [xy(p) for p in zone.get('polygon', [])]
+            if zp:
+                cc = fn((sum(p[0] for p in zp) / len(zp), sum(p[1] for p in zp) / len(zp)))
+                text(c, f'К{j + 1}', cc[0] - 10, cc[1], 14, 'Bold', GREEN)
+            y -= 29
+            y = text(c, f'К{j + 1} · {zone.get("name", zone.get("id"))}', x, y, 9, 'Bold', width=240) - 9
+            y = text(c, f'{zone.get("shape")} / {zone.get("effectiveFraming", "-")}\nУклоны {number(zone.get("pitchLeft"), 1)}° / {number(zone.get("pitchRight"), 1)}°\nНаправление конька {number(zone.get("ridgeAngle"), 1)}°\nПоверхность {number(zone.get("surfaceArea"), 2)} м²', x, y, 8, width=240) - 13
+        self.note(c, 'Синий - направление стока / карнизы; зелёный - коньки; оранжевый - ендовы; красный - примыкания к стенам. Узлы гидроизоляции требуют системы производителя.', y=105)
+
+    def draw_roofsections(self, c, zones, index):
+        for j, zone in enumerate(zones or []):
+            x, y, w, h = 43, H - 425 - j * 325, W - 86, 305
+            c.setStrokeColor(LINE); c.rect(x, y, w, h, fill=0, stroke=1)
+            text(c, f'{zone.get("name", zone.get("id"))} · {zone.get("shape")} · {zone.get("effectiveFraming", "-")}', x + 14, y + h - 22, 11, 'Bold')
+            angle = math.radians(finite(zone.get('ridgeAngle')))
+            vx, vz = -math.sin(angle), math.cos(angle)
+            def local(p):
+                xx, yy, zz = xyz(p)
+                return xx * vx + zz * vz, yy
+            members = [m for m in self.members if m.get('zoneId') == zone.get('id')]
+            pts = [local(m[k]) for m in members for k in ('start', 'end') if m.get(k)]
+            if not pts:
+                text(c, 'Физические элементы зоны отсутствуют в отчёте.', x + 20, y + 180, 10, color=ORANGE)
+                continue
+            fn, scale = transform(pts, (x + 15, y + 33, w * .61, h - 78), 25)
+            seen = set()
+            for m in members:
+                if not m.get('start') or not m.get('end'):
+                    continue
+                aa, bb = local(m['start']), local(m['end'])
+                key = tuple(round(v, 3) for p in (aa, bb) for v in p)
+                if key in seen:
+                    continue
+                seen.add(key)
+                line(c, fn(aa), fn(bb), WOOD_DARK, max(1.1, min(6, finite(m.get('h'), 150) / 1000 * scale)))
+            mn, lo, mx, hi = bounds(pts)
+            dimension(c, fn((mn, lo)), fn((mx, lo)), -15, number((mx - mn) * 1000, 0))
+            sx, sy = x + w * .66, y + h - 48
+            text(c, 'Задано / принято: ' + clean(zone.get('requestedSection', zone.get('chordSection'))) + ' / ' + clean(zone.get('selectedSection', zone.get('effectiveSection'))), sx, sy, 8.5, 'Bold', width=w * .31)
+            sy -= 28
+            sy = text(c, zone.get('framingReason', ''), sx, sy, 8, width=w * .31) - 12
+            ra = zone.get('rafterAnalysis') or {}
+            if ra:
+                for label, value in [('Пролёт / длина ската', f'{number(ra.get("horizontalSpan"), 3)} / {number(ra.get("slopeLength"), 3)} м'), ('Напряжение изгиба', number(ra.get('stress'), 3) + ' МПа'), ('Вертикальный прогиб', number(ra.get('verticalDeflection'), 3) + ' / ' + number(ra.get('deflectionAllowed'), 3) + ' мм'), ('Использование η', number(ra.get('utilization'), 4))]:
+                    sy = text(c, label + ': ' + value, sx, sy, 8, width=w * .31) - 7
+            else:
+                analysis = zone.get('analysis') or {}
+                sy = text(c, 'Типовая ферма: ' + clean(zone.get('trussType')) + '\nСтатус: ' + clean(analysis.get('status')) + '\nПрименимость: ' + ('типовая схема применима' if zone.get('analysisApplicable') else 'к обрезанным/частичным элементам не подтверждена'), sx, sy, 8, width=w * .31)
+            text(c, 'Разрез - проекция повторяющихся рам зоны; совпадающие линии показаны один раз. Опорные узлы не рассчитаны.', sx, y + 40, 7.4, color=ORANGE, width=w * .31)
+
+    def draw_section(self, c, data, index):
+        voids = [v for v in self.p.get('voids', []) if v.get('kind') == 'doubleHeight']
+        vp = [xy(p) for p in (voids[0].get('polygon', []) if voids else [])]
+        basepts = self.level_polygon()
+        cut_y = (bounds(vp)[1] + bounds(vp)[3]) / 2 if vp else (bounds(basepts)[1] + bounds(basepts)[3]) / 2
+        visible = []
+        # Geometric intersection of each board axis with a section band, not a fictitious frame.
+        for m in self.members:
+            if not m.get('start') or not m.get('end'):
+                continue
+            a, b = xyz(m['start']), xyz(m['end'])
+            if min(a[2], b[2]) - .12 <= cut_y <= max(a[2], b[2]) + .12:
+                if abs(a[2] - b[2]) < .05:
+                    if abs(a[2] - cut_y) < .12:
+                        visible.append((m, (a[0], a[1]), (b[0], b[1])))
+                else:
+                    t = max(0, min(1, (cut_y - a[2]) / (b[2] - a[2])))
+                    xx, yy = a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])
+                    visible.append((m, (xx - finite(m.get('b'), 50) / 2000, yy), (xx + finite(m.get('b'), 50) / 2000, yy)))
+        pts = [p for _, a, b in visible for p in (a, b)]
+        for s in self.roof.get('surfaces', []):
+            sp = [xyz(p) for p in s.get('points', [])]
+            hits = []
+            for a, b in zip(sp, sp[1:] + sp[:1]):
+                if abs(a[2] - b[2]) > 1e-9 and min(a[2], b[2]) <= cut_y <= max(a[2], b[2]):
+                    t = (cut_y - a[2]) / (b[2] - a[2])
+                    hits.append((a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])))
+            if len(hits) >= 2:
+                visible.append(({'category': 'surface'}, hits[0], hits[1])); pts += hits
+        wall_slices = []
+        profiles = {str(p.get('wallId')): p for p in self.g.get('wallProfiles', [])}
+        for wall in self.p.get('walls') or []:
+            a, b = xy(wall.get('a')), xy(wall.get('b'))
+            if abs(b[1] - a[1]) < 1e-8 or not (min(a[1], b[1]) - 1e-8 <= cut_y <= max(a[1], b[1]) + 1e-8):
+                continue
+            t = (cut_y - a[1]) / (b[1] - a[1])
+            xx = a[0] + t * (b[0] - a[0])
+            length = math.hypot(b[0] - a[0], b[1] - a[1])
+            station = t * length
+            level = next((v for v in self.levels if int(v.get('index', 1)) == int(wall.get('level', 1))), {})
+            profile = profiles.get(str(wall.get('id')), {})
+            base_y = finite(profile.get('baseY', level.get('wallBaseY')))
+            samples = sorted(profile.get('topSamples') or [], key=lambda s: finite(s.get('s')))
+            top_y = finite(profile.get('topAtA', level.get('topY')))
+            for sa, sb in zip(samples, samples[1:]):
+                if finite(sa.get('s')) - 1e-7 <= station <= finite(sb.get('s')) + 1e-7:
+                    tt = (station - finite(sa.get('s'))) / max(1e-9, finite(sb.get('s')) - finite(sa.get('s')))
+                    top_y = finite(sa.get('topY')) + tt * (finite(sb.get('topY')) - finite(sa.get('topY')))
+                    break
+            _, thickness = self.section_size(wall.get('section', '50x150'))
+            width = thickness / 1000 / max(.1, abs((b[1] - a[1]) / max(length, .001)))
+            wall_slices.append((xx, base_y, top_y, width))
+            pts += [(xx - width / 2, base_y), (xx + width / 2, top_y)]
+        platforms = []
+        for level in self.levels:
+            intervals = scan_intervals(self.level_polygon(level), cut_y)
+            holes = []
+            for void in self.p.get('voids') or []:
+                if int(void.get('level', 2)) == int(level.get('index', 1)):
+                    holes += scan_intervals([xy(p) for p in void.get('polygon', [])], cut_y)
+            intervals = subtract_intervals(intervals, holes)
+            low_y, high_y = finite(level.get('platformBase')), finite(level.get('wallBaseY'))
+            platforms += [(a, b, low_y, high_y) for a, b in intervals]
+        pts += [(p[0], 0) for p in basepts]
+        fn, scale = transform(pts, (55, 140, W - 315, H - 265), 45)
+        for xx, low_y, high_y, width in wall_slices:
+            polygon(c, [fn((xx - width / 2, low_y)), fn((xx + width / 2, low_y)), fn((xx + width / 2, high_y)), fn((xx - width / 2, high_y))], WOOD, WOOD_DARK, .7)
+        for a, b, low_y, high_y in platforms:
+            polygon(c, [fn((a, low_y)), fn((b, low_y)), fn((b, high_y)), fn((a, high_y))], colors.HexColor('#e0e7d4'), GREEN, .6)
+        for m, a, b in visible:
+            line(c, fn(a), fn(b), GREEN if m.get('category') == 'surface' else WOOD_DARK, 1.3 if m.get('category') == 'surface' else 2)
+        a, lo, b, hi = bounds(pts)
+        line(c, fn((a - .4, 0)), fn((b + .4, 0)), LINE, 1)
+        for level in self.levels:
+            for key, label in [('platformBase', 'Низ платформы'), ('wallBaseY', 'Основание стены'), ('topY', 'Номинальный верх')]:
+                yy = finite(level.get(key))
+                p1, p2 = fn((a, yy)), fn((b, yy))
+                line(c, p1, p2, LINE, .6, [5, 4])
+                text(c, '+' + number(yy, 3), p2[0] + 12, p2[1] - 2, 8, 'Bold')
+        for void in voids:
+            poly = [xy(p) for p in void.get('polygon', [])]
+            va, vb, vc, vd = bounds(poly)
+            if vb <= cut_y <= vd:
+                level = next((l for l in self.levels if int(l.get('index', 1)) == int(void.get('level', 2))), {})
+                yy = finite(level.get('platformBase'))
+                aa, bb = fn((va, yy)), fn((vc, yy))
+                dimension(c, aa, bb, 27, 'ВТОРОЙ СВЕТ ' + number((vc - va) * 1000, 0))
+        text(c, f'Разрез при Y = {number(cut_y, 3)} м', W - 265, H - 150, 11, 'Bold', width=220)
+        text(c, 'Показаны пересечения стен, платформ и кровли фактической модели. Сечения стен берутся по текущему высотному профилю.\n\nПустота второго света вычтена из платформы. Зелёная полоса - габарит платформы, не сплошной материал.\n\nОтметки относятся к единому нулю цифровой модели.', W - 265, H - 192, 9, color=MUTED, width=215)
+
+    def draw_details(self, c, data, index):
+        cards = [(43, 410, 535, 290), (610, 410, 535, 290), (43, 105, 535, 285), (610, 105, 535, 285)]
+        titles = ['01 · Оголовок → пакет → платформа → стена', '02 · Наращивание досок из модели', '03 · Проём и обрамление перекрытия', '04 · Врезная укосина / плитная диафрагма']
+        for box, title in zip(cards, titles):
+            x, y, w, h = box; c.setStrokeColor(LINE); c.rect(x, y, w, h, fill=0, stroke=1); text(c, title, x + 14, y + h - 22, 10, 'Bold')
+        x, y, w, h = cards[0]
+        bx, by = x + 145, y + 63
+        plies = max(1, int(finite(self.gr.get('plies'), 3)))
+        b, hh = self.section_size(((self.p.get('foundation') or {}).get('grillage') or {}).get('section', '50x200'))
+        ss = .35
+        line(c, (bx - 20, by), (bx + plies * b * ss + 20, by), INK, 5)
+        for j in range(plies):
+            c.setFillColor(WOOD); c.setStrokeColor(WOOD_DARK); c.rect(bx + j * b * ss, by + 3, b * ss, hh * ss, fill=1, stroke=1)
+        c.setFillColor(LIME); c.setStrokeColor(GREEN); c.rect(bx - 12, by + hh * ss + 4, plies * b * ss + 24, 48, fill=1, stroke=1)
+        line(c, (bx - 20, by + hh * ss + 55), (bx + plies * b * ss + 35, by + hh * ss + 55), INK, 4)
+        c.setFillColor(WOOD); c.rect(bx + 5, by + hh * ss + 58, 18, 55, fill=1, stroke=0)
+        text(c, f'Пакет {plies} × {number(b, 0)} × {number(hh, 0)} мм', x + 275, by + 75, 8)
+        text(c, 'Лаги и платформа\nСтена по оси\nОголовок: +' + number(self.gr.get('pileHeadY'), 3), x + 275, by + 45, 8, width=240)
+        text(c, 'Геометрическая схема слоёв. Крепёж, контактные напряжения и совместная работа пакета не рассчитаны.', x + 14, y + 24, 7.5, color=ORANGE, width=w - 28)
+        x, y, w, h = cards[1]
+        splices = self.r.get('splices') or []
+        splice = next((s for s in splices if isinstance(s, dict)), {}) if isinstance(splices, list) else {}
+        scheme = splice.get('scheme') or (self.p.get('joints') or {}).get('spliceScheme') or 'не задана'
+        text(c, 'Схема: ' + self.end_label({'scheme': scheme, 'lapLength': splice.get('lapLength')}), x + 16, y + h - 54, 9, 'Bold')
+        yy, xx = y + 125, x + 55
+        if scheme == 'halfLap':
+            polygon(c, [(xx, yy), (xx + 220, yy), (xx + 220, yy + 18), (xx + 155, yy + 18), (xx + 155, yy + 36), (xx, yy + 36)], WOOD, WOOD_DARK)
+            polygon(c, [(xx + 155, yy + 18), (xx + 220, yy + 18), (xx + 220, yy + 36), (xx + 380, yy + 36), (xx + 380, yy + 54), (xx + 155, yy + 54)], LIME, GREEN)
+        elif scheme == 'scarf':
+            polygon(c, [(xx, yy), (xx + 230, yy), (xx + 160, yy + 35), (xx, yy + 35)], WOOD, WOOD_DARK)
+            polygon(c, [(xx + 230, yy), (xx + 380, yy), (xx + 380, yy + 35), (xx + 160, yy + 35)], LIME, GREEN)
+        else:
+            for j in range(2):
+                c.setFillColor(WOOD if j == 0 else LIME); c.setStrokeColor(WOOD_DARK); c.rect(xx + j * 190, yy, 190, 36, fill=1, stroke=1)
+        text(c, 'Стык: ' + clean(splice.get('id', 'нет в отчёте')), x + 16, y + 75, 7.5, 'Mono', width=w - 32)
+        text(c, 'Показана форма переданного соединения, без схемы крепежа. Нахлёст включается в заготовку только по данным движка.', x + 14, y + 40, 7.5, color=ORANGE, width=w - 28)
+        x, y, w, h = cards[2]
+        for j in range(6):
+            xx = x + 65 + j * 67
+            if j not in (2, 3):
+                line(c, (xx, y + 65), (xx, y + 205), WOOD_DARK, 7)
+        for yy in (y + 97, y + 173):
+            line(c, (x + 132, yy), (x + 333, yy), ORANGE, 8)
+        for xx in (x + 132, x + 333):
+            line(c, (xx, y + 65), (xx, y + 205), ORANGE, 8)
+        text(c, 'ПРОЁМ', x + 211, y + 130, 11, 'Bold', ORANGE)
+        text(c, 'Схема чтения обрамления. Число, сечения и марки фактических досок приведены на плане перекрытия; узел передачи усилий не рассчитан.', x + 14, y + 38, 7.5, color=ORANGE, width=w - 28)
+        x, y, w, h = cards[3]
+        br = self.r.get('bracingModel') or {}
+        method = br.get('method', (self.p.get('bracing') or {}).get('method'))
+        for j in range(5):
+            line(c, (x + 75 + j * 75, y + 72), (x + 75 + j * 75, y + 205), WOOD_DARK, 6)
+        for yy in (y + 72, y + 205):
+            line(c, (x + 75, yy), (x + 375, yy), WOOD_DARK, 7)
+        if method == 'letIn':
+            line(c, (x + 95, y + 72), (x + 230, y + 205), GREEN, 11)
+            text(c, 'Одна врезная диагональ; не наружный X', x + 25, y + 239, 8)
+        elif method == 'sheathing':
+            polygon(c, [(x + 75, y + 72), (x + 225, y + 72), (x + 225, y + 205), (x + 75, y + 205)], colors.Color(.8, .88, .67, alpha=.7), GREEN, 1)
+            text(c, 'Кромки плит: требуется опирание на каркас / блокинг', x + 25, y + 239, 8)
+        text(c, 'Путь усилий: кровля/перекрытие → диафрагма → обвязка → анкеры → фундамент. Несущая способность без схемы крепежа не подтверждена.', x + 14, y + 38, 7.5, color=ORANGE, width=w - 28)
+
+    def draw_loads(self, c, data, index):
+        loads = self.r.get('loads') or {}
+        x, y = 43, H - 137
+        text(c, 'ИТОГИ РАСЧЁТНОЙ МОДЕЛИ', x, y, 11, 'Bold', GREEN); y -= 32
+        for key, label, unit in [('totalCharacteristic', 'Сумма характеристических вертикальных', 'кН'), ('totalDesign', 'Сумма расчётных вертикальных', 'кН'), ('timberWeight', 'Вес древесины', 'кН'), ('structuralPanelWeight', 'Вес конструкционных плит', 'кН'), ('floorArea', 'Расчётная площадь перекрытий', 'м²'), ('roofArea', 'Площадь скатов', 'м²'), ('projectedRoofArea', 'Проекция кровли', 'м²'), ('windForceX', 'Ветер, ось X', 'кН'), ('windForceY', 'Ветер, ось Y', 'кН')]:
+            text(c, label, x, y, 9); text(c, number(loads.get(key), 4) + ' ' + unit, x + 365, y, 10, 'Bold'); line(c, (x, y - 9), (x + 525, y - 9)); y -= 32
+        x, y = 640, H - 137
+        text(c, 'ПРИНЯТЫЕ ИСХОДНЫЕ', x, y, 11, 'Bold', GREEN); y -= 30
+        labels = {'floorDead': 'Постоянная пола, кН/м²', 'live': 'Полезная, кН/м²', 'roofDead': 'Постоянная кровли, кН/м²', 'wallDead': 'Постоянная стен, кН/м²', 'openingDead': 'Заполнение проёмов, кН/м²', 'snow': 'Снег, кН/м²', 'wind': 'Ветер, кН/м²', 'gammaG': 'Коэффициент γG', 'gammaQ': 'Коэффициент γQ'}
+        for key, value in (self.p.get('loads') or {}).items():
+            y = text(c, labels.get(key, key) + ': ' + clean(value), x, y, 9, width=490) - 10
+        text(c, 'МАТЕРИАЛ', x, y - 14, 10, 'Bold', GREEN); y -= 38
+        for key, value in (self.p.get('material') or {}).items():
+            y = text(c, key + ': ' + clean(value), x, y, 8, width=490) - 5
+        self.note(c, 'Значения воспроизведены из отчёта. Сочетания, снеговые мешки, пространственная устойчивость, местные условия и соединения требуют отдельной проверки.', y=109, color=ORANGE)
+
+    def draw_snow(self, c, data, index):
+        assessment, cases = data
+        text(c, 'СНЕГ НА ГРУНТЕ sk', 43, H - 135, 9, 'Bold', GREEN)
+        text(c, number(assessment.get('groundSnow'), 3) + ' кН/м²', 43, H - 165, 22, 'Bold')
+        text(c, 'МЕТОД / ОСНОВАНИЕ', 330, H - 135, 9, 'Bold', GREEN)
+        text(c, clean(assessment.get('coefficientMethod')), 330, H - 157, 9, width=W - 380)
+        text(c, clean(assessment.get('basis')), 330, H - 184, 8, color=MUTED, width=W - 380)
+        text(c, 'Сравнение принятых нагрузок на неизменных сечениях', 43, H - 234, 12, 'Bold')
+        columns = [('Случай / тип', .16), ('Множители зон', .14), ('Снег Fk, кН', .09), ('Всего Fd, кН', .1), ('Max свая, кН', .1), ('Ростверк ηmax', .1), ('Стропила / сечение / ηmax', .18), ('Статус', .13)]
+        widths = [(W - 86) * col[1] for col in columns]
+        scale_width = (W - 86) / sum(widths)
+        widths = [v * scale_width for v in widths]
+        xx, top = 43, H - 253
+        c.setFillColor(INK); c.rect(xx, top - 29, W - 86, 29, fill=1, stroke=0)
+        for col, width in zip(columns, widths):
+            text(c, col[0], xx + 6, top - 13, 7.5, 'Bold', colors.white, width=width - 12)
+            xx += width
+        y = top - 29
+        for i, case in enumerate(cases):
+            if not isinstance(case, dict):
+                continue
+            factors = case.get('zoneFactors') or {}
+            factors_text = '\n'.join(clean(key) + ': ' + number(value, 3) for key, value in factors.items()) if isinstance(factors, dict) else clean(factors)
+            rafters = []
+            for rafter in case.get('rafters') or []:
+                if not isinstance(rafter, dict):
+                    continue
+                analysis = rafter.get('analysis') or {}
+                rafters.append(clean(rafter.get('zoneId')) + '\n' + clean(rafter.get('section')) + ' · η=' + number(analysis.get('utilization'), 4))
+            status = 'Есть невыполненные проверки' if case.get('status') == 'fail' else 'Частный скрининг' if case.get('status') == 'screen_pass' else clean(case.get('status'))
+            status += '\nСечения: ' + ('фиксированы' if case.get('sectionsFixed') is True else 'не подтверждено')
+            row = [clean(case.get('name', case.get('id'))) + '\n' + clean(case.get('id')) + '\n' + clean(case.get('kind')), factors_text, number(case.get('snowCharacteristic', case.get('snowTotal')), 3), number(case.get('totalDesign'), 3), number(case.get('maxPileReaction'), 3), number(case.get('maxGrillageUtilization'), 4), '\n'.join(rafters) or '-', status]
+            rh = max(62, max(len(wrap(value, width - 12, 'Body', 7.5)) for value, width in zip(row, widths)) * 9.2 + 14)
+            c.setFillColor(PAPER if i % 2 == 0 else colors.white); c.rect(43, y - rh, W - 86, rh, fill=1, stroke=0)
+            xx = 43
+            for value, width in zip(row, widths):
+                text(c, value, xx + 6, y - 13, 7.5, color=RED if case.get('status') == 'fail' else INK, width=width - 12, leading=9.2)
+                xx += width
+            line(c, (43, y - rh), (W - 43, y - rh), LINE, .5)
+            y -= rh
+        if not cases:
+            text(c, 'Снеговые случаи не переданы в отчёте.', 50, y - 25, 9, color=ORANGE)
+            y -= 50
+        y = min(y - 24, 235)
+        text(c, 'ГРАНИЦЫ СНЕГОВОГО СКРИНИНГА', 43, y, 9, 'Bold', ORANGE)
+        y -= 18
+        notes = ['Полные требования Finnish NA, нормативные сочетания, местные снеговые мешки и сползание не подтверждены. Равномерный множитель зоны не заменяет форму локального заноса.'] + list(assessment.get('assumptions') or [])
+        for note in notes:
+            if y < 116:
+                break
+            y = text(c, '• ' + clean(note), 43, y, 8, color=MUTED, width=W - 90) - 6
+
+    def envelope_chart(self, c, box, title, samples, keys, dew=None):
+        x, y, w, h = box
+        text(c, title, x, y + h + 5, 9, 'Bold', GREEN)
+        data = []
+        for sample in samples:
+            if not isinstance(sample, dict):
+                continue
+            px = optional_number(sample.get('x'))
+            if px is not None:
+                data.append((px, sample))
+        data.sort(key=lambda item: item[0])
+        values = [optional_number(sample.get(key)) for _, sample in data for key, _, _ in keys]
+        values = [value for value in values if value is not None]
+        if dew is not None:
+            values.append(dew)
+        if not data or not values:
+            c.setStrokeColor(LINE); c.rect(x, y, w, h, fill=0, stroke=1)
+            text(c, 'Данные профиля отсутствуют', x + 15, y + h / 2, 8, color=ORANGE, width=w - 25)
+            return
+        min_x, max_x = min(p[0] for p in data), max(p[0] for p in data)
+        min_y, max_y = min(values), max(values)
+        pad = max((max_y - min_y) * .08, 1)
+        min_y -= pad; max_y += pad
+        if all(key in ('pVapor', 'pSat') for key, _, _ in keys) and min(values) >= 0:
+            min_y = 0
+        left, bottom, pw, ph = x + 42, y + 30, w - 54, h - 48
+        def pos(px, py):
+            return left + (px - min_x) / max(1e-9, max_x - min_x) * pw, bottom + (py - min_y) / max(1e-9, max_y - min_y) * ph
+        for i in range(4):
+            value = min_y + (max_y - min_y) * i / 3
+            yy = pos(min_x, value)[1]
+            line(c, (left, yy), (left + pw, yy), LINE, .4)
+            text(c, number(value, 0 if max_y > 200 else 1), x, yy - 3, 6.3, color=MUTED)
+        line(c, (left, bottom), (left + pw, bottom), MUTED, .6)
+        line(c, (left, bottom), (left, bottom + ph), MUTED, .6)
+        for i in range(3):
+            value = min_x + (max_x - min_x) * i / 2
+            text(c, number(value * 1000, 0), pos(value, min_y)[0] - 6, bottom - 12, 6.3, color=MUTED)
+        text(c, 'x, мм · изнутри наружу', left + 15, y + 3, 6.5, color=MUTED)
+        for key, label, color in keys:
+            series = [(px, optional_number(sample.get(key))) for px, sample in data]
+            previous = None
+            for px, py in series:
+                if py is None:
+                    previous = None
+                    continue
+                current = pos(px, py)
+                if previous:
+                    line(c, previous, current, color, 1.4)
+                previous = current
+        if dew is not None:
+            yy = pos(min_x, dew)[1]
+            line(c, (left, yy), (left + pw, yy), ORANGE, .8, [4, 3])
+        legend_y = y - 13
+        xx = x + 6
+        for _, label, color in keys:
+            line(c, (xx, legend_y + 3), (xx + 14, legend_y + 3), color, 1.4)
+            text(c, label, xx + 19, legend_y, 6.8)
+            xx += 130
+        if dew is not None:
+            text(c, 'Пунктир: T росы/инея воздуха помещения', x + 6, y - 26, 6.5, color=ORANGE)
+
+    def draw_envelope(self, c, assembly, index):
+        boundary = assembly.get('boundaryConditions') or {}
+        indoor = boundary.get('indoor') or {}
+        outdoor = boundary.get('outdoor') or {}
+        dew_label = 'Точка инея' if assembly.get('dewPointKind') == 'frost' else 'Точка росы воздуха'
+        stats = [('R / U однородного поля', number(assembly.get('Rtotal'), 3) + ' м²К/Вт / ' + number(assembly.get('U'), 3) + ' Вт/(м²К)'), ('Uэфф / T внутренней поверхности', number(assembly.get('Ueffective'), 3) + ' Вт/(м²К) / ' + number(assembly.get('internalSurfaceTemp'), 2) + ' °C'), (dew_label + ' / RH поверхности', number(assembly.get('dewPointIndoor'), 2) + ' °C / ' + number(assembly.get('surfaceRH'), 2) + ' %')]
+        for j, (label, value) in enumerate(stats):
+            x = 43 + j * (W - 86) / 3
+            text(c, label, x, H - 135, 8, 'Bold', GREEN)
+            text(c, value, x, H - 159, 11, 'Bold', width=(W - 100) / 3)
+        text(c, f'Внутри: {number(indoor.get("temperature"), 1)} °C / RH {number(indoor.get("rh"), 1)} %     Снаружи: {number(outdoor.get("temperature"), 1)} °C / RH {number(outdoor.get("rh"), 1)} %     Применение: {clean(assembly.get("appliesTo"))}', 43, H - 188, 8, color=MUTED, width=W - 90)
+        layers = [layer for layer in (assembly.get('layers') or []) if isinstance(layer, dict)]
+        x, y, width = 43, 585, 350
+        text(c, 'СЛОИ ИЗНУТРИ НАРУЖУ', x, 628, 9, 'Bold', GREEN)
+        thicknesses = [optional_number(layer.get('thickness')) for layer in layers]
+        total = sum(thicknesses) if layers and all(value is not None for value in thicknesses) else None
+        # Minimum visible membranes are diagrammatic; all fabrication dimensions are numeric.
+        weights = [max(.006, finite(layer.get('thickness'))) for layer in layers]
+        weight_sum = sum(weights) or 1
+        palette = [WOOD, LIME, colors.HexColor('#b9d0db'), colors.HexColor('#ddceaf'), colors.HexColor('#bdcbb4')]
+        xx = x
+        for j, (layer, weight) in enumerate(zip(layers, weights)):
+            lw = width * weight / weight_sum
+            c.setFillColor(palette[j % len(palette)]); c.setStrokeColor(colors.white); c.rect(xx, y, lw, 26, fill=1, stroke=1)
+            if lw > 12:
+                text(c, j + 1, xx + 3, y + 9, 7, 'Bold')
+            xx += lw
+        if not layers:
+            text(c, 'Состав слоёв не передан', x, y + 8, 8, color=ORANGE)
+        total_thickness = optional_number(assembly.get('totalThickness', total))
+        caption = 'толщины мембран на схеме увеличены' if total_thickness is not None else 'толщины не заданы; схема без масштаба'
+        text(c, f'Σd = {number(total_thickness * 1000 if total_thickness is not None else None, 2)} мм · ' + caption, x, y - 14, 6.7, color=MUTED, width=360)
+        text(c, '№ / Слой', x, 552, 6.5, 'Bold', MUTED)
+        text(c, 'd, мм', x + 190, 552, 6.5, 'Bold', MUTED)
+        text(c, 'λ, Вт/(мК)', x + 235, 552, 6.5, 'Bold', MUTED)
+        text(c, 'sd, м', x + 305, 552, 6.5, 'Bold', MUTED)
+        for j, layer in enumerate(layers[:9]):
+            yy = 535 - j * 13
+            text(c, f'{j + 1} ' + clean(layer.get('name', layer.get('id'))), x, yy, 6.8, width=185, leading=8)
+            thickness = optional_number(layer.get('thickness'))
+            text(c, number(thickness * 1000 if thickness is not None else None, 2), x + 190, yy, 6.8)
+            text(c, number(layer.get('lambda'), 4), x + 235, yy, 6.8)
+            sd = layer.get('sd')
+            if sd is None and optional_number(layer.get('mu')) is not None and thickness is not None:
+                sd = optional_number(layer.get('mu')) * thickness
+            text(c, number(sd, 3), x + 305, yy, 6.8)
+        samples = assembly.get('samples') if isinstance(assembly.get('samples'), list) else []
+        interfaces = [v for v in (assembly.get('interfaces') or []) if isinstance(v, dict)]
+        profile = samples or interfaces
+        self.envelope_chart(c, (430, 449, 335, 171), 'ТЕМПЕРАТУРА, °C', profile, [('temperature', 'T конструкции', BLUE)], optional_number(assembly.get('dewPointIndoor')))
+        self.envelope_chart(c, (805, 449, 335, 171), 'ПАРЦИАЛЬНЫЕ ДАВЛЕНИЯ, Па', profile, [('pVapor', 'pv свободный', ORANGE), ('pSat', 'psat насыщение', GREEN)])
+        top, tw = 388, 690
+        text(c, 'МЕЖСЛОЙНЫЕ ГРАНИЦЫ', 43, top, 9, 'Bold', GREEN)
+        headers = [('Граница', 260), ('x, мм', 75), ('T, °C', 75), ('RH, %', 75), ('pv, Па', 100), ('psat, Па', 105)]
+        xx = 43; yy = top - 15
+        c.setFillColor(INK); c.rect(43, yy - 21, tw, 22, fill=1, stroke=0)
+        for label, cw in headers:
+            text(c, label, xx + 5, yy - 13, 7, 'Bold', colors.white); xx += cw
+        yy -= 22
+        for j, interface in enumerate(interfaces[:9]):
+            cells = [interface.get('name', interface.get('id')), number(optional_number(interface.get('x')) * 1000 if optional_number(interface.get('x')) is not None else None, 2), number(interface.get('temperature'), 2), number(interface.get('rh'), 2), number(interface.get('pVapor'), 2), number(interface.get('pSat'), 2)]
+            c.setFillColor(PAPER if j % 2 == 0 else colors.white); c.rect(43, yy - 21, tw, 21, fill=1, stroke=0)
+            xx = 43
+            for value, (_, cw) in zip(cells, headers):
+                text(c, value, xx + 5, yy - 13, 7, color=RED if finite(interface.get('rh')) > 100 else INK, width=cw - 9, leading=8)
+                xx += cw
+            line(c, (43, yy - 21), (43 + tw, yy - 21), LINE, .4); yy -= 21
+        if len(interfaces) > 9 or len(layers) > 9:
+            text(c, 'Полный состав / все границы - на следующих листах.', 43, max(125, yy - 15), 7.2, color=ORANGE)
+        if not interfaces:
+            text(c, 'Значения границ отсутствуют.', 50, yy - 23, 8, color=ORANGE)
+        x, yy = 780, 388
+        text(c, 'ОБЛАСТЬ РЕЗУЛЬТАТА', x, yy, 9, 'Bold', GREEN); yy -= 24
+        state = 'Выявлен стационарный риск' if assembly.get('status') == 'risk' else 'Выбранные стационарные риски не выявлены' if assembly.get('status') == 'screen_pass' else 'Статус: ' + clean(assembly.get('status'))
+        yy = text(c, state, x, yy, 10, 'Bold', ORANGE if assembly.get('status') == 'risk' else INK, width=350) - 15
+        if assembly.get('targetU') is not None or assembly.get('thermalTargetStatus') is not None:
+            target_color = RED if assembly.get('thermalTargetStatus') == 'fail' else GREEN
+            yy = text(c, 'Принятый ориентир U: ' + number(assembly.get('targetU'), 3) + ' Вт/(м²К)\nСтатус сравнения: ' + STATUSES.get(clean(assembly.get('thermalTargetStatus')), clean(assembly.get('thermalTargetStatus'))), x, yy, 8, 'Bold', target_color, width=350) - 10
+            yy = text(c, 'Finnish 1010/2017; применимость и полная энергосертификация не подтверждены.', x, yy, 7.2, color=MUTED, width=350) - 12
+        framing = assembly.get('framingPath') or {}
+        if framing:
+            yy = text(c, 'Путь древесины: Tsi ' + number(framing.get('internalSurfaceTemp'), 2) + ' °C; RHsi ' + number(framing.get('surfaceRH'), 2) + ' %. Диффузия по каркасу отдельно не подтверждена.', x, yy, 8, width=350) - 13
+        text(c, 'Это НЕ годовой расчёт. Не вычислены накопление и высыхание влаги, дождь, солнечный нагрев, конвективный перенос и реальные 2D/3D мостики холода.\n\nТочка росы относится к воздуху помещения и не является неподвижным слоем стены. Превышение pv над psat - индикатор риска, не масса конденсата.', x, yy, 8.5, color=MUTED, width=350)
+        if assembly.get('targetU') is not None:
+            source = 'https://www.finlex.fi/fi/lainsaadanto/saadoskokoelma/2017/1010'
+            text(c, 'Ориентир U: Finnish 1010/2017 · ' + source + ' · полная энергосертификация не подтверждена.', 43, 123, 7.2, color=MUTED, width=W - 90)
+            c.linkURL(source, (43, 118, W - 43, 132), relative=0, thickness=0)
+        self.note(c, 'Графики построены по переданным samples/interfaces; свойства материалов и граничные условия приняты из отчёта. Полные проверки, допущения и источники - следом.', y=105, color=ORANGE)
+
+    def draw_table(self, c, data, index):
+        columns, rows, size = data
+        widths = [(W - 84) * col[1] for col in columns]
+        # Normalize widths to protect against rounding or caller weights > 1.
+        factor = (W - 84) / sum(widths)
+        widths = [v * factor for v in widths]
+        x, top = 42, H - 126
+        c.setFillColor(INK); c.rect(x, top - 27, W - 84, 27, fill=1, stroke=0)
+        xx = x
+        for col, width in zip(columns, widths):
+            text(c, col[0], xx + 6, top - 15, size, 'Bold', colors.white, width=width - 12)
+            xx += width
+        y = top - 27
+        for j, (row, rh) in enumerate(rows):
+            if j % 2 == 0:
+                c.setFillColor(PAPER); c.rect(x, y - rh, W - 84, rh, fill=1, stroke=0)
+            xx = x
+            for i, (cell, width) in enumerate(zip(row, widths)):
+                font = 'Mono' if columns[i][2:] and columns[i][2] == 'mono' else 'Body'
+                color = RED if 'Не выполнено' in clean(cell) else ORANGE if 'Не проверено' in clean(cell) else INK
+                text(c, cell, xx + 6, y - 12, size, font, color, width=width - 12, leading=size * 1.25)
+                xx += width
+            line(c, (x, y - rh), (W - 42, y - rh), LINE, .4)
+            y -= rh
+        if not rows:
+            text(c, 'Данные отсутствуют в исходном отчёте.', 48, y - 24, 9, color=ORANGE)
+
+    def draw_estimate(self, c, data, index):
+        x, y = 55, H - 155
+        text(c, 'ИТОГО ПО ОТЧЁТУ', x, y, 12, 'Bold', GREEN)
+        text(c, number(self.estimate.get('total'), 2) + ' ' + self.unit_money, x, y - 58, 36, 'Bold')
+        y -= 123
+        for key, label in [('materialTotal', 'Материалы'), ('laborTotal', 'Работы'), ('reserve', 'Резерв')]:
+            text(c, label, x, y, 13, color=MUTED)
+            text(c, number(self.estimate.get(key), 2) + ' ' + self.unit_money, x + 270, y, 15, 'Bold')
+            line(c, (x, y - 14), (x + 580, y - 14)); y -= 58
+        x, y = 730, H - 155
+        text(c, 'ЗАКУПКА ДРЕВЕСИНЫ', x, y, 11, 'Bold', GREEN)
+        text(c, number(self.estimate.get('procurementTimberVolume'), 4) + ' м³', x, y - 42, 23, 'Bold')
+        y = text(c, 'Объём закупки из реальных исходных досок 6 м. Процентный запас поверх готовой карты раскроя не добавляется, если это указано в строке сметы.', x, y - 78, 10, width=350) - 25
+        for note in self.estimate.get('assumptions') or []:
+            y = text(c, '• ' + clean(note), x, y, 8.5, width=350) - 15
+        self.note(c, 'Цены и валюта из исходного проекта. Доставка, налоги, техника, разрешения и работы включены только при наличии соответствующих строк.', y=115)
+
+    def draw_cutsummary(self, c, data, index):
+        s = self.cut.get('summary') or {}
+        x, y = 43, H - 142
+        text(c, 'СТРОГО ИСХОДНЫЕ ДОСКИ 6 000 ММ', x, y, 14, 'Bold', GREEN)
+        y -= 39
+        for label, value in [('Досок закупки / физических деталей', f'{s.get("boards", len(self.cut.get("stocks", [])))} / {s.get("pieces", len(self.members))}'), ('Объём закупки', number(s.get('purchasedVolume'), 4) + ' м³'), ('Объём заготовок', number(s.get('usedVolume'), 4) + ' м³'), ('Отходы всего', number(s.get('wasteVolume'), 4) + ' м³ / ' + number(s.get('wastePercent'), 2) + ' %'), ('Пригодные остатки · суммарная длина', number(s.get('reusableLength'), 3) + ' м'), ('Потеря на пропил', number(s.get('kerfLoss'), 3) + ' м'), ('Нижняя граница количества досок', clean(s.get('lowerBound'))), ('Продольные соединения', clean(s.get('spliceCount')))]:
+            text(c, label, x, y, 9, color=MUTED); text(c, value, x + 355, y, 10, 'Bold'); y -= 34
+        left_notes_y = y - 18
+        x, y = 690, H - 142
+        text(c, 'ПРАВИЛА РАСКРОЯ', x, y, 11, 'Bold', GREEN); y -= 28
+        rules = [f'Ширина пропила {number(self.cut.get("kerfMM", 3), 1)} мм, только между соседними деталями. Торцевание исходной доски не заложено.', 'Позиции от начала исходной доски: 0–6 000 мм. Заготовка может быть длиннее оси элемента из-за припусков и нахлёстов.', 'Угол торца отсчитывается от прямого поперечного реза. Уклон элемента в здании не является углом пилы.', 'A / B - начальный и конечный торцы исходной детали. «Верх/низ» - сторона выборки по данным модели.', 'Полный ID физической детали связывает карту раскроя со спецификацией и JSON-отчётом.', 'Остаток считается пригодным для повторного использования только по порогу движка. Его наличие не подтверждает новый раскрой.', 'Оптимальность доказана по количеству досок в принятой модели пропила.' if s.get('optimal') else 'Найденная раскладка. Глобальная оптимальность количества досок не доказана.', 'Крепёж и несущая способность продольных соединений требуют отдельного расчёта.']
+        for rule in rules:
+            y = text(c, '• ' + rule, x, y, 9, width=440) - 12
+        text(c, 'ДОПУЩЕНИЯ ДВИЖКА', 43, left_notes_y, 8, 'Bold', GREEN)
+        left_notes_y -= 20
+        for note in self.cut.get('assumptions') or []:
+            if left_notes_y < 135:
+                break
+            left_notes_y = text(c, clean(note), 43, left_notes_y, 7.8, color=MUTED, width=560) - 7
+        self.note(c, 'В приложении далее приведены ВСЕ исходные доски и ВСЕ размещённые детали, включая продолжения длинных карт.', y=107, color=GREEN)
+
+    def draw_cutcards(self, c, cards, index):
+        w, h = (W - 112) / 2, 297
+        positions = [(43, H - 425), (69 + w, H - 425), (43, H - 738), (69 + w, H - 738)]
+        for (stock, offset, pieces), (x, y) in zip(cards or [], positions):
+            c.setFillColor(PAPER); c.setStrokeColor(LINE); c.roundRect(x, y, w, h, 5, fill=1, stroke=1)
+            text(c, clean(stock.get('id')), x + 13, y + h - 22, 12, 'Mono', GREEN)
+            text(c, f'{stock.get("b")} × {stock.get("h")} мм · 6 000 мм' + (' · ПРОДОЛЖЕНИЕ' if offset else ''), x + 112, y + h - 22, 9, 'Bold')
+            text(c, f'Заготовки {number(stock.get("used"), 3)} м  ·  пропил {number(stock.get("kerfWaste"), 3)} м  ·  остаток {number(stock.get("remainder"), 3)} м', x + 13, y + h - 42, 7.2, color=MUTED)
+            bx, by, bw = x + 14, y + h - 83, w - 28
+            c.setFillColor(colors.HexColor('#e1e5df')); c.rect(bx, by, bw, 27, fill=1, stroke=0)
+            for j, p in enumerate(stock.get('pieces') or []):
+                start = finite(p.get('cutStart', p.get('start')))
+                end = finite(p.get('cutEnd', p.get('end')), start + finite(p.get('length')))
+                sx, ex = bx + start / 6 * bw, bx + end / 6 * bw
+                c.setFillColor(WOOD if j % 2 == 0 else LIME); c.setStrokeColor(colors.white); c.rect(sx, by, max(.2, ex - sx), 27, fill=1, stroke=1)
+                if ex - sx > 27:
+                    text(c, str(j + 1), sx + 3, by + 10, 7, 'Bold')
+                if j < len(stock.get('pieces') or []) - 1:
+                    line(c, (ex, by), (ex, by + 27), RED, 1)
+            text(c, '0', bx, by - 11, 6, 'Mono', MUTED)
+            text(c, '6 000 мм', bx + bw - 43, by - 11, 6, 'Mono', MUTED)
+            yy = by - 29
+            text(c, '№ / МАРКА / ПОЛНЫЙ ID ДЕТАЛИ', x + 13, yy, 6.2, 'Bold', MUTED)
+            text(c, 'ОТ–ДО / ДЛИНА, ММ', x + w - 170, yy, 6.2, 'Bold', MUTED)
+            yy -= 15
+            for j, p in enumerate(pieces):
+                sourceid = clean(p.get('sourceId', p.get('id')))
+                mark = self.marks.get(sourceid, self.marks.get(str(p.get('id')), '-'))
+                start = finite(p.get('cutStart', p.get('start')))
+                end = finite(p.get('cutEnd', p.get('end')), start + finite(p.get('length')))
+                text(c, f'{offset + j + 1:02d} {mark}', x + 13, yy, 6.5, 'Mono')
+                text(c, sourceid, x + 83, yy, 6.4, 'Mono', width=w - 260)
+                text(c, f'{number(start * 1000, 1)}–{number(end * 1000, 1)} / {number(finite(p.get("length")) * 1000, 1)}', x + w - 170, yy, 6.5, 'Mono')
+                ends = self.ends(p.get('endStart', (p.get('source') or {}).get('cutStart')), p.get('endEnd', (p.get('source') or {}).get('cutEnd')))
+                text(c, ends, x + 83, yy - 10, 6.2, color=MUTED, width=w - 100)
+                yy -= 22
+            if len(pieces) < 8:
+                text(c, 'Остаток: ' + ('для повторного использования' if stock.get('reusable') else 'короткий / не отнесён к пригодным'), x + 13, y + 10, 6.5, color=GREEN if stock.get('reusable') else MUTED)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='КАРКАС ENGINE: A3 landscape structural calculation album')
+    parser.add_argument('report', type=Path)
+    parser.add_argument('output', type=Path)
+    parser.add_argument('--assets-dir', type=Path)
+    args = parser.parse_args()
+    register_fonts(args.assets_dir)
+    with args.report.open('r', encoding='utf-8') as source:
+        report = json.load(source)
+    if not isinstance(report, dict) or not isinstance(report.get('result'), dict):
+        parser.error('Ожидается отчёт {engine, project, result, cutting, estimate, planning}.')
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    album = Album(report)
+    pages = album.render(args.output)
+    print(json.dumps({'ok': True, 'output': str(args.output.resolve()), 'pages': pages, 'stocks': len(album.cut.get('stocks', [])), 'members': len(album.members), 'revision': album.engine.get('revision'), 'hash': album.engine.get('hash')}, ensure_ascii=False))
+
+
+if __name__ == '__main__':
+    main()

@@ -71,13 +71,13 @@ export function buildWallBracing(project,result={}){
     if(p.method==='sheathing'){
       const xs=[0];while(xs.at(-1)<L-EPS){const from=xs.at(-1),target=Math.min(L,from+p.sheetWidth),snap=vertical.map(q=>q.s).filter(s=>s>from+.25&&s<=target+EPS).sort((a,b)=>b-a)[0],end=target>=L-EPS?L:snap??target;xs.push(end);if(xs.length>500)break;}
       const ys=[baseY],maxY=baseY+height;while(ys.at(-1)<maxY-EPS){const from=ys.at(-1),target=Math.min(maxY,from+p.sheetHeight),snap=horizontal.map(q=>q.y).filter(y=>y>from+.25&&y<=target+EPS&&y>=target-.2).sort((a,b)=>b-a)[0];ys.push(target>=maxY-EPS?maxY:snap??target);if(ys.length>200)break;}
-      const triangles=triangulate(frame),face=exteriorNormal*(D/2+p.thickness/2000),wallPanelStart=out.panels.length;
+      const triangles=triangulate(frame),face=exteriorNormal*(p.sheetSide==='interior'?-1:1)*(D/2+p.thickness/2000),wallPanelStart=out.panels.length;
       for(let ix=1;ix<xs.length;ix++)for(let iy=1;iy<ys.length;iy++){
         const tile=rectangle(xs[ix-1],ys[iy-1],xs[ix],ys[iy]),stockSheetId=`SHEET-${w.id}-${l.index}-${ix}-${iy}`;let pieces=[];
         for(const triangle of triangles){const q=intersect(triangle,tile);if(q.length>=3&&area(q)>EPS)pieces.push(q);}
         for(const hole of holes)pieces=pieces.flatMap(q=>subtract(q,hole));
         if(!pieces.length)continue;sheetIds.add(stockSheetId);
-        for(const poly of pieces){const A=area(poly);if(A<EPS)continue;out.panels.push({id:`PANEL-${out.panels.length+1}`,wallId:w.id,level:l.index,stockSheetId,polygon:poly.map(q=>at(q.x,q.y,face)),localPolygon:poly,area:A,thickness:p.thickness,mass:A*p.thickness/1000*p.sheetDensity,openingIds:os.filter(o=>o.offset<xs[ix]&&o.offset+o.width>xs[ix-1]&&baseY+o.sill<ys[iy]&&baseY+o.sill+o.height>ys[iy-1]).map(o=>o.id),sheetColumn:ix,sheetRow:iy});}
+        for(const poly of pieces){const A=area(poly);if(A<EPS)continue;out.panels.push({id:`PANEL-${out.panels.length+1}`,wallId:w.id,level:l.index,stockSheetId,polygon:poly.map(q=>at(q.x,q.y,face)),localPolygon:poly,area:A,thickness:p.thickness,mass:A*p.thickness/1000*p.sheetDensity,openingIds:os.filter(o=>o.offset<xs[ix]&&o.offset+o.width>xs[ix-1]&&baseY+o.sill<ys[iy]&&baseY+o.sill+o.height>ys[iy-1]).map(o=>o.id),sheetColumn:ix,sheetRow:iy,sheetSide:p.sheetSide??'exterior'});}
       }
       // Vertical sheet seams follow real stud axes where possible. Add short
       // backing studs only in clear space; do not duplicate adjacent framing.

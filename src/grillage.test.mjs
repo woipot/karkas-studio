@@ -94,3 +94,7 @@ test('input and stock are not mutated, zero loading is valid and invalid materia
   assert.equal(checkGrillageSpan({length:2,b:50,h:200,plies:3,E:0,Fb:13,designLineLoad:1,serviceLineLoad:1}).status,'fail');
   f.project.foundation.grillage.plies=2.5;assert.equal(buildGrillage(f.project,f.base).status,'fail');
 });
+
+test('pile station spacing can tighten while independent girder spacing preserves the same beam layout',()=>{
+ const {project,base}=fixture();project.foundation.grillage.girderSpacing=2;const a=buildGrillage(project,base);project.foundation.spacing=1.5;const b=buildGrillage(project,base);assert.equal(a.beams.length,b.beams.length);assert.deepEqual(a.beams.map(q=>[q.a,q.b]),b.beams.map(q=>[q.a,q.b]));assert.ok(b.piles.length>a.piles.length);assert.ok(b.spans.every(s=>s.length<=1.5+1e-7));near(a.quantities.volume,b.quantities.volume);
+});

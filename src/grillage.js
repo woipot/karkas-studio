@@ -54,11 +54,11 @@ export function checkGrillageSpan(input={}){
 
 /** Geometry only. Pile reactions and actual loads are deliberately allocated by the caller. */
 export function buildGrillage(project={}, {geometry={},walls=project.walls??[]}={}){
-  const options={section:'50x200',plies:3,deflectionRatio:300,capSize:250,...project.foundation?.grillage},sec=section(options.section),spacing=project.foundation?.spacing??2,density=project.material?.density??500;
+  const options={section:'50x200',plies:3,deflectionRatio:300,capSize:250,...project.foundation?.grillage},sec=section(options.section),spacing=project.foundation?.spacing??2,girderSpacing=options.girderSpacing??spacing,density=project.material?.density??500;
   const out={instances:[],beams:[],spans:[],piles:[],joints:[],checks:[],warnings:[],assumptions:[],sources:grillageSources,pileHeadY:.72,beamBottomY:.72,topY:sec?.h? .72+sec.h/1000:.72,section:options.section,plies:options.plies,capSize:options.capSize,stockLength:STOCK,quantities:{boardCount:0,beamCount:0,spanCount:0,pileCount:0,spliceCount:0,totalBeamLength:0,boardLength:0,volume:0,mass:0,weight:0,maxSpan:0},status:'unverified'};
   const check=(id,label,status,note,extra={})=>out.checks.push({id,label,status,note,...extra});
   if(!sec||sec.b<15||sec.b>300||sec.h<sec.b||sec.h>600)check('grillage-section','Сечение доски ростверка','fail','Сечение b×h в мм: 15≤b≤300, b≤h≤600.');
-  for(const [k,v,lo,hi]of [['spacing',spacing,.5,6],['plies',options.plies,1,8],['capSize',options.capSize,50,1500],['deflectionRatio',options.deflectionRatio,100,1000],['density',density,100,1500]])if(!finite(v)||v<lo||v>hi)check('grillage-'+k,'Параметры ростверка','fail',`${k}: число от ${lo} до ${hi}.`);
+  for(const [k,v,lo,hi]of [['spacing',spacing,.5,6],['girderSpacing',girderSpacing,.5,6],['plies',options.plies,1,8],['capSize',options.capSize,50,1500],['deflectionRatio',options.deflectionRatio,100,1000],['density',density,100,1500]])if(!finite(v)||v<lo||v>hi)check('grillage-'+k,'Параметры ростверка','fail',`${k}: число от ${lo} до ${hi}.`);
   if(!Number.isInteger(options.plies))check('grillage-plies-integer','Количество досок в пакете','fail','Количество слоёв должно быть целым.');
   if(out.checks.some(c=>c.status==='fail')){out.status='fail';return out;}
   const polygon=geometry.levels?.find(l=>l.index===1)?.polygon??geometry.polygon??[];
@@ -68,11 +68,11 @@ export function buildGrillage(project={}, {geometry={},walls=project.walls??[]}=
   const width=sec.b*options.plies/1000,half=width/2,cap=options.capSize/1000,bounds={minX:Math.min(...polygon.map(q=>q.x)),maxX:Math.max(...polygon.map(q=>q.x)),minY:Math.min(...polygon.map(q=>q.y)),maxY:Math.max(...polygon.map(q=>q.y))};
   out.width=width;
   if(width>cap+EPS)check('grillage-cap-width','Ширина пакета на оголовке','fail','Пакет шире оголовка; полное прямое опирание всех досок не обеспечено.',{value:width*1000,limit:options.capSize,unit:'мм'});
-  if(width>=spacing-EPS)check('grillage-package-spacing','Ширина пакета и шаг линий','fail','Ширина пакета не должна поглощать заданный шаг опорных линий. Увеличьте шаг или измените сечение/число досок.');
+  if(width>=girderSpacing-EPS)check('grillage-package-spacing','Ширина пакета и шаг линий','fail','Ширина пакета не должна поглощать заданный шаг опорных линий. Увеличьте шаг или измените сечение/число досок.');
   const lines=[];
   for(let i=0;i<polygon.length;i++)lines.push({a:polygon[i],b:polygon[(i+1)%polygon.length],kind:'perimeter',source:`perimeter-${i+1}`});
   for(const w of walls.filter(w=>w?.kind==='bearing'&&(w.level===undefined||w.level===1)&&point(w.a)&&point(w.b)))for(const [a,b]of clipSegment(w.a,w.b,polygon))lines.push({a,b,kind:'bearing',source:w.id,wallId:w.id});
-  const joistAxis=project.floor?.axis??'y',range=joistAxis==='x'?bounds.maxX-bounds.minX:bounds.maxY-bounds.minY,n=Math.max(1,Math.ceil(range/spacing));
+  const joistAxis=project.floor?.axis??'y',range=joistAxis==='x'?bounds.maxX-bounds.minX:bounds.maxY-bounds.minY,n=Math.max(1,Math.ceil(range/girderSpacing));
   for(let i=1;i<n;i++){const f=(joistAxis==='x'?bounds.minX:bounds.minY)+range*i/n,a=joistAxis==='x'?{x:f,y:bounds.minY}:{x:bounds.minX,y:f},b=joistAxis==='x'?{x:f,y:bounds.maxY}:{x:bounds.maxX,y:f};for(const [c,d]of clipSegment(a,b,polygon))lines.push({a:c,b:d,kind:'floorSupport',source:`floor-line-${i}`});}
   const beams=mergeLines(lines).map((beam,i)=>({...beam,id:`GB${String(i+1).padStart(3,'0')}`,section:{b:sec.b,h:sec.h,plies:options.plies},bMM:sec.b,hMM:sec.h,plies:options.plies,width,stations:[],_critical:[0,beam.length]}));
   if(beams.length>2000){check('grillage-complexity','Размер модели ростверка','fail','Слишком много отдельных линий ростверка.');out.status='fail';return out;}

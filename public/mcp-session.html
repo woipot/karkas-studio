@@ -1,0 +1,2971 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Реальный сеанс MCP · HELSINKI L-146</title><style>body{margin:0;background:#f5f4ec;color:#263322;font:15px/1.6 system-ui}main{max-width:1280px;margin:auto;padding:42px 28px}h1{font-size:40px;line-height:1.1;letter-spacing:-1.5px;max-width:900px}h2{margin-top:42px}a{color:#416234}code,pre{font:12px/1.6 ui-monospace,monospace;overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#f0f1e7;padding:16px}.eyebrow{letter-spacing:2px;font-size:11px;color:#71845b}.cards{display:flex;gap:16px;flex-wrap:wrap}.card{padding:20px;background:white;border:1px solid #d8dfcb;min-width:170px}.card b{font-size:28px;display:block}table{border-collapse:collapse;width:100%;font-size:12px;background:white}td,th{padding:12px;text-align:left;border:1px solid #dbe1d1;vertical-align:top}td:last-child{max-width:500px;word-break:break-word}small{display:block;color:#738369}summary{cursor:pointer}.table{overflow:auto}aside{border-left:3px solid #b3975b;padding:12px 20px;background:#f0eadb}footer{margin-top:40px;color:#738369}</style><main><p class="eyebrow">КАРКАС ENGINE 4.1 · РЕАЛЬНЫЙ MCP STDIO · РЕВИЗИЯ 6</p><h1>Нейронка спроектировала Г-образный дом через MCP</h1><p>Два этажа, второй свет, лестничный проём, свайный ростверк из пакетов досок и кровля из двух скатов с общим коньком. Расчётный пример для района Хельсинки.</p><div class="cards"><div class="card">Площадь по осям<b>145.68 м²</b></div><div class="card">Физических деталей<b>1140</b></div><div class="card">Шестиметровых заготовок<b>614</b></div><div class="card">Опор, условная схема<b>45</b></div><div class="card">Примерный бюджет<b>235 655 €</b></div></div><p><a href="./structural-album.pdf">Открыть полный альбом КР PDF</a> · <a href="./">3D и отчёт</a> · <a href="./mcp-calls.jsonl" download>Исходный журнал запросов и полных ответов JSONL</a></p><h2>Как выполнялось подключение</h2><p>Сервер <code>karkas-engine</code> зарегистрирован в Codex. В уже открытом чате инструменты не появились автоматически; агент установил настоящее соединение MCP по stdio через SDK, выполнил initialize, tools/list и tools/call. Скрипт <code>scripts/agent-session.mjs</code> использует именно зарегистрированную конфигурацию. Генерация, исправления ревизий, сравнение вариантов, расчёты и экспорт выполнены инструментами MCP.</p><p>Журнал содержит 28 завершённых tools/call, включая ранние повторные запросы при настройке терминала и повторные подключения. Ранние сеансы начинали собственную нумерацию/цепочку хешей; файл сохранён без удаления дублей и не является криптографически удостоверенной внешней записью. Контрольные суммы позволяют сопоставить скачанные артефакты.</p><h2>Изменения сохранённого проекта</h2><div class="table"><table><thead><tr><th>Ревизия</th><th>Детали</th><th>Заготовки</th><th>Сваи</th><th>Превышения</th><th>SHA256 проекта</th></tr></thead><tbody><tr><td>R1</td><td>756</td><td>351</td><td>31</td><td>19</td><td>bee4b2e4a3226e33eac262629196f0bf8342b7fe51083b169aff0409206b7e80</td></tr><tr><td>R2</td><td>766</td><td>372</td><td>31</td><td>1</td><td>462be238b0c84f62088412835676620902af8be23f7ec20a4115eb1af6749d42</td></tr><tr><td>R3</td><td>760</td><td>365</td><td>31</td><td>0</td><td>d3fe4c52fb17fc7fde186834f650fec9b7b60ba4c22ccc57f77c8d0f28cb3997</td></tr><tr><td>R4</td><td>798</td><td>368</td><td>31</td><td>0</td><td>fdc2b577e9aa2be3f1f472c0f3167818dedeaafe0d484e0c3f891bcb7d1fd0aa</td></tr><tr><td>R5</td><td>1124</td><td>593</td><td>31</td><td>6</td><td>13e75f0abf599ac98099bd1e313aa796520992ad61ebcf8628a6616db2287c9a</td></tr><tr><td>R6</td><td>1140</td><td>614</td><td>45</td><td>0</td><td>d347bc8e89a7ec89b387996b4f50625a9fa47404dff3f5e752c9eea9121273a6</td></tr></tbody></table></div><p>При финальной проверке движка также исправлены физические запилы встречных стропил и реек в общем коньке. Хеш относится к сохранённым исходным данным ревизии; отдельные SHA256 экспортов указаны в manifest.json. Исходная sourcePlanning сохранена отдельно от вычисленной планировки.<br><br>Первый вариант имел ошибки пролётов и неразмещённые детали. Агент добавил опорные линии, разделил скаты, исправил лестничный проём и проходы, подобрал сечения, учёл утепление и вспомогательные рейки. После увеличения собственного веса MCP показал перегрузки; сравнение вариантов привело к шагу опор до 1,8 м при балках ростверка до 2 м и шагу стропил до 0,5 м.</p><h2>Снег и тепловлажностный режим</h2><p>Принятый снег на грунте 2,75 кН/м², коэффициент формы 0,8 при 25°, Cₑ=Cₜ=1. Рассчитаны равномерная, две несимметричные схемы и два дополнительных сценария 150% на одном скате с неизменными сечениями. Дополнительные сценарии являются анализом чувствительности, не нормативной локальной эпюрой заноса. Точная снеговая привязка к координатам и полный набор сочетаний остаются задачей рабочего проекта.</p><p>Для стены, крыши и пола над наружным воздухом рассчитаны сопротивления R/U, доля деревянного каркаса, точка росы и профили температуры/давления пара в слоях. Принята стационарная пара +21/−26°C, внутренние RH 40% и дополнительная стена RH 60%. Это условный зимний режим, не климатический год Хельсинки. Годовая влага, дефекты герметичности и пространственные мостики не рассчитаны.</p><h2>Раскрой и состав сметы</h2><p>Все 1140 деталей размещены; отсутствуют неразмещённые или длиннее допустимого заготовки. Закупка 614 досок по 6 м; нижняя оценка 609, глобальная оптимальность не доказана. Остатки и пропилы 17.38%, из них 562.86 пог. м отмечены как пригодные остатки. Разбивка по сечениям, направления запилов, припуски, стыки и каждая ID заготовки находятся в PDF/CSV/HTML.</p><aside><b>Статус: расчётная проработка КР, не рабочий проект для строительства.</b> В принятых частных проверках 0 превышений; 108 проверок имеют статус частной проверки или «не подтверждено». Геология отсутствует. Сравнены ЖБ-забивные, стальные RR/RD и винтовые сваи; предварительно выбран RD, а 80 кН — условный предел примера, не подтверждённое сопротивление грунта. Узлы крепежа, пространственная жёсткость/ветровой отрыв, лестница/ограждения и годовая влага требуют отдельного инженерного расчёта. Смета основана на примерных ставках в EUR, без рыночных предложений и подтверждённой стоимости свай.</aside><h2>Фактически выполненные вызовы</h2><div class="table"><table><thead><tr><th>№</th><th>UTC</th><th>Инструмент</th><th>Рев.</th><th>Результат</th><th>Подробности</th></tr></thead><tbody><tr><td>1</td><td>2026-11-02T23:44:39.326Z</td><td><b>karkas_catalog</b><small>6 мс · ответ</small></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_catalog&quot;,
+    &quot;arguments&quot;: {}
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 09f444456c9b831520e7dfbafae7c6c6dcf4ab88cc18ef2d85952b81ac749133.</small></details></td></tr><tr><td>2</td><td>2026-11-02T23:52:13.777Z</td><td><b>karkas_generate</b><small>3608 мс · ответ</small></td><td>1</td><td>756 деталей · 351 заготовок<br>19 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_generate&quot;,
+    &quot;arguments&quot;: {
+      &quot;name&quot;: &quot;HELSINKI L-160 · два этажа · второй свет&quot;,
+      &quot;template&quot;: &quot;l-shape&quot;,
+      &quot;width&quot;: 12,
+      &quot;depth&quot;: 8,
+      &quot;wingWidth&quot;: 8,
+      &quot;wingDepth&quot;: 4,
+      &quot;levels&quot;: [
+        {
+          &quot;height&quot;: 2.8
+        },
+        {
+          &quot;height&quot;: 2.8
+        }
+      ],
+      &quot;secondLight&quot;: {
+        &quot;level&quot;: 2,
+        &quot;polygon&quot;: [
+          {
+            &quot;x&quot;: 1,
+            &quot;y&quot;: 1
+          },
+          {
+            &quot;x&quot;: 4.2,
+            &quot;y&quot;: 1
+          },
+          {
+            &quot;x&quot;: 4.2,
+            &quot;y&quot;: 4
+          },
+          {
+            &quot;x&quot;: 1,
+            &quot;y&quot;: 4
+          }
+        ]
+      },
+      &quot;sections&quot;: {
+        &quot;walls&quot;: &quot;48x198&quot;,
+        &quot;floor&quot;: &quot;48x248&quot;,
+        &quot;roof&quot;: &quot;48x248&quot;,
+        &quot;roofWeb&quot;: &quot;48x98&quot;,
+        &quot;bracing&quot;: &quot;25x100&quot;,
+        &quot;grillage&quot;: &quot;75x248&quot;
+      },
+      &quot;roof&quot;: {
+        &quot;shape&quot;: &quot;mono&quot;,
+        &quot;pitch&quot;: 25,
+        &quot;ridgeAngle&quot;: 0,
+        &quot;framing&quot;: &quot;rafters&quot;,
+        &quot;wallFraming&quot;: &quot;continuous&quot;
+      },
+      &quot;foundation&quot;: {
+        &quot;spacing&quot;: 2,
+        &quot;capacity&quot;: 80,
+        &quot;grillage&quot;: {
+          &quot;plies&quot;: 4,
+          &quot;capSize&quot;: 350
+        }
+      },
+      &quot;bracing&quot;: {
+        &quot;method&quot;: &quot;sheathing&quot;,
+        &quot;section&quot;: &quot;25x100&quot;,
+        &quot;designShear&quot;: null
+      },
+      &quot;material&quot;: {
+        &quot;density&quot;: 450,
+        &quot;E&quot;: 11000,
+        &quot;Emin&quot;: 7400,
+        &quot;Fb&quot;: 14.77,
+        &quot;Ft&quot;: 8.62,
+        &quot;Fc&quot;: 12.92,
+        &quot;Fv&quot;: 2.46,
+        &quot;columnK&quot;: 1
+      },
+      &quot;loads&quot;: {
+        &quot;floorDead&quot;: 0.7,
+        &quot;live&quot;: 2,
+        &quot;roofDead&quot;: 0.6,
+        &quot;wallDead&quot;: 0.5,
+        &quot;openingDead&quot;: 0.3,
+        &quot;snow&quot;: 2.75,
+        &quot;wind&quot;: 0.6,
+        &quot;gammaG&quot;: 1.35,
+        &quot;gammaQ&quot;: 1.5
+      },
+      &quot;rooms&quot;: [
+        {
+          &quot;name&quot;: &quot;Гостиная · второй свет&quot;,
+          &quot;area&quot;: 15,
+          &quot;level&quot;: 1,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 0,
+            &quot;minY&quot;: 0,
+            &quot;maxX&quot;: 4.4,
+            &quot;maxY&quot;: 4
+          }
+        },
+        {
+          &quot;name&quot;: &quot;Холл и лестница&quot;,
+          &quot;area&quot;: 10,
+          &quot;level&quot;: 1,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 4.4,
+            &quot;minY&quot;: 0,
+            &quot;maxX&quot;: 8,
+            &quot;maxY&quot;: 4
+          }
+        },
+        {
+          &quot;name&quot;: &quot;Кухня-столовая&quot;,
+          &quot;area&quot;: 12,
+          &quot;level&quot;: 1,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 8,
+            &quot;minY&quot;: 0,
+            &quot;maxX&quot;: 12,
+            &quot;maxY&quot;: 4
+          }
+        },
+        {
+          &quot;name&quot;: &quot;Кабинет&quot;,
+          &quot;area&quot;: 12,
+          &quot;level&quot;: 1,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 0,
+            &quot;minY&quot;: 4,
+            &quot;maxX&quot;: 4,
+            &quot;maxY&quot;: 8
+          }
+        },
+        {
+          &quot;name&quot;: &quot;Спальня 1&quot;,
+          &quot;area&quot;: 12,
+          &quot;level&quot;: 1,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 4,
+            &quot;minY&quot;: 4,
+            &quot;maxX&quot;: 8,
+            &quot;maxY&quot;: 8
+          }
+        },
+        {
+          &quot;name&quot;: &quot;Спальня 2&quot;,
+          &quot;area&quot;: 12,
+          &quot;level&quot;: 2,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 0,
+            &quot;minY&quot;: 4,
+            &quot;maxX&quot;: 4,
+            &quot;maxY&quot;: 8
+          }
+        },
+        {
+          &quot;name&quot;: &quot;Спальня 3&quot;,
+          &quot;area&quot;: 12,
+          &quot;level&quot;: 2,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 4,
+            &quot;minY&quot;: 4,
+            &quot;maxX&quot;: 8,
+            &quot;maxY&quot;: 8
+          }
+        },
+        {
+          &quot;name&quot;: &quot;Спальня 4&quot;,
+          &quot;area&quot;: 12,
+          &quot;level&quot;: 2,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 8,
+            &quot;minY&quot;: 0,
+            &quot;maxX&quot;: 12,
+            &quot;maxY&quot;: 4
+          }
+        }
+      ]
+    }
+  },
+  &quot;revision&quot;: 1,
+  &quot;hash&quot;: &quot;bee4b2e4a3226e33eac262629196f0bf8342b7fe51083b169aff0409206b7e80&quot;,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-160 · два этажа · второй свет&quot;,
+    &quot;area&quot;: 150.4,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 8,
+    &quot;boards&quot;: 756,
+    &quot;timberVolume&quot;: 21.978007821151536,
+    &quot;timberMass&quot;: 9890.103519518228,
+    &quot;designVerticalLoad&quot;: 1348.121161348229,
+    &quot;piles&quot;: 31,
+    &quot;grillageBoards&quot;: 70,
+    &quot;stockBoards&quot;: 351,
+    &quot;unplaced&quot;: 20,
+    &quot;estimateRub&quot;: 3218583.26,
+    &quot;status&quot;: &quot;incomplete&quot;,
+    &quot;failedChecks&quot;: 19,
+    &quot;unverifiedOrWarningChecks&quot;: 87,
+    &quot;certified&quot;: false
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 6c1f40c10d37a25d6dd1545e9ca21922657c7e8359551d36fba688d79c55b761.</small></details></td></tr><tr><td>3</td><td>2026-11-02T23:52:26.488Z</td><td><b>karkas_generate</b><small>3124 мс · ответ</small></td><td>1</td><td>756 деталей · 351 заготовок<br>19 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_generate&quot;,
+    &quot;arguments&quot;: {
+      &quot;name&quot;: &quot;HELSINKI L-160 · два этажа · второй свет&quot;,
+      &quot;template&quot;: &quot;l-shape&quot;,
+      &quot;width&quot;: 12,
+      &quot;depth&quot;: 8,
+      &quot;wingWidth&quot;: 8,
+      &quot;wingDepth&quot;: 4,
+      &quot;levels&quot;: [
+        {
+          &quot;height&quot;: 2.8
+        },
+        {
+          &quot;height&quot;: 2.8
+        }
+      ],
+      &quot;secondLight&quot;: {
+        &quot;level&quot;: 2,
+        &quot;polygon&quot;: [
+          {
+            &quot;x&quot;: 1,
+            &quot;y&quot;: 1
+          },
+          {
+            &quot;x&quot;: 4.2,
+            &quot;y&quot;: 1
+          },
+          {
+            &quot;x&quot;: 4.2,
+            &quot;y&quot;: 4
+          },
+          {
+            &quot;x&quot;: 1,
+            &quot;y&quot;: 4
+          }
+        ]
+      },
+      &quot;sections&quot;: {
+        &quot;walls&quot;: &quot;48x198&quot;,
+        &quot;floor&quot;: &quot;48x248&quot;,
+        &quot;roof&quot;: &quot;48x248&quot;,
+        &quot;roofWeb&quot;: &quot;48x98&quot;,
+        &quot;bracing&quot;: &quot;25x100&quot;,
+        &quot;grillage&quot;: &quot;75x248&quot;
+      },
+      &quot;roof&quot;: {
+        &quot;shape&quot;: &quot;mono&quot;,
+        &quot;pitch&quot;: 25,
+        &quot;ridgeAngle&quot;: 0,
+        &quot;framing&quot;: &quot;rafters&quot;,
+        &quot;wallFraming&quot;: &quot;continuous&quot;
+      },
+      &quot;foundation&quot;: {
+        &quot;spacing&quot;: 2,
+        &quot;capacity&quot;: 80,
+        &quot;grillage&quot;: {
+          &quot;plies&quot;: 4,
+          &quot;capSize&quot;: 350
+        }
+      },
+      &quot;bracing&quot;: {
+        &quot;method&quot;: &quot;sheathing&quot;,
+        &quot;section&quot;: &quot;25x100&quot;,
+        &quot;designShear&quot;: null
+      },
+      &quot;material&quot;: {
+        &quot;density&quot;: 450,
+        &quot;E&quot;: 11000,
+        &quot;Emin&quot;: 7400,
+        &quot;Fb&quot;: 14.77,
+        &quot;Ft&quot;: 8.62,
+        &quot;Fc&quot;: 12.92,
+        &quot;Fv&quot;: 2.46,
+        &quot;columnK&quot;: 1
+      },
+      &quot;loads&quot;: {
+        &quot;floorDead&quot;: 0.7,
+        &quot;live&quot;: 2,
+        &quot;roofDead&quot;: 0.6,
+        &quot;wallDead&quot;: 0.5,
+        &quot;openingDead&quot;: 0.3,
+        &quot;snow&quot;: 2.75,
+        &quot;wind&quot;: 0.6,
+        &quot;gammaG&quot;: 1.35,
+        &quot;gammaQ&quot;: 1.5
+      },
+      &quot;rooms&quot;: [
+        {
+          &quot;name&quot;: &quot;Гостиная · второй свет&quot;,
+          &quot;area&quot;: 15,
+          &quot;level&quot;: 1,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 0,
+            &quot;minY&quot;: 0,
+            &quot;maxX&quot;: 4.4,
+            &quot;maxY&quot;: 4
+          }
+        },
+        {
+          &quot;name&quot;: &quot;Холл и лестница&quot;,
+          &quot;area&quot;: 10,
+          &quot;level&quot;: 1,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 4.4,
+            &quot;minY&quot;: 0,
+            &quot;maxX&quot;: 8,
+            &quot;maxY&quot;: 4
+          }
+        },
+        {
+          &quot;name&quot;: &quot;Кухня-столовая&quot;,
+          &quot;area&quot;: 12,
+          &quot;level&quot;: 1,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 8,
+            &quot;minY&quot;: 0,
+            &quot;maxX&quot;: 12,
+            &quot;maxY&quot;: 4
+          }
+        },
+        {
+          &quot;name&quot;: &quot;Кабинет&quot;,
+          &quot;area&quot;: 12,
+          &quot;level&quot;: 1,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 0,
+            &quot;minY&quot;: 4,
+            &quot;maxX&quot;: 4,
+            &quot;maxY&quot;: 8
+          }
+        },
+        {
+          &quot;name&quot;: &quot;Спальня 1&quot;,
+          &quot;area&quot;: 12,
+          &quot;level&quot;: 1,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 4,
+            &quot;minY&quot;: 4,
+            &quot;maxX&quot;: 8,
+            &quot;maxY&quot;: 8
+          }
+        },
+        {
+          &quot;name&quot;: &quot;Спальня 2&quot;,
+          &quot;area&quot;: 12,
+          &quot;level&quot;: 2,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 0,
+            &quot;minY&quot;: 4,
+            &quot;maxX&quot;: 4,
+            &quot;maxY&quot;: 8
+          }
+        },
+        {
+          &quot;name&quot;: &quot;Спальня 3&quot;,
+          &quot;area&quot;: 12,
+          &quot;level&quot;: 2,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 4,
+            &quot;minY&quot;: 4,
+            &quot;maxX&quot;: 8,
+            &quot;maxY&quot;: 8
+          }
+        },
+        {
+          &quot;name&quot;: &quot;Спальня 4&quot;,
+          &quot;area&quot;: 12,
+          &quot;level&quot;: 2,
+          &quot;bounds&quot;: {
+            &quot;minX&quot;: 8,
+            &quot;minY&quot;: 0,
+            &quot;maxX&quot;: 12,
+            &quot;maxY&quot;: 4
+          }
+        }
+      ]
+    }
+  },
+  &quot;revision&quot;: 1,
+  &quot;hash&quot;: &quot;bee4b2e4a3226e33eac262629196f0bf8342b7fe51083b169aff0409206b7e80&quot;,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-160 · два этажа · второй свет&quot;,
+    &quot;area&quot;: 150.4,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 8,
+    &quot;boards&quot;: 756,
+    &quot;timberVolume&quot;: 21.978007821151536,
+    &quot;timberMass&quot;: 9890.103519518228,
+    &quot;designVerticalLoad&quot;: 1348.121161348229,
+    &quot;piles&quot;: 31,
+    &quot;grillageBoards&quot;: 70,
+    &quot;stockBoards&quot;: 351,
+    &quot;unplaced&quot;: 20,
+    &quot;estimateRub&quot;: 3218583.26,
+    &quot;status&quot;: &quot;incomplete&quot;,
+    &quot;failedChecks&quot;: 19,
+    &quot;unverifiedOrWarningChecks&quot;: 87,
+    &quot;certified&quot;: false
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 d03a3e23f1a4f156465aca8ed2683b9a74c7babbe2b1c0c98af532f08b3eb402.</small></details></td></tr><tr><td>4</td><td>2026-11-02T23:52:48.311Z</td><td><b>karkas_get_project</b><small>13 мс · ответ</small></td><td>1</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_get_project&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;
+    }
+  },
+  &quot;revision&quot;: 1,
+  &quot;hash&quot;: &quot;bee4b2e4a3226e33eac262629196f0bf8342b7fe51083b169aff0409206b7e80&quot;
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 121b17d2b37cd114ace853bae92074a68d03a3c7822e830e1075ad5e8416bfd1.</small></details></td></tr><tr><td>5</td><td>2026-11-02T23:54:17.180Z</td><td><b>karkas_report</b><small>21 мс · ответ</small></td><td>1</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_report&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;topic&quot;: &quot;checks&quot;,
+      &quot;status&quot;: &quot;fail&quot;,
+      &quot;limit&quot;: 100
+    }
+  },
+  &quot;revision&quot;: 1,
+  &quot;hash&quot;: &quot;bee4b2e4a3226e33eac262629196f0bf8342b7fe51083b169aff0409206b7e80&quot;
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 3011dbbb83cefabf863a753053ff67138e1aedcbc810d3c87382884a00ee5054.</small></details></td></tr><tr><td>6</td><td>2026-11-02T23:58:13.646Z</td><td><b>karkas_export</b><small>447 мс · ответ</small></td><td>1</td><td>report_json</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_export&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 1,
+      &quot;formats&quot;: [
+        &quot;report_json&quot;
+      ]
+    }
+  },
+  &quot;revision&quot;: 1,
+  &quot;hash&quot;: &quot;bee4b2e4a3226e33eac262629196f0bf8342b7fe51083b169aff0409206b7e80&quot;,
+  &quot;artifacts&quot;: [
+    {
+      &quot;format&quot;: &quot;report_json&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r1/report.json&quot;,
+      &quot;bytes&quot;: 6002276,
+      &quot;sha256&quot;: &quot;7756a8fffbdda2b7e10bdece172ad3771da95ee968c5cacffbfb63d5b5ef7042&quot;
+    }
+  ]
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 a00b77d2796781b4cc2ace20d023b4bd8da89b3da3f53f9ade42e740ae7e7556.</small></details></td></tr><tr><td>7</td><td>2026-11-02T23:58:55.990Z</td><td><b>karkas_apply_patch</b><small>7547 мс · ответ</small></td><td>2</td><td>766 деталей · 372 заготовок<br>1 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_apply_patch&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;expected_revision&quot;: 1,
+      &quot;operations&quot;: [
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/name&quot;,
+          &quot;value&quot;: &quot;HELSINKI L-144 · КР · два этажа и второй свет&quot;
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/roof/zones&quot;,
+          &quot;value&quot;: [
+            {
+              &quot;id&quot;: &quot;ROOF-N&quot;,
+              &quot;name&quot;: &quot;Северный скат&quot;,
+              &quot;polygon&quot;: [
+                {
+                  &quot;x&quot;: 0,
+                  &quot;y&quot;: 0
+                },
+                {
+                  &quot;x&quot;: 12,
+                  &quot;y&quot;: 0
+                },
+                {
+                  &quot;x&quot;: 12,
+                  &quot;y&quot;: 4
+                },
+                {
+                  &quot;x&quot;: 0,
+                  &quot;y&quot;: 4
+                }
+              ],
+              &quot;shape&quot;: &quot;mono&quot;,
+              &quot;ridgeAngle&quot;: 0,
+              &quot;pitchLeft&quot;: 25,
+              &quot;pitchRight&quot;: 25,
+              &quot;elevation&quot;: null,
+              &quot;levelIndex&quot;: 2,
+              &quot;spacing&quot;: 0.6,
+              &quot;chordSection&quot;: &quot;48x248&quot;,
+              &quot;webSection&quot;: &quot;48x98&quot;,
+              &quot;framing&quot;: &quot;rafters&quot;,
+              &quot;deflectionRatio&quot;: 300,
+              &quot;trussType&quot;: &quot;mono&quot;
+            },
+            {
+              &quot;id&quot;: &quot;ROOF-S&quot;,
+              &quot;name&quot;: &quot;Южный скат&quot;,
+              &quot;polygon&quot;: [
+                {
+                  &quot;x&quot;: 0,
+                  &quot;y&quot;: 4
+                },
+                {
+                  &quot;x&quot;: 8,
+                  &quot;y&quot;: 4
+                },
+                {
+                  &quot;x&quot;: 8,
+                  &quot;y&quot;: 8
+                },
+                {
+                  &quot;x&quot;: 0,
+                  &quot;y&quot;: 8
+                }
+              ],
+              &quot;shape&quot;: &quot;mono&quot;,
+              &quot;ridgeAngle&quot;: 180,
+              &quot;pitchLeft&quot;: 25,
+              &quot;pitchRight&quot;: 25,
+              &quot;elevation&quot;: null,
+              &quot;levelIndex&quot;: 2,
+              &quot;spacing&quot;: 0.6,
+              &quot;chordSection&quot;: &quot;48x248&quot;,
+              &quot;webSection&quot;: &quot;48x98&quot;,
+              &quot;framing&quot;: &quot;rafters&quot;,
+              &quot;deflectionRatio&quot;: 300,
+              &quot;trussType&quot;: &quot;mono&quot;
+            }
+          ]
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/8/section&quot;,
+          &quot;value&quot;: &quot;75x198&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/13/kind&quot;,
+          &quot;value&quot;: &quot;bearing&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/13/section&quot;,
+          &quot;value&quot;: &quot;75x198&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/15/kind&quot;,
+          &quot;value&quot;: &quot;bearing&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/15/section&quot;,
+          &quot;value&quot;: &quot;75x198&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/17/kind&quot;,
+          &quot;value&quot;: &quot;bearing&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/17/section&quot;,
+          &quot;value&quot;: &quot;75x198&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/19/kind&quot;,
+          &quot;value&quot;: &quot;bearing&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/19/section&quot;,
+          &quot;value&quot;: &quot;75x198&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/voids/0/edgeSection&quot;,
+          &quot;value&quot;: &quot;75x248&quot;
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/voids/-&quot;,
+          &quot;value&quot;: {
+            &quot;id&quot;: &quot;STAIR-L2&quot;,
+            &quot;level&quot;: 2,
+            &quot;kind&quot;: &quot;stair&quot;,
+            &quot;edgeSection&quot;: &quot;75x248&quot;,
+            &quot;polygon&quot;: [
+              {
+                &quot;x&quot;: 5,
+                &quot;y&quot;: 0.5
+              },
+              {
+                &quot;x&quot;: 7.2,
+                &quot;y&quot;: 0.5
+              },
+              {
+                &quot;x&quot;: 7.2,
+                &quot;y&quot;: 3.7
+              },
+              {
+                &quot;x&quot;: 5,
+                &quot;y&quot;: 3.7
+              }
+            ]
+          }
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/site&quot;,
+          &quot;value&quot;: {
+            &quot;region&quot;: &quot;Helsinki region, Finland&quot;,
+            &quot;jurisdiction&quot;: &quot;Finland / Eurocodes + Finnish National Annexes; partial screening only&quot;,
+            &quot;snowGround&quot;: 2.75,
+            &quot;snowBasis&quot;: &quot;Adopted conservative regional value from Finnish NA2019 figure1; exact site interpolation required&quot;,
+            &quot;windBasicVelocity&quot;: 21,
+            &quot;windEffectivePressure&quot;: 0.6,
+            &quot;windBasis&quot;: &quot;21m/s NA basic velocity; .6kPa adopted effective screening pressure, terrain/local suction not resolved&quot;,
+            &quot;foundation&quot;: {
+              &quot;soilProfile&quot;: &quot;unknown&quot;,
+              &quot;vibrationSensitive&quot;: true,
+              &quot;boulders&quot;: true,
+              &quot;largeRigAccess&quot;: false,
+              &quot;geotechnicalVerified&quot;: false
+            },
+            &quot;sources&quot;: [
+              {
+                &quot;title&quot;: &quot;Finnish NA · Actions2019&quot;,
+                &quot;url&quot;: &quot;https://www.edilex.fi/data/rakentamismaaraykset/Actions_on_structures_instructions_rev_2019.pdf&quot;
+              }
+            ]
+          }
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/staircase&quot;,
+          &quot;value&quot;: {
+            &quot;levelFrom&quot;: 1,
+            &quot;levelTo&quot;: 2,
+            &quot;polygon&quot;: [
+              {
+                &quot;x&quot;: 5,
+                &quot;y&quot;: 0.5
+              },
+              {
+                &quot;x&quot;: 7.2,
+                &quot;y&quot;: 0.5
+              },
+              {
+                &quot;x&quot;: 7.2,
+                &quot;y&quot;: 3.7
+              },
+              {
+                &quot;x&quot;: 5,
+                &quot;y&quot;: 3.7
+              }
+            ],
+            &quot;kind&quot;: &quot;u-turn&quot;,
+            &quot;clearFlightWidth&quot;: 1,
+            &quot;landingLength&quot;: 1,
+            &quot;risers&quot;: 18,
+            &quot;riser&quot;: 0.17127777777777778,
+            &quot;tread&quot;: 0.275,
+            &quot;status&quot;: &quot;unverified&quot;,
+            &quot;note&quot;: &quot;Геометрическая ниша: верхняя площадка, высота прохода, ограждения, несущая способность маршей и доступность требуют отдельного проекта.&quot;
+          }
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/bracing/sheetSide&quot;,
+          &quot;value&quot;: &quot;interior&quot;
+        }
+      ]
+    }
+  },
+  &quot;revision&quot;: 2,
+  &quot;hash&quot;: &quot;462be238b0c84f62088412835676620902af8be23f7ec20a4115eb1af6749d42&quot;,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-144 · КР · два этажа и второй свет&quot;,
+    &quot;area&quot;: 143.36,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 8,
+    &quot;boards&quot;: 766,
+    &quot;timberVolume&quot;: 22.3783381603338,
+    &quot;timberMass&quot;: 10070.252172150249,
+    &quot;designVerticalLoad&quot;: 1304.1333032244634,
+    &quot;piles&quot;: 31,
+    &quot;grillageBoards&quot;: 70,
+    &quot;stockBoards&quot;: 372,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: 3373092.25,
+    &quot;estimateTotal&quot;: 3373092.25,
+    &quot;currency&quot;: &quot;RUB&quot;,
+    &quot;status&quot;: &quot;failed_checks&quot;,
+    &quot;failedChecks&quot;: 1,
+    &quot;unverifiedOrWarningChecks&quot;: 88,
+    &quot;certified&quot;: false
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 4bf964538c3b19959fc887e6fc77b34e75cd31b4dcf5018e858a95f295b58fe1.</small></details></td></tr><tr><td>8</td><td>2026-11-02T23:59:12.727Z</td><td><b>karkas_report</b><small>27 мс · ответ</small></td><td>2</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_report&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;topic&quot;: &quot;checks&quot;,
+      &quot;status&quot;: &quot;fail&quot;,
+      &quot;limit&quot;: 100
+    }
+  },
+  &quot;revision&quot;: 2,
+  &quot;hash&quot;: &quot;462be238b0c84f62088412835676620902af8be23f7ec20a4115eb1af6749d42&quot;
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 7132b5393efc766a459a7bbd38f29ed97c1498a42e328c0b3767c2a67ba0358a.</small></details></td></tr><tr><td>9</td><td>2026-11-02T23:59:54.220Z</td><td><b>karkas_compare_foundations</b><small>24 мс · ответ</small></td><td>2</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_compare_foundations&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;
+    }
+  },
+  &quot;revision&quot;: 2
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 1ca7e532b3b47711ae496dd841a1b1f4fa04f45900d9f38fb68b2cd85f1c034a.</small></details></td></tr><tr><td>10</td><td>2026-11-03T00:01:16.355Z</td><td><b>karkas_compare_variants</b><small>1193 мс · ответ</small></td><td>2</td><td>766 деталей · 372 заготовок<br>1 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_compare_variants&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 2,
+      &quot;variants&quot;: [
+        {
+          &quot;name&quot;: &quot;Несущие стойки 1 этажа 75x198&quot;,
+          &quot;operations&quot;: [
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/0/section&quot;,
+              &quot;value&quot;: &quot;75x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/1/section&quot;,
+              &quot;value&quot;: &quot;75x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/2/section&quot;,
+              &quot;value&quot;: &quot;75x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/3/section&quot;,
+              &quot;value&quot;: &quot;75x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/4/section&quot;,
+              &quot;value&quot;: &quot;75x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/5/section&quot;,
+              &quot;value&quot;: &quot;75x198&quot;
+            }
+          ]
+        },
+        {
+          &quot;name&quot;: &quot;Несущие стойки 1 этажа 98x198&quot;,
+          &quot;operations&quot;: [
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/0/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/1/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/2/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/3/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/4/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/walls/5/section&quot;,
+              &quot;value&quot;: &quot;98x198&quot;
+            }
+          ]
+        }
+      ]
+    }
+  },
+  &quot;revision&quot;: 2,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-144 · КР · два этажа и второй свет&quot;,
+    &quot;area&quot;: 143.36,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 8,
+    &quot;boards&quot;: 766,
+    &quot;timberVolume&quot;: 22.3783381603338,
+    &quot;timberMass&quot;: 10070.252172150249,
+    &quot;designVerticalLoad&quot;: 1304.1333032244634,
+    &quot;piles&quot;: 31,
+    &quot;grillageBoards&quot;: 70,
+    &quot;stockBoards&quot;: 372,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: 3373092.25,
+    &quot;estimateTotal&quot;: 3373092.25,
+    &quot;currency&quot;: &quot;RUB&quot;,
+    &quot;status&quot;: &quot;failed_checks&quot;,
+    &quot;failedChecks&quot;: 1,
+    &quot;unverifiedOrWarningChecks&quot;: 88,
+    &quot;certified&quot;: false
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 594df1aad2b8f0b7d2c0d2d309bbd41aad2cce09493f53f513fbb6ebef9144c5.</small></details></td></tr><tr><td>11</td><td>2026-11-03T00:03:14.156Z</td><td><b>karkas_check_envelope</b><small>67 мс · ответ</small></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_check_envelope&quot;,
+    &quot;arguments&quot;: {
+      &quot;assembly&quot;: {
+        &quot;id&quot;: &quot;wall&quot;,
+        &quot;name&quot;: &quot;Наружная стена · Helsinki&quot;,
+        &quot;appliesTo&quot;: &quot;wall&quot;,
+        &quot;indoor&quot;: {
+          &quot;temperature&quot;: 21,
+          &quot;rh&quot;: 40
+        },
+        &quot;outdoor&quot;: {
+          &quot;temperature&quot;: -26,
+          &quot;rh&quot;: 80
+        },
+        &quot;Rsi&quot;: 0.13,
+        &quot;Rse&quot;: 0.04,
+        &quot;framingFraction&quot;: 0.2,
+        &quot;framingLambda&quot;: 0.13,
+        &quot;framingLayerIds&quot;: [
+          &quot;main-insulation&quot;
+        ],
+        &quot;layers&quot;: [
+          {
+            &quot;id&quot;: &quot;gypsum&quot;,
+            &quot;name&quot;: &quot;Гипсокартон&quot;,
+            &quot;thickness&quot;: 0.0125,
+            &quot;lambda&quot;: 0.25,
+            &quot;mu&quot;: 10
+          },
+          {
+            &quot;id&quot;: &quot;service-insulation&quot;,
+            &quot;name&quot;: &quot;Утеплённый сервисный зазор&quot;,
+            &quot;thickness&quot;: 0.045,
+            &quot;lambda&quot;: 0.037,
+            &quot;mu&quot;: 1
+          },
+          {
+            &quot;id&quot;: &quot;vapour&quot;,
+            &quot;name&quot;: &quot;Герметичная пароизоляция · sd50м&quot;,
+            &quot;thickness&quot;: 0.0002,
+            &quot;lambda&quot;: 0.2,
+            &quot;sd&quot;: 50
+          },
+          {
+            &quot;id&quot;: &quot;osb&quot;,
+            &quot;name&quot;: &quot;OSB/3 · тёплая сторона каркаса&quot;,
+            &quot;thickness&quot;: 0.012,
+            &quot;lambda&quot;: 0.13,
+            &quot;mu&quot;: 200
+          },
+          {
+            &quot;id&quot;: &quot;main-insulation&quot;,
+            &quot;name&quot;: &quot;Минеральная вата198мм&quot;,
+            &quot;thickness&quot;: 0.198,
+            &quot;lambda&quot;: 0.037,
+            &quot;mu&quot;: 1
+          },
+          {
+            &quot;id&quot;: &quot;external-insulation&quot;,
+            &quot;name&quot;: &quot;Наружная сплошная ветрозащитная плита50мм&quot;,
+            &quot;thickness&quot;: 0.05,
+            &quot;lambda&quot;: 0.045,
+            &quot;mu&quot;: 3
+          },
+          {
+            &quot;id&quot;: &quot;windproof&quot;,
+            &quot;name&quot;: &quot;Ветрогидрозащитная мембрана&quot;,
+            &quot;thickness&quot;: 0.0002,
+            &quot;lambda&quot;: 0.2,
+            &quot;sd&quot;: 0.05
+          }
+        ]
+      }
+    }
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 8f23eae9275333fac7a5a79977b016838e38a154bf45e3482b93150976b8e969.</small></details></td></tr><tr><td>12</td><td>2026-11-03T00:05:49.630Z</td><td><b>karkas_apply_patch</b><small>1166 мс · ответ</small></td><td>3</td><td>760 деталей · 365 заготовок<br>0 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_apply_patch&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;expected_revision&quot;: 2,
+      &quot;operations&quot;: [
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/0/section&quot;,
+          &quot;value&quot;: &quot;75x198&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/1/section&quot;,
+          &quot;value&quot;: &quot;75x198&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/2/section&quot;,
+          &quot;value&quot;: &quot;75x198&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/3/section&quot;,
+          &quot;value&quot;: &quot;75x198&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/4/section&quot;,
+          &quot;value&quot;: &quot;75x198&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/walls/5/section&quot;,
+          &quot;value&quot;: &quot;75x198&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/prices&quot;,
+          &quot;value&quot;: {
+            &quot;currency&quot;: &quot;EUR&quot;,
+            &quot;timberM3&quot;: 780,
+            &quot;sheathingM2&quot;: 18,
+            &quot;bracingSheetM2&quot;: 16,
+            &quot;insulationM2&quot;: 20,
+            &quot;roofM2&quot;: 32,
+            &quot;gutterM&quot;: 28,
+            &quot;downpipeM&quot;: 32,
+            &quot;flashingM&quot;: 24,
+            &quot;valleyM&quot;: 30,
+            &quot;pileEach&quot;: 1000,
+            &quot;windowsM2&quot;: 520,
+            &quot;doorsEach&quot;: 900,
+            &quot;fastenersM3&quot;: 95,
+            &quot;laborPercent&quot;: 55,
+            &quot;wastePercent&quot;: 8,
+            &quot;contingencyPercent&quot;: 20,
+            &quot;sectionPrices&quot;: {}
+          }
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/site/foundation&quot;,
+          &quot;value&quot;: {
+            &quot;soilProfile&quot;: &quot;unknown&quot;,
+            &quot;geotechnicalVerified&quot;: false
+          }
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/site/assumptions&quot;,
+          &quot;value&quot;: [
+            &quot;Точный участок и изыскания отсутствуют; грунтовые условия не присваиваются всему району Хельсинки.&quot;,
+            &quot;sk2.75кН/м² принят как региональная консервативная величина, до интерполяции по координатам участка.&quot;,
+            &quot;Давление ветра0.6кПа - принятое эффективное значение для частного screening, не полный расчёт местных коэффициентов/отсоса.&quot;,
+            &quot;Расценки EUR - заданные бюджетные допущения, не котировки; длина/диаметр свай и фактические работы будут уточнены по изысканиям.&quot;,
+            &quot;21°C/RH 40% внутри и−26°C/RH80% снаружи - проверочная стационарная пара, не климатический год.&quot;
+          ]
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/foundation/type&quot;,
+          &quot;value&quot;: &quot;steel_drilled_RD&quot;
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/foundation/selection&quot;,
+          &quot;value&quot;: {
+            &quot;type&quot;: &quot;steel_drilled_RD&quot;,
+            &quot;status&quot;: &quot;conditional&quot;,
+            &quot;certified&quot;: false,
+            &quot;basis&quot;: &quot;Предварительная технология для проработки при неизвестной геологии. RR/ЖБ/винтовые варианты не отклонены без данных участка; длина, диаметр и сопротивление не назначены.&quot;,
+            &quot;capacityInput&quot;: 80,
+            &quot;capacityBasis&quot;: &quot;Допущение для проверки спроса, не геотехническое сопротивление.&quot;,
+            &quot;budgetAllowanceEURPerPile&quot;: 1000,
+            &quot;budgetScope&quot;: &quot;Укрупнённый резерв на сваю и монтаж, без подтверждённой длины и подрядной котировки.&quot;
+          }
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/envelope&quot;,
+          &quot;value&quot;: {
+            &quot;assemblies&quot;: [
+              {
+                &quot;id&quot;: &quot;wall&quot;,
+                &quot;name&quot;: &quot;Наружная стена · Helsinki&quot;,
+                &quot;appliesTo&quot;: &quot;wall&quot;,
+                &quot;indoor&quot;: {
+                  &quot;temperature&quot;: 21,
+                  &quot;rh&quot;: 40
+                },
+                &quot;outdoor&quot;: {
+                  &quot;temperature&quot;: -26,
+                  &quot;rh&quot;: 80
+                },
+                &quot;Rsi&quot;: 0.13,
+                &quot;Rse&quot;: 0.04,
+                &quot;framingFraction&quot;: 0.2,
+                &quot;framingLambda&quot;: 0.13,
+                &quot;framingLayerIds&quot;: [
+                  &quot;main-insulation&quot;
+                ],
+                &quot;layers&quot;: [
+                  {
+                    &quot;id&quot;: &quot;gypsum&quot;,
+                    &quot;name&quot;: &quot;Гипсокартон&quot;,
+                    &quot;thickness&quot;: 0.0125,
+                    &quot;lambda&quot;: 0.25,
+                    &quot;mu&quot;: 10
+                  },
+                  {
+                    &quot;id&quot;: &quot;service-insulation&quot;,
+                    &quot;name&quot;: &quot;Утеплённый сервисный зазор&quot;,
+                    &quot;thickness&quot;: 0.045,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;vapour&quot;,
+                    &quot;name&quot;: &quot;Герметичная пароизоляция · sd50м&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 50
+                  },
+                  {
+                    &quot;id&quot;: &quot;osb&quot;,
+                    &quot;name&quot;: &quot;OSB/3 · тёплая сторона каркаса&quot;,
+                    &quot;thickness&quot;: 0.012,
+                    &quot;lambda&quot;: 0.13,
+                    &quot;mu&quot;: 200
+                  },
+                  {
+                    &quot;id&quot;: &quot;main-insulation&quot;,
+                    &quot;name&quot;: &quot;Минеральная вата198мм&quot;,
+                    &quot;thickness&quot;: 0.198,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;external-insulation&quot;,
+                    &quot;name&quot;: &quot;Наружная сплошная ветрозащитная плита50мм&quot;,
+                    &quot;thickness&quot;: 0.05,
+                    &quot;lambda&quot;: 0.045,
+                    &quot;mu&quot;: 3
+                  },
+                  {
+                    &quot;id&quot;: &quot;windproof&quot;,
+                    &quot;name&quot;: &quot;Ветрогидрозащитная мембрана&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 0.05
+                  }
+                ]
+              },
+              {
+                &quot;indoor&quot;: {
+                  &quot;temperature&quot;: 21,
+                  &quot;rh&quot;: 40
+                },
+                &quot;outdoor&quot;: {
+                  &quot;temperature&quot;: -26,
+                  &quot;rh&quot;: 80
+                },
+                &quot;framingFraction&quot;: 0.2,
+                &quot;framingLambda&quot;: 0.13,
+                &quot;framingLayerIds&quot;: [
+                  &quot;main-insulation&quot;
+                ],
+                &quot;id&quot;: &quot;roof&quot;,
+                &quot;name&quot;: &quot;Утеплённая кровля · Helsinki&quot;,
+                &quot;appliesTo&quot;: &quot;roof&quot;,
+                &quot;Rsi&quot;: 0.1,
+                &quot;Rse&quot;: 0.04,
+                &quot;layers&quot;: [
+                  {
+                    &quot;id&quot;: &quot;gypsum&quot;,
+                    &quot;name&quot;: &quot;Гипсокартон&quot;,
+                    &quot;thickness&quot;: 0.0125,
+                    &quot;lambda&quot;: 0.25,
+                    &quot;mu&quot;: 10
+                  },
+                  {
+                    &quot;id&quot;: &quot;service&quot;,
+                    &quot;name&quot;: &quot;Сервисный утеплённый зазор45мм&quot;,
+                    &quot;thickness&quot;: 0.045,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;vapour&quot;,
+                    &quot;name&quot;: &quot;Пароизоляция sd100м&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 100
+                  },
+                  {
+                    &quot;id&quot;: &quot;cross-insulation&quot;,
+                    &quot;name&quot;: &quot;Перекрёстное утепление150мм&quot;,
+                    &quot;thickness&quot;: 0.15,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;main-insulation&quot;,
+                    &quot;name&quot;: &quot;Утепление между стропилами248мм&quot;,
+                    &quot;thickness&quot;: 0.248,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;windboard&quot;,
+                    &quot;name&quot;: &quot;Паропроницаемая ветрозащита25мм&quot;,
+                    &quot;thickness&quot;: 0.025,
+                    &quot;lambda&quot;: 0.05,
+                    &quot;mu&quot;: 5
+                  },
+                  {
+                    &quot;id&quot;: &quot;wind&quot;,
+                    &quot;name&quot;: &quot;Ветрогидрозащитная мембрана&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 0.05
+                  }
+                ]
+              },
+              {
+                &quot;indoor&quot;: {
+                  &quot;temperature&quot;: 21,
+                  &quot;rh&quot;: 40
+                },
+                &quot;outdoor&quot;: {
+                  &quot;temperature&quot;: -26,
+                  &quot;rh&quot;: 80
+                },
+                &quot;framingFraction&quot;: 0.2,
+                &quot;framingLambda&quot;: 0.13,
+                &quot;framingLayerIds&quot;: [
+                  &quot;main-insulation&quot;
+                ],
+                &quot;id&quot;: &quot;ground-floor&quot;,
+                &quot;name&quot;: &quot;Перекрытие над вентилируемым подпольем&quot;,
+                &quot;appliesTo&quot;: &quot;groundFloor&quot;,
+                &quot;Rsi&quot;: 0.17,
+                &quot;Rse&quot;: 0.04,
+                &quot;layers&quot;: [
+                  {
+                    &quot;id&quot;: &quot;finish&quot;,
+                    &quot;name&quot;: &quot;Напольное покрытие15мм&quot;,
+                    &quot;thickness&quot;: 0.015,
+                    &quot;lambda&quot;: 0.18,
+                    &quot;mu&quot;: 50
+                  },
+                  {
+                    &quot;id&quot;: &quot;deck&quot;,
+                    &quot;name&quot;: &quot;Конструкционный настил22мм&quot;,
+                    &quot;thickness&quot;: 0.022,
+                    &quot;lambda&quot;: 0.13,
+                    &quot;mu&quot;: 200
+                  },
+                  {
+                    &quot;id&quot;: &quot;vapour&quot;,
+                    &quot;name&quot;: &quot;Пароизоляционный слой sd50м&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 50
+                  },
+                  {
+                    &quot;id&quot;: &quot;main-insulation&quot;,
+                    &quot;name&quot;: &quot;Минеральная вата248мм&quot;,
+                    &quot;thickness&quot;: 0.248,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;continuous&quot;,
+                    &quot;name&quot;: &quot;Сплошная нижняя теплоизоляция50мм&quot;,
+                    &quot;thickness&quot;: 0.05,
+                    &quot;lambda&quot;: 0.045,
+                    &quot;mu&quot;: 3
+                  },
+                  {
+                    &quot;id&quot;: &quot;wind&quot;,
+                    &quot;name&quot;: &quot;Ветрозащита&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 0.05
+                  }
+                ]
+              }
+            ],
+            &quot;costItems&quot;: [
+              {
+                &quot;id&quot;: &quot;external-continuous&quot;,
+                &quot;name&quot;: &quot;Наружная сплошная теплоизоляция50мм&quot;,
+                &quot;basis&quot;: &quot;wall&quot;,
+                &quot;rate&quot;: 16,
+                &quot;waste&quot;: true,
+                &quot;note&quot;: &quot;Бюджетное допущение EUR/м²; основной стеновой утеплитель посчитан отдельно.&quot;
+              },
+              {
+                &quot;id&quot;: &quot;roof-insulation&quot;,
+                &quot;name&quot;: &quot;Теплоизоляция кровли248+150+45мм&quot;,
+                &quot;basis&quot;: &quot;roof&quot;,
+                &quot;rate&quot;: 35,
+                &quot;waste&quot;: true
+              },
+              {
+                &quot;id&quot;: &quot;ground-insulation&quot;,
+                &quot;name&quot;: &quot;Утепление нижнего перекрытия248+50мм&quot;,
+                &quot;basis&quot;: &quot;groundFloor&quot;,
+                &quot;rate&quot;: 25,
+                &quot;waste&quot;: true
+              },
+              {
+                &quot;id&quot;: &quot;air-vapour&quot;,
+                &quot;name&quot;: &quot;Пароизоляция, герметизация, ленты&quot;,
+                &quot;basis&quot;: &quot;wallAndRoof&quot;,
+                &quot;rate&quot;: 5,
+                &quot;waste&quot;: true
+              },
+              {
+                &quot;id&quot;: &quot;windproof&quot;,
+                &quot;name&quot;: &quot;Ветрогидрозащита ограждений&quot;,
+                &quot;basis&quot;: &quot;wallAndRoof&quot;,
+                &quot;rate&quot;: 4,
+                &quot;waste&quot;: true
+              }
+            ],
+            &quot;note&quot;: &quot;Слои задают тепловлажностный расчёт. Заданная масса слоёв учтена через wallDead/floorDead/roofDead; закупка несущей древесины и OSB выполняется по физической ведомости.&quot;
+          }
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/snowDesign&quot;,
+          &quot;value&quot;: {
+            &quot;basis&quot;: &quot;Helsinki regional screening: sk2.75kN/m²; mu0.8 at25deg; Ce=Ct1. Symmetric/asymmetric0.5–1 arrangements plus explicit1.5 sensitivity; not a complete EN1991 drift model.&quot;,
+            &quot;cases&quot;: [
+              {
+                &quot;id&quot;: &quot;balanced&quot;,
+                &quot;name&quot;: &quot;Равномерный снег&quot;,
+                &quot;zoneFactors&quot;: {
+                  &quot;ROOF-N&quot;: 1,
+                  &quot;ROOF-S&quot;: 1
+                }
+              },
+              {
+                &quot;id&quot;: &quot;north-full&quot;,
+                &quot;name&quot;: &quot;Север100% / юг50%&quot;,
+                &quot;zoneFactors&quot;: {
+                  &quot;ROOF-N&quot;: 1,
+                  &quot;ROOF-S&quot;: 0.5
+                }
+              },
+              {
+                &quot;id&quot;: &quot;south-full&quot;,
+                &quot;name&quot;: &quot;Север50% / юг100%&quot;,
+                &quot;zoneFactors&quot;: {
+                  &quot;ROOF-N&quot;: 0.5,
+                  &quot;ROOF-S&quot;: 1
+                }
+              },
+              {
+                &quot;id&quot;: &quot;north-sensitivity&quot;,
+                &quot;name&quot;: &quot;Север150% · чувствительность к заносу&quot;,
+                &quot;kind&quot;: &quot;sensitivity&quot;,
+                &quot;zoneFactors&quot;: {
+                  &quot;ROOF-N&quot;: 1.5,
+                  &quot;ROOF-S&quot;: 1
+                }
+              },
+              {
+                &quot;id&quot;: &quot;south-sensitivity&quot;,
+                &quot;name&quot;: &quot;Юг150% · чувствительность к заносу&quot;,
+                &quot;kind&quot;: &quot;sensitivity&quot;,
+                &quot;zoneFactors&quot;: {
+                  &quot;ROOF-N&quot;: 1,
+                  &quot;ROOF-S&quot;: 1.5
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  &quot;revision&quot;: 3,
+  &quot;hash&quot;: &quot;d3fe4c52fb17fc7fde186834f650fec9b7b60ba4c22ccc57f77c8d0f28cb3997&quot;,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-144 · КР · два этажа и второй свет&quot;,
+    &quot;area&quot;: 143.36,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 8,
+    &quot;boards&quot;: 760,
+    &quot;timberVolume&quot;: 24.32971682319091,
+    &quot;timberMass&quot;: 10948.372570436002,
+    &quot;designVerticalLoad&quot;: 1315.7587194196594,
+    &quot;piles&quot;: 31,
+    &quot;grillageBoards&quot;: 70,
+    &quot;stockBoards&quot;: 365,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: null,
+    &quot;estimateTotal&quot;: 182131.57,
+    &quot;currency&quot;: &quot;EUR&quot;,
+    &quot;status&quot;: &quot;requires_engineering&quot;,
+    &quot;failedChecks&quot;: 0,
+    &quot;unverifiedOrWarningChecks&quot;: 102,
+    &quot;certified&quot;: false
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 c9e5ae9a785d3accbac10b3a08f1ad8d33e21422a668452260105747abcf4985.</small></details></td></tr><tr><td>13</td><td>2026-11-03T00:10:43.419Z</td><td><b>karkas_check_envelope</b><small>17 мс · ответ</small></td><td>3</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_check_envelope&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;
+    }
+  },
+  &quot;revision&quot;: 3
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 909be944f1c521bd86090514b77591ba275c5d85264397e34e3685549230c6e6.</small></details></td></tr><tr><td>14</td><td>2026-11-03T00:18:02.762Z</td><td><b>karkas_apply_patch</b><small>1661 мс · ответ</small></td><td>4</td><td>798 деталей · 368 заготовок<br>0 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_apply_patch&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;expected_revision&quot;: 3,
+      &quot;operations&quot;: [
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/name&quot;,
+          &quot;value&quot;: &quot;HELSINKI L-146 · КР · два этажа и второй свет&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/voids/0/polygon&quot;,
+          &quot;value&quot;: [
+            {
+              &quot;x&quot;: 0.6,
+              &quot;y&quot;: 0.4
+            },
+            {
+              &quot;x&quot;: 3.4,
+              &quot;y&quot;: 0.4
+            },
+            {
+              &quot;x&quot;: 3.4,
+              &quot;y&quot;: 3
+            },
+            {
+              &quot;x&quot;: 0.6,
+              &quot;y&quot;: 3
+            }
+          ]
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/voids/1/polygon&quot;,
+          &quot;value&quot;: [
+            {
+              &quot;x&quot;: 3.8,
+              &quot;y&quot;: 0.8
+            },
+            {
+              &quot;x&quot;: 7,
+              &quot;y&quot;: 0.8
+            },
+            {
+              &quot;x&quot;: 7,
+              &quot;y&quot;: 3
+            },
+            {
+              &quot;x&quot;: 3.8,
+              &quot;y&quot;: 3
+            }
+          ]
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/staircase/polygon&quot;,
+          &quot;value&quot;: [
+            {
+              &quot;x&quot;: 3.8,
+              &quot;y&quot;: 0.8
+            },
+            {
+              &quot;x&quot;: 7,
+              &quot;y&quot;: 0.8
+            },
+            {
+              &quot;x&quot;: 7,
+              &quot;y&quot;: 3
+            },
+            {
+              &quot;x&quot;: 3.8,
+              &quot;y&quot;: 3
+            }
+          ]
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/staircase/direction&quot;,
+          &quot;value&quot;: &quot;Нижний марш с востока на запад; разворот у западной площадки; верхний марш выходит на восточную галерею x7..8.&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/envelope&quot;,
+          &quot;value&quot;: {
+            &quot;assemblies&quot;: [
+              {
+                &quot;id&quot;: &quot;wall&quot;,
+                &quot;name&quot;: &quot;Наружная стена · Helsinki&quot;,
+                &quot;appliesTo&quot;: &quot;wall&quot;,
+                &quot;indoor&quot;: {
+                  &quot;temperature&quot;: 21,
+                  &quot;rh&quot;: 40
+                },
+                &quot;outdoor&quot;: {
+                  &quot;temperature&quot;: -26,
+                  &quot;rh&quot;: 80
+                },
+                &quot;Rsi&quot;: 0.13,
+                &quot;Rse&quot;: 0.04,
+                &quot;framingFraction&quot;: 0.2,
+                &quot;framingLambda&quot;: 0.13,
+                &quot;framingLayerIds&quot;: [
+                  &quot;main-insulation&quot;
+                ],
+                &quot;layers&quot;: [
+                  {
+                    &quot;id&quot;: &quot;gypsum&quot;,
+                    &quot;name&quot;: &quot;Гипсокартон&quot;,
+                    &quot;thickness&quot;: 0.0125,
+                    &quot;lambda&quot;: 0.25,
+                    &quot;mu&quot;: 10
+                  },
+                  {
+                    &quot;id&quot;: &quot;service-insulation&quot;,
+                    &quot;name&quot;: &quot;Утеплённый сервисный зазор&quot;,
+                    &quot;thickness&quot;: 0.045,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;vapour&quot;,
+                    &quot;name&quot;: &quot;Герметичная пароизоляция · sd50м&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 50
+                  },
+                  {
+                    &quot;id&quot;: &quot;osb&quot;,
+                    &quot;name&quot;: &quot;OSB/3 · тёплая сторона каркаса&quot;,
+                    &quot;thickness&quot;: 0.012,
+                    &quot;lambda&quot;: 0.13,
+                    &quot;mu&quot;: 200
+                  },
+                  {
+                    &quot;id&quot;: &quot;main-insulation&quot;,
+                    &quot;name&quot;: &quot;Минеральная вата198мм&quot;,
+                    &quot;thickness&quot;: 0.198,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;external-insulation&quot;,
+                    &quot;name&quot;: &quot;Наружная сплошная ветрозащитная плита50мм&quot;,
+                    &quot;thickness&quot;: 0.05,
+                    &quot;lambda&quot;: 0.045,
+                    &quot;mu&quot;: 3
+                  },
+                  {
+                    &quot;id&quot;: &quot;windproof&quot;,
+                    &quot;name&quot;: &quot;Ветрогидрозащитная мембрана&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 0.05
+                  }
+                ],
+                &quot;targetU&quot;: 0.17
+              },
+              {
+                &quot;indoor&quot;: {
+                  &quot;temperature&quot;: 21,
+                  &quot;rh&quot;: 40
+                },
+                &quot;outdoor&quot;: {
+                  &quot;temperature&quot;: -26,
+                  &quot;rh&quot;: 80
+                },
+                &quot;framingFraction&quot;: 0.2,
+                &quot;framingLambda&quot;: 0.13,
+                &quot;framingLayerIds&quot;: [
+                  &quot;main-insulation&quot;
+                ],
+                &quot;id&quot;: &quot;roof&quot;,
+                &quot;name&quot;: &quot;Утеплённая кровля · Helsinki&quot;,
+                &quot;appliesTo&quot;: &quot;roof&quot;,
+                &quot;Rsi&quot;: 0.1,
+                &quot;Rse&quot;: 0.04,
+                &quot;layers&quot;: [
+                  {
+                    &quot;id&quot;: &quot;gypsum&quot;,
+                    &quot;name&quot;: &quot;Гипсокартон&quot;,
+                    &quot;thickness&quot;: 0.0125,
+                    &quot;lambda&quot;: 0.25,
+                    &quot;mu&quot;: 10
+                  },
+                  {
+                    &quot;id&quot;: &quot;service&quot;,
+                    &quot;name&quot;: &quot;Сервисный утеплённый зазор45мм&quot;,
+                    &quot;thickness&quot;: 0.045,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;vapour&quot;,
+                    &quot;name&quot;: &quot;Пароизоляция sd100м&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 100
+                  },
+                  {
+                    &quot;id&quot;: &quot;cross-insulation&quot;,
+                    &quot;name&quot;: &quot;Перекрёстное утепление150мм&quot;,
+                    &quot;thickness&quot;: 0.15,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;main-insulation&quot;,
+                    &quot;name&quot;: &quot;Утепление между стропилами248мм&quot;,
+                    &quot;thickness&quot;: 0.248,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;windboard&quot;,
+                    &quot;name&quot;: &quot;Паропроницаемая ветрозащита25мм&quot;,
+                    &quot;thickness&quot;: 0.025,
+                    &quot;lambda&quot;: 0.05,
+                    &quot;mu&quot;: 5
+                  },
+                  {
+                    &quot;id&quot;: &quot;wind&quot;,
+                    &quot;name&quot;: &quot;Ветрогидрозащитная мембрана&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 0.05
+                  }
+                ],
+                &quot;targetU&quot;: 0.09
+              },
+              {
+                &quot;indoor&quot;: {
+                  &quot;temperature&quot;: 21,
+                  &quot;rh&quot;: 40
+                },
+                &quot;outdoor&quot;: {
+                  &quot;temperature&quot;: -26,
+                  &quot;rh&quot;: 80
+                },
+                &quot;framingFraction&quot;: 0.2,
+                &quot;framingLambda&quot;: 0.13,
+                &quot;framingLayerIds&quot;: [
+                  &quot;main-insulation&quot;,
+                  &quot;grillage-insulation&quot;
+                ],
+                &quot;id&quot;: &quot;ground-floor&quot;,
+                &quot;name&quot;: &quot;Нижнее перекрытие над наружным воздухом&quot;,
+                &quot;appliesTo&quot;: &quot;groundFloor&quot;,
+                &quot;Rsi&quot;: 0.17,
+                &quot;Rse&quot;: 0.04,
+                &quot;layers&quot;: [
+                  {
+                    &quot;id&quot;: &quot;finish&quot;,
+                    &quot;name&quot;: &quot;Напольное покрытие15мм&quot;,
+                    &quot;thickness&quot;: 0.015,
+                    &quot;lambda&quot;: 0.18,
+                    &quot;mu&quot;: 50
+                  },
+                  {
+                    &quot;id&quot;: &quot;deck&quot;,
+                    &quot;name&quot;: &quot;Конструкционный настил22мм&quot;,
+                    &quot;thickness&quot;: 0.022,
+                    &quot;lambda&quot;: 0.13,
+                    &quot;mu&quot;: 200
+                  },
+                  {
+                    &quot;id&quot;: &quot;vapour&quot;,
+                    &quot;name&quot;: &quot;Пароизоляционный слой sd50м&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 50
+                  },
+                  {
+                    &quot;id&quot;: &quot;main-insulation&quot;,
+                    &quot;name&quot;: &quot;Минеральная вата248мм&quot;,
+                    &quot;thickness&quot;: 0.248,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;grillage-insulation&quot;,
+                    &quot;name&quot;: &quot;Утепление между балками ростверка248мм&quot;,
+                    &quot;thickness&quot;: 0.248,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;continuous&quot;,
+                    &quot;name&quot;: &quot;Сплошная нижняя теплоизоляция100мм&quot;,
+                    &quot;thickness&quot;: 0.1,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;wind&quot;,
+                    &quot;name&quot;: &quot;Ветрозащита&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 0.05
+                  }
+                ],
+                &quot;targetU&quot;: 0.09,
+                &quot;note&quot;: &quot;Подвесная нижняя теплоизоляция проходит под ростверком; узлы крепления, продувания и мостики в оголовках требуют проработки.&quot;
+              }
+            ],
+            &quot;costItems&quot;: [
+              {
+                &quot;id&quot;: &quot;external-continuous&quot;,
+                &quot;name&quot;: &quot;Наружная сплошная теплоизоляция50мм&quot;,
+                &quot;basis&quot;: &quot;wall&quot;,
+                &quot;rate&quot;: 16,
+                &quot;waste&quot;: true,
+                &quot;note&quot;: &quot;Бюджетное допущение EUR/м²; основной стеновой утеплитель посчитан отдельно.&quot;
+              },
+              {
+                &quot;id&quot;: &quot;roof-insulation&quot;,
+                &quot;name&quot;: &quot;Теплоизоляция кровли248+150+45мм&quot;,
+                &quot;basis&quot;: &quot;roof&quot;,
+                &quot;rate&quot;: 35,
+                &quot;waste&quot;: true
+              },
+              {
+                &quot;id&quot;: &quot;ground-insulation&quot;,
+                &quot;name&quot;: &quot;Нижнее перекрытие: утепление248+248+100мм&quot;,
+                &quot;basis&quot;: &quot;groundFloor&quot;,
+                &quot;rate&quot;: 45,
+                &quot;waste&quot;: true
+              },
+              {
+                &quot;id&quot;: &quot;air-vapour&quot;,
+                &quot;name&quot;: &quot;Пароизоляция, герметизация, ленты&quot;,
+                &quot;basis&quot;: &quot;wallAndRoof&quot;,
+                &quot;rate&quot;: 5,
+                &quot;waste&quot;: true
+              },
+              {
+                &quot;id&quot;: &quot;windproof&quot;,
+                &quot;name&quot;: &quot;Ветрогидрозащита ограждений&quot;,
+                &quot;basis&quot;: &quot;wallAndRoof&quot;,
+                &quot;rate&quot;: 4,
+                &quot;waste&quot;: true
+              }
+            ],
+            &quot;note&quot;: &quot;Слои задают тепловлажностный расчёт. Заданная масса слоёв учтена через wallDead/floorDead/roofDead; закупка несущей древесины и OSB выполняется по физической ведомости.&quot;
+          }
+        },
+        {
+          &quot;op&quot;: &quot;remove&quot;,
+          &quot;path&quot;: &quot;/walls/12&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/openings/1/type&quot;,
+          &quot;value&quot;: &quot;door&quot;
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/openings/1/offset&quot;,
+          &quot;value&quot;: 5.7
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/openings/1/width&quot;,
+          &quot;value&quot;: 1
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/openings/1/height&quot;,
+          &quot;value&quot;: 2.1
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/openings/1/sill&quot;,
+          &quot;value&quot;: 0
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/openings/-&quot;,
+          &quot;value&quot;: {
+            &quot;id&quot;: &quot;DOOR-L1-KITCHEN&quot;,
+            &quot;wallId&quot;: &quot;GEN-L1-P3&quot;,
+            &quot;offset&quot;: 1.1,
+            &quot;width&quot;: 0.9,
+            &quot;height&quot;: 2.1,
+            &quot;sill&quot;: 0,
+            &quot;type&quot;: &quot;door&quot;,
+            &quot;floor&quot;: 1
+          }
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/openings/-&quot;,
+          &quot;value&quot;: {
+            &quot;id&quot;: &quot;DOOR-L1-SAUNA&quot;,
+            &quot;wallId&quot;: &quot;GEN-L1-P2&quot;,
+            &quot;offset&quot;: 1.7,
+            &quot;width&quot;: 0.9,
+            &quot;height&quot;: 2.1,
+            &quot;sill&quot;: 0,
+            &quot;type&quot;: &quot;door&quot;,
+            &quot;floor&quot;: 1
+          }
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/openings/-&quot;,
+          &quot;value&quot;: {
+            &quot;id&quot;: &quot;DOOR-L1-OFFICE&quot;,
+            &quot;wallId&quot;: &quot;GEN-L1-P4&quot;,
+            &quot;offset&quot;: 1.2,
+            &quot;width&quot;: 0.9,
+            &quot;height&quot;: 2.1,
+            &quot;sill&quot;: 0,
+            &quot;type&quot;: &quot;door&quot;,
+            &quot;floor&quot;: 1
+          }
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/openings/-&quot;,
+          &quot;value&quot;: {
+            &quot;id&quot;: &quot;DOOR-L2-BED2&quot;,
+            &quot;wallId&quot;: &quot;GEN-L2-P1&quot;,
+            &quot;offset&quot;: 1.6,
+            &quot;width&quot;: 0.9,
+            &quot;height&quot;: 2.1,
+            &quot;sill&quot;: 0,
+            &quot;type&quot;: &quot;door&quot;,
+            &quot;floor&quot;: 2
+          }
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/openings/-&quot;,
+          &quot;value&quot;: {
+            &quot;id&quot;: &quot;DOOR-L2-BED3&quot;,
+            &quot;wallId&quot;: &quot;GEN-L2-P3&quot;,
+            &quot;offset&quot;: 1.2,
+            &quot;width&quot;: 0.9,
+            &quot;height&quot;: 2.1,
+            &quot;sill&quot;: 0,
+            &quot;type&quot;: &quot;door&quot;,
+            &quot;floor&quot;: 2
+          }
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/openings/-&quot;,
+          &quot;value&quot;: {
+            &quot;id&quot;: &quot;DOOR-L2-BED4&quot;,
+            &quot;wallId&quot;: &quot;GEN-L2-P4&quot;,
+            &quot;offset&quot;: 0.9,
+            &quot;width&quot;: 0.9,
+            &quot;height&quot;: 2.1,
+            &quot;sill&quot;: 0,
+            &quot;type&quot;: &quot;door&quot;,
+            &quot;floor&quot;: 2
+          }
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/roomSchedule&quot;,
+          &quot;value&quot;: [
+            {
+              &quot;id&quot;: &quot;R1&quot;,
+              &quot;name&quot;: &quot;Гостиная / холл / лестница&quot;,
+              &quot;level&quot;: 1,
+              &quot;kind&quot;: &quot;room&quot;,
+              &quot;polygon&quot;: [
+                {
+                  &quot;x&quot;: 0.099,
+                  &quot;y&quot;: 0.099
+                },
+                {
+                  &quot;x&quot;: 7.901,
+                  &quot;y&quot;: 0.099
+                },
+                {
+                  &quot;x&quot;: 7.901,
+                  &quot;y&quot;: 3.901
+                },
+                {
+                  &quot;x&quot;: 0.099,
+                  &quot;y&quot;: 3.901
+                }
+              ]
+            },
+            {
+              &quot;id&quot;: &quot;R2&quot;,
+              &quot;name&quot;: &quot;Кухня-столовая&quot;,
+              &quot;level&quot;: 1,
+              &quot;kind&quot;: &quot;room&quot;,
+              &quot;polygon&quot;: [
+                {
+                  &quot;x&quot;: 8.099,
+                  &quot;y&quot;: 0.099
+                },
+                {
+                  &quot;x&quot;: 11.901,
+                  &quot;y&quot;: 0.099
+                },
+                {
+                  &quot;x&quot;: 11.901,
+                  &quot;y&quot;: 3.901
+                },
+                {
+                  &quot;x&quot;: 8.099,
+                  &quot;y&quot;: 3.901
+                }
+              ]
+            },
+            {
+              &quot;id&quot;: &quot;R3&quot;,
+              &quot;name&quot;: &quot;Санузел / сауна / техзона&quot;,
+              &quot;level&quot;: 1,
+              &quot;kind&quot;: &quot;room&quot;,
+              &quot;polygon&quot;: [
+                {
+                  &quot;x&quot;: 0.099,
+                  &quot;y&quot;: 4.099
+                },
+                {
+                  &quot;x&quot;: 3.901,
+                  &quot;y&quot;: 4.099
+                },
+                {
+                  &quot;x&quot;: 3.901,
+                  &quot;y&quot;: 7.901
+                },
+                {
+                  &quot;x&quot;: 0.099,
+                  &quot;y&quot;: 7.901
+                }
+              ]
+            },
+            {
+              &quot;id&quot;: &quot;R4&quot;,
+              &quot;name&quot;: &quot;Кабинет / гостевая&quot;,
+              &quot;level&quot;: 1,
+              &quot;kind&quot;: &quot;room&quot;,
+              &quot;polygon&quot;: [
+                {
+                  &quot;x&quot;: 4.099,
+                  &quot;y&quot;: 4.099
+                },
+                {
+                  &quot;x&quot;: 7.901,
+                  &quot;y&quot;: 4.099
+                },
+                {
+                  &quot;x&quot;: 7.901,
+                  &quot;y&quot;: 7.901
+                },
+                {
+                  &quot;x&quot;: 4.099,
+                  &quot;y&quot;: 7.901
+                }
+              ]
+            },
+            {
+              &quot;id&quot;: &quot;R5&quot;,
+              &quot;name&quot;: &quot;Галерея второго этажа&quot;,
+              &quot;level&quot;: 2,
+              &quot;kind&quot;: &quot;corridor&quot;,
+              &quot;polygon&quot;: [
+                {
+                  &quot;x&quot;: 0.099,
+                  &quot;y&quot;: 0.099
+                },
+                {
+                  &quot;x&quot;: 7.901,
+                  &quot;y&quot;: 0.099
+                },
+                {
+                  &quot;x&quot;: 7.901,
+                  &quot;y&quot;: 3.901
+                },
+                {
+                  &quot;x&quot;: 0.099,
+                  &quot;y&quot;: 3.901
+                }
+              ]
+            },
+            {
+              &quot;id&quot;: &quot;R6&quot;,
+              &quot;name&quot;: &quot;Спальня 2&quot;,
+              &quot;level&quot;: 2,
+              &quot;kind&quot;: &quot;room&quot;,
+              &quot;polygon&quot;: [
+                {
+                  &quot;x&quot;: 0.099,
+                  &quot;y&quot;: 4.099
+                },
+                {
+                  &quot;x&quot;: 3.901,
+                  &quot;y&quot;: 4.099
+                },
+                {
+                  &quot;x&quot;: 3.901,
+                  &quot;y&quot;: 7.901
+                },
+                {
+                  &quot;x&quot;: 0.099,
+                  &quot;y&quot;: 7.901
+                }
+              ]
+            },
+            {
+              &quot;id&quot;: &quot;R7&quot;,
+              &quot;name&quot;: &quot;Спальня 3&quot;,
+              &quot;level&quot;: 2,
+              &quot;kind&quot;: &quot;room&quot;,
+              &quot;polygon&quot;: [
+                {
+                  &quot;x&quot;: 4.099,
+                  &quot;y&quot;: 4.099
+                },
+                {
+                  &quot;x&quot;: 7.901,
+                  &quot;y&quot;: 4.099
+                },
+                {
+                  &quot;x&quot;: 7.901,
+                  &quot;y&quot;: 7.901
+                },
+                {
+                  &quot;x&quot;: 4.099,
+                  &quot;y&quot;: 7.901
+                }
+              ]
+            },
+            {
+              &quot;id&quot;: &quot;R8&quot;,
+              &quot;name&quot;: &quot;Спальня 4&quot;,
+              &quot;level&quot;: 2,
+              &quot;kind&quot;: &quot;room&quot;,
+              &quot;polygon&quot;: [
+                {
+                  &quot;x&quot;: 8.099,
+                  &quot;y&quot;: 0.099
+                },
+                {
+                  &quot;x&quot;: 11.901,
+                  &quot;y&quot;: 0.099
+                },
+                {
+                  &quot;x&quot;: 11.901,
+                  &quot;y&quot;: 3.901
+                },
+                {
+                  &quot;x&quot;: 8.099,
+                  &quot;y&quot;: 3.901
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  &quot;revision&quot;: 4,
+  &quot;hash&quot;: &quot;fdc2b577e9aa2be3f1f472c0f3167818dedeaafe0d484e0c3f891bcb7d1fd0aa&quot;,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-146 · КР · два этажа и второй свет&quot;,
+    &quot;area&quot;: 145.68,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 7,
+    &quot;boards&quot;: 798,
+    &quot;timberVolume&quot;: 24.657444694625692,
+    &quot;timberMass&quot;: 11095.850112581646,
+    &quot;designVerticalLoad&quot;: 1315.4610952566607,
+    &quot;piles&quot;: 31,
+    &quot;grillageBoards&quot;: 70,
+    &quot;stockBoards&quot;: 368,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: null,
+    &quot;estimateTotal&quot;: 195750.49,
+    &quot;currency&quot;: &quot;EUR&quot;,
+    &quot;status&quot;: &quot;requires_engineering&quot;,
+    &quot;failedChecks&quot;: 0,
+    &quot;unverifiedOrWarningChecks&quot;: 103,
+    &quot;certified&quot;: false
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 ada6612c500ac7dd65964906ce56314a07c13abe63e0a1b34cebfb6801a08b63.</small></details></td></tr><tr><td>15</td><td>2026-11-03T00:31:02.887Z</td><td><b>karkas_apply_patch</b><small>1266 мс · ответ</small></td><td>5</td><td>1124 деталей · 593 заготовок<br>6 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_apply_patch&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;expected_revision&quot;: 4,
+      &quot;operations&quot;: [
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/auxiliaryTimber&quot;,
+          &quot;value&quot;: {
+            &quot;enabled&quot;: true,
+            &quot;wallService&quot;: &quot;45x45&quot;,
+            &quot;roofCounter&quot;: &quot;50x50&quot;,
+            &quot;roofBattens&quot;: &quot;25x100&quot;,
+            &quot;roofInternal&quot;: &quot;48x148&quot;,
+            &quot;roofService&quot;: &quot;45x45&quot;,
+            &quot;roofBattenStep&quot;: 0.35,
+            &quot;roofInternalStep&quot;: 0.6,
+            &quot;roofAboveRafterGap&quot;: 0.075
+          }
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/envelope&quot;,
+          &quot;value&quot;: {
+            &quot;assemblies&quot;: [
+              {
+                &quot;id&quot;: &quot;wall&quot;,
+                &quot;name&quot;: &quot;Наружная стена · Helsinki&quot;,
+                &quot;appliesTo&quot;: &quot;wall&quot;,
+                &quot;indoor&quot;: {
+                  &quot;temperature&quot;: 21,
+                  &quot;rh&quot;: 40
+                },
+                &quot;outdoor&quot;: {
+                  &quot;temperature&quot;: -26,
+                  &quot;rh&quot;: 80
+                },
+                &quot;Rsi&quot;: 0.13,
+                &quot;Rse&quot;: 0.04,
+                &quot;framingFraction&quot;: 0.2,
+                &quot;framingLambda&quot;: 0.13,
+                &quot;framingLayerIds&quot;: [
+                  &quot;service-insulation&quot;,
+                  &quot;main-insulation&quot;
+                ],
+                &quot;layers&quot;: [
+                  {
+                    &quot;id&quot;: &quot;gypsum&quot;,
+                    &quot;name&quot;: &quot;Гипсокартон&quot;,
+                    &quot;thickness&quot;: 0.0125,
+                    &quot;lambda&quot;: 0.25,
+                    &quot;mu&quot;: 10
+                  },
+                  {
+                    &quot;id&quot;: &quot;service-insulation&quot;,
+                    &quot;name&quot;: &quot;Неутеплённая сервисная полость45мм · экв.R0.18&quot;,
+                    &quot;thickness&quot;: 0.045,
+                    &quot;lambda&quot;: 0.25,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;vapour&quot;,
+                    &quot;name&quot;: &quot;Герметичная пароизоляция · sd50м&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 50
+                  },
+                  {
+                    &quot;id&quot;: &quot;osb&quot;,
+                    &quot;name&quot;: &quot;OSB/3 · тёплая сторона каркаса&quot;,
+                    &quot;thickness&quot;: 0.012,
+                    &quot;lambda&quot;: 0.13,
+                    &quot;mu&quot;: 200
+                  },
+                  {
+                    &quot;id&quot;: &quot;main-insulation&quot;,
+                    &quot;name&quot;: &quot;Минеральная вата198мм&quot;,
+                    &quot;thickness&quot;: 0.198,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;external-insulation&quot;,
+                    &quot;name&quot;: &quot;Сплошная наружная ветрозащитная теплоизоляция75мм&quot;,
+                    &quot;thickness&quot;: 0.075,
+                    &quot;lambda&quot;: 0.045,
+                    &quot;mu&quot;: 3
+                  },
+                  {
+                    &quot;id&quot;: &quot;windproof&quot;,
+                    &quot;name&quot;: &quot;Ветрогидрозащитная мембрана&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 0.05
+                  }
+                ],
+                &quot;targetU&quot;: 0.17
+              },
+              {
+                &quot;indoor&quot;: {
+                  &quot;temperature&quot;: 21,
+                  &quot;rh&quot;: 40
+                },
+                &quot;outdoor&quot;: {
+                  &quot;temperature&quot;: -26,
+                  &quot;rh&quot;: 80
+                },
+                &quot;framingFraction&quot;: 0.12,
+                &quot;framingLambda&quot;: 0.13,
+                &quot;framingLayerIds&quot;: [
+                  &quot;service&quot;,
+                  &quot;cross-insulation&quot;,
+                  &quot;main-insulation&quot;
+                ],
+                &quot;id&quot;: &quot;roof&quot;,
+                &quot;name&quot;: &quot;Утеплённая кровля · Helsinki&quot;,
+                &quot;appliesTo&quot;: &quot;roof&quot;,
+                &quot;Rsi&quot;: 0.1,
+                &quot;Rse&quot;: 0.04,
+                &quot;layers&quot;: [
+                  {
+                    &quot;id&quot;: &quot;gypsum&quot;,
+                    &quot;name&quot;: &quot;Гипсокартон&quot;,
+                    &quot;thickness&quot;: 0.0125,
+                    &quot;lambda&quot;: 0.25,
+                    &quot;mu&quot;: 10
+                  },
+                  {
+                    &quot;id&quot;: &quot;service&quot;,
+                    &quot;name&quot;: &quot;Сервисный утеплённый зазор45мм&quot;,
+                    &quot;thickness&quot;: 0.045,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;vapour&quot;,
+                    &quot;name&quot;: &quot;Пароизоляция sd100м&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 100
+                  },
+                  {
+                    &quot;id&quot;: &quot;cross-insulation&quot;,
+                    &quot;name&quot;: &quot;Перекрёстное утепление150мм&quot;,
+                    &quot;thickness&quot;: 0.15,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;main-insulation&quot;,
+                    &quot;name&quot;: &quot;Утепление между стропилами248мм&quot;,
+                    &quot;thickness&quot;: 0.248,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;windboard&quot;,
+                    &quot;name&quot;: &quot;Сплошная надстропильная ветрозащитная теплоизоляция75мм&quot;,
+                    &quot;thickness&quot;: 0.075,
+                    &quot;lambda&quot;: 0.045,
+                    &quot;mu&quot;: 5
+                  },
+                  {
+                    &quot;id&quot;: &quot;wind&quot;,
+                    &quot;name&quot;: &quot;Ветрогидрозащитная мембрана&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 0.05
+                  }
+                ],
+                &quot;targetU&quot;: 0.09
+              },
+              {
+                &quot;indoor&quot;: {
+                  &quot;temperature&quot;: 21,
+                  &quot;rh&quot;: 40
+                },
+                &quot;outdoor&quot;: {
+                  &quot;temperature&quot;: -26,
+                  &quot;rh&quot;: 80
+                },
+                &quot;framingFraction&quot;: 0.2,
+                &quot;framingLambda&quot;: 0.13,
+                &quot;framingLayerIds&quot;: [
+                  &quot;main-insulation&quot;,
+                  &quot;grillage-insulation&quot;
+                ],
+                &quot;id&quot;: &quot;ground-floor&quot;,
+                &quot;name&quot;: &quot;Нижнее перекрытие над наружным воздухом&quot;,
+                &quot;appliesTo&quot;: &quot;groundFloor&quot;,
+                &quot;Rsi&quot;: 0.17,
+                &quot;Rse&quot;: 0.04,
+                &quot;layers&quot;: [
+                  {
+                    &quot;id&quot;: &quot;finish&quot;,
+                    &quot;name&quot;: &quot;Напольное покрытие15мм&quot;,
+                    &quot;thickness&quot;: 0.015,
+                    &quot;lambda&quot;: 0.18,
+                    &quot;mu&quot;: 50
+                  },
+                  {
+                    &quot;id&quot;: &quot;deck&quot;,
+                    &quot;name&quot;: &quot;Конструкционный настил22мм&quot;,
+                    &quot;thickness&quot;: 0.022,
+                    &quot;lambda&quot;: 0.13,
+                    &quot;mu&quot;: 200
+                  },
+                  {
+                    &quot;id&quot;: &quot;vapour&quot;,
+                    &quot;name&quot;: &quot;Пароизоляционный слой sd50м&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 50
+                  },
+                  {
+                    &quot;id&quot;: &quot;main-insulation&quot;,
+                    &quot;name&quot;: &quot;Минеральная вата248мм&quot;,
+                    &quot;thickness&quot;: 0.248,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;grillage-insulation&quot;,
+                    &quot;name&quot;: &quot;Утепление между балками ростверка248мм&quot;,
+                    &quot;thickness&quot;: 0.248,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;continuous&quot;,
+                    &quot;name&quot;: &quot;Сплошная нижняя теплоизоляция100мм&quot;,
+                    &quot;thickness&quot;: 0.1,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;wind&quot;,
+                    &quot;name&quot;: &quot;Ветрозащита&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 0.05
+                  }
+                ],
+                &quot;targetU&quot;: 0.09,
+                &quot;note&quot;: &quot;Подвесная нижняя теплоизоляция проходит под ростверком; узлы крепления, продувания и мостики в оголовках требуют проработки.&quot;
+              },
+              {
+                &quot;id&quot;: &quot;wall-humidity60&quot;,
+                &quot;name&quot;: &quot;Наружная стена · влажностная проверка RH60%&quot;,
+                &quot;appliesTo&quot;: &quot;wall&quot;,
+                &quot;indoor&quot;: {
+                  &quot;temperature&quot;: 21,
+                  &quot;rh&quot;: 60
+                },
+                &quot;outdoor&quot;: {
+                  &quot;temperature&quot;: -26,
+                  &quot;rh&quot;: 80
+                },
+                &quot;Rsi&quot;: 0.13,
+                &quot;Rse&quot;: 0.04,
+                &quot;framingFraction&quot;: 0.2,
+                &quot;framingLambda&quot;: 0.13,
+                &quot;framingLayerIds&quot;: [
+                  &quot;service-insulation&quot;,
+                  &quot;main-insulation&quot;
+                ],
+                &quot;layers&quot;: [
+                  {
+                    &quot;id&quot;: &quot;gypsum&quot;,
+                    &quot;name&quot;: &quot;Гипсокартон&quot;,
+                    &quot;thickness&quot;: 0.0125,
+                    &quot;lambda&quot;: 0.25,
+                    &quot;mu&quot;: 10
+                  },
+                  {
+                    &quot;id&quot;: &quot;service-insulation&quot;,
+                    &quot;name&quot;: &quot;Неутеплённая сервисная полость45мм · экв.R0.18&quot;,
+                    &quot;thickness&quot;: 0.045,
+                    &quot;lambda&quot;: 0.25,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;vapour&quot;,
+                    &quot;name&quot;: &quot;Герметичная пароизоляция · sd50м&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 50
+                  },
+                  {
+                    &quot;id&quot;: &quot;osb&quot;,
+                    &quot;name&quot;: &quot;OSB/3 · тёплая сторона каркаса&quot;,
+                    &quot;thickness&quot;: 0.012,
+                    &quot;lambda&quot;: 0.13,
+                    &quot;mu&quot;: 200
+                  },
+                  {
+                    &quot;id&quot;: &quot;main-insulation&quot;,
+                    &quot;name&quot;: &quot;Минеральная вата198мм&quot;,
+                    &quot;thickness&quot;: 0.198,
+                    &quot;lambda&quot;: 0.037,
+                    &quot;mu&quot;: 1
+                  },
+                  {
+                    &quot;id&quot;: &quot;external-insulation&quot;,
+                    &quot;name&quot;: &quot;Сплошная наружная ветрозащитная теплоизоляция75мм&quot;,
+                    &quot;thickness&quot;: 0.075,
+                    &quot;lambda&quot;: 0.045,
+                    &quot;mu&quot;: 3
+                  },
+                  {
+                    &quot;id&quot;: &quot;windproof&quot;,
+                    &quot;name&quot;: &quot;Ветрогидрозащитная мембрана&quot;,
+                    &quot;thickness&quot;: 0.0002,
+                    &quot;lambda&quot;: 0.2,
+                    &quot;sd&quot;: 0.05
+                  }
+                ],
+                &quot;targetU&quot;: 0.17,
+                &quot;note&quot;: &quot;Дополнительная стационарная проверочная пара, а не годовой режим и не моделирование мокрого помещения/сауны.&quot;
+              }
+            ],
+            &quot;costItems&quot;: [
+              {
+                &quot;id&quot;: &quot;external-continuous&quot;,
+                &quot;name&quot;: &quot;Наружная сплошная теплоизоляция75мм&quot;,
+                &quot;basis&quot;: &quot;wall&quot;,
+                &quot;rate&quot;: 22,
+                &quot;waste&quot;: true,
+                &quot;note&quot;: &quot;Бюджетное допущение EUR/м²; основной стеновой утеплитель посчитан отдельно.&quot;
+              },
+              {
+                &quot;id&quot;: &quot;roof-insulation&quot;,
+                &quot;name&quot;: &quot;Утепление кровли248+150+45мм и сплошной слой75мм&quot;,
+                &quot;basis&quot;: &quot;roof&quot;,
+                &quot;rate&quot;: 42,
+                &quot;waste&quot;: true
+              },
+              {
+                &quot;id&quot;: &quot;ground-insulation&quot;,
+                &quot;name&quot;: &quot;Нижнее перекрытие: утепление248+248+100мм&quot;,
+                &quot;basis&quot;: &quot;groundFloor&quot;,
+                &quot;rate&quot;: 45,
+                &quot;waste&quot;: true
+              },
+              {
+                &quot;id&quot;: &quot;air-vapour&quot;,
+                &quot;name&quot;: &quot;Пароизоляция, герметизация, ленты&quot;,
+                &quot;basis&quot;: &quot;wallAndRoof&quot;,
+                &quot;rate&quot;: 5,
+                &quot;waste&quot;: true
+              },
+              {
+                &quot;id&quot;: &quot;windproof&quot;,
+                &quot;name&quot;: &quot;Ветрогидрозащита ограждений&quot;,
+                &quot;basis&quot;: &quot;wallAndRoof&quot;,
+                &quot;rate&quot;: 4,
+                &quot;waste&quot;: true
+              },
+              {
+                &quot;id&quot;: &quot;floor-support&quot;,
+                &quot;name&quot;: &quot;Ветрозащита и опорная сетка нижнего перекрытия&quot;,
+                &quot;basis&quot;: &quot;groundFloor&quot;,
+                &quot;rate&quot;: 10,
+                &quot;waste&quot;: true,
+                &quot;note&quot;: &quot;Бюджетная оценка листовой/рулонной подсистемы. Узлы крепления и ветровой отрыв не подтверждены.&quot;
+              }
+            ],
+            &quot;note&quot;: &quot;Слои задают тепловлажностный расчёт. Заданная масса слоёв учтена через wallDead/floorDead/roofDead; закупка несущей древесины и OSB выполняется по физической ведомости.&quot;
+          }
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/roomSchedule/2/name&quot;,
+          &quot;value&quot;: &quot;Санузел / постирочная / техзона&quot;
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/site/materialBasis&quot;,
+          &quot;value&quot;: {
+            &quot;grade&quot;: &quot;C24 · adopted design values&quot;,
+            &quot;Emean&quot;: 11000,
+            &quot;E05&quot;: 7400,
+            &quot;kmod&quot;: 0.8,
+            &quot;gammaM&quot;: 1.3,
+            &quot;densityAssumed&quot;: 450,
+            &quot;note&quot;: &quot;Сопротивления введены как kmod·fk/gammaM; это не полный расчёт устойчивости/кручения/соединений EN1995. Плотность450кг/м³ — заданное допущение.&quot;,
+            &quot;source&quot;: &quot;https://puuinfo.fi/wp-content/uploads/2020/07/ril_205_1_taulukko_33s_paivitys_7_4_2010.pdf&quot;
+          }
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/site/sources/-&quot;,
+          &quot;value&quot;: {
+            &quot;title&quot;: &quot;Finnish reference envelope values · YM1010/2017&quot;,
+            &quot;url&quot;: &quot;https://www.edilex.fi/data/rakentamismaaraykset/YMa_20171010_en.pdf&quot;
+          }
+        }
+      ]
+    }
+  },
+  &quot;revision&quot;: 5,
+  &quot;hash&quot;: &quot;13e75f0abf599ac98099bd1e313aa796520992ad61ebcf8628a6616db2287c9a&quot;,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-146 · КР · два этажа и второй свет&quot;,
+    &quot;area&quot;: 145.68,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 7,
+    &quot;boards&quot;: 1124,
+    &quot;timberVolume&quot;: 28.115676592514184,
+    &quot;timberMass&quot;: 12652.054466631509,
+    &quot;designVerticalLoad&quot;: 1336.063649685329,
+    &quot;piles&quot;: 31,
+    &quot;grillageBoards&quot;: 70,
+    &quot;stockBoards&quot;: 593,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: null,
+    &quot;estimateTotal&quot;: 207709.44,
+    &quot;currency&quot;: &quot;EUR&quot;,
+    &quot;status&quot;: &quot;failed_checks&quot;,
+    &quot;failedChecks&quot;: 6,
+    &quot;unverifiedOrWarningChecks&quot;: 107,
+    &quot;certified&quot;: false
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 fddf93b99f05859d2a4ccf62cf1b36c19906e227d185a81469bba08e5c5aa7af.</small></details></td></tr><tr><td>16</td><td>2026-11-03T00:31:36.144Z</td><td><b>karkas_report</b><small>5 мс · ответ</small></td><td>5</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_report&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;topic&quot;: &quot;checks&quot;,
+      &quot;status&quot;: &quot;fail&quot;,
+      &quot;limit&quot;: 100
+    }
+  },
+  &quot;revision&quot;: 5,
+  &quot;hash&quot;: &quot;13e75f0abf599ac98099bd1e313aa796520992ad61ebcf8628a6616db2287c9a&quot;
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 8e20bd4e532fdf84a197b9aa440ed71a3b35900f2a1dc9f7f55be4afef838696.</small></details></td></tr><tr><td>17</td><td>2026-11-03T00:32:41.129Z</td><td><b>karkas_compare_variants</b><small>2799 мс · ответ</small></td><td>5</td><td>1124 деталей · 593 заготовок<br>6 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_compare_variants&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 5,
+      &quot;variants&quot;: [
+        {
+          &quot;name&quot;: &quot;Опоры≤1.6м / стропила≤0.5м&quot;,
+          &quot;operations&quot;: [
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/foundation/spacing&quot;,
+              &quot;value&quot;: 1.6
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/0/spacing&quot;,
+              &quot;value&quot;: 0.5
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/1/spacing&quot;,
+              &quot;value&quot;: 0.5
+            }
+          ]
+        },
+        {
+          &quot;name&quot;: &quot;Опоры≤1.4м / стропила≤0.5м&quot;,
+          &quot;operations&quot;: [
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/foundation/spacing&quot;,
+              &quot;value&quot;: 1.4
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/0/spacing&quot;,
+              &quot;value&quot;: 0.5
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/1/spacing&quot;,
+              &quot;value&quot;: 0.5
+            }
+          ]
+        },
+        {
+          &quot;name&quot;: &quot;Опоры≤1.6м / стропила≤0.4м&quot;,
+          &quot;operations&quot;: [
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/foundation/spacing&quot;,
+              &quot;value&quot;: 1.6
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/0/spacing&quot;,
+              &quot;value&quot;: 0.4
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/1/spacing&quot;,
+              &quot;value&quot;: 0.4
+            }
+          ]
+        }
+      ]
+    }
+  },
+  &quot;revision&quot;: 5,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-146 · КР · два этажа и второй свет&quot;,
+    &quot;area&quot;: 145.68,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 7,
+    &quot;boards&quot;: 1124,
+    &quot;timberVolume&quot;: 28.115676592514184,
+    &quot;timberMass&quot;: 12652.054466631509,
+    &quot;designVerticalLoad&quot;: 1336.063649685329,
+    &quot;piles&quot;: 31,
+    &quot;grillageBoards&quot;: 70,
+    &quot;stockBoards&quot;: 593,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: null,
+    &quot;estimateTotal&quot;: 207709.44,
+    &quot;currency&quot;: &quot;EUR&quot;,
+    &quot;status&quot;: &quot;failed_checks&quot;,
+    &quot;failedChecks&quot;: 6,
+    &quot;unverifiedOrWarningChecks&quot;: 107,
+    &quot;certified&quot;: false
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 84b0b6bcbdad35629738825849bbebe45b665b2bfa4b0a42a7824868f544fe4a.</small></details></td></tr><tr><td>18</td><td>2026-11-03T00:36:27.178Z</td><td><b>karkas_compare_variants</b><small>3838 мс · ответ</small></td><td>5</td><td>1124 деталей · 593 заготовок<br>6 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_compare_variants&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 5,
+      &quot;variants&quot;: [
+        {
+          &quot;name&quot;: &quot;Балкиростверка≤2м / сваи≤1.8м / стропила≤0.5м&quot;,
+          &quot;operations&quot;: [
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/foundation/spacing&quot;,
+              &quot;value&quot;: 1.8
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/foundation/grillage/girderSpacing&quot;,
+              &quot;value&quot;: 2
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/0/spacing&quot;,
+              &quot;value&quot;: 0.5
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/1/spacing&quot;,
+              &quot;value&quot;: 0.5
+            }
+          ]
+        },
+        {
+          &quot;name&quot;: &quot;Балкиростверка≤2м / сваи≤1.6м / стропила≤0.5м&quot;,
+          &quot;operations&quot;: [
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/foundation/spacing&quot;,
+              &quot;value&quot;: 1.6
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/foundation/grillage/girderSpacing&quot;,
+              &quot;value&quot;: 2
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/0/spacing&quot;,
+              &quot;value&quot;: 0.5
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/1/spacing&quot;,
+              &quot;value&quot;: 0.5
+            }
+          ]
+        },
+        {
+          &quot;name&quot;: &quot;Балкиростверка≤2м / сваи≤1.4м / стропила≤0.5м&quot;,
+          &quot;operations&quot;: [
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/foundation/spacing&quot;,
+              &quot;value&quot;: 1.4
+            },
+            {
+              &quot;op&quot;: &quot;add&quot;,
+              &quot;path&quot;: &quot;/foundation/grillage/girderSpacing&quot;,
+              &quot;value&quot;: 2
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/0/spacing&quot;,
+              &quot;value&quot;: 0.5
+            },
+            {
+              &quot;op&quot;: &quot;replace&quot;,
+              &quot;path&quot;: &quot;/roof/zones/1/spacing&quot;,
+              &quot;value&quot;: 0.5
+            }
+          ]
+        }
+      ]
+    }
+  },
+  &quot;revision&quot;: 5,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-146 · КР · два этажа и второй свет&quot;,
+    &quot;area&quot;: 145.68,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 7,
+    &quot;boards&quot;: 1124,
+    &quot;timberVolume&quot;: 28.115676592514184,
+    &quot;timberMass&quot;: 12652.054466631509,
+    &quot;designVerticalLoad&quot;: 1336.063649685329,
+    &quot;piles&quot;: 31,
+    &quot;grillageBoards&quot;: 70,
+    &quot;stockBoards&quot;: 593,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: null,
+    &quot;estimateTotal&quot;: 207709.44,
+    &quot;currency&quot;: &quot;EUR&quot;,
+    &quot;status&quot;: &quot;failed_checks&quot;,
+    &quot;failedChecks&quot;: 6,
+    &quot;unverifiedOrWarningChecks&quot;: 107,
+    &quot;certified&quot;: false
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 6b1010db47836f7293a7b3a0ed740203ff163b80ea8d6dbd53a8af1aed1b7933.</small></details></td></tr><tr><td>19</td><td>2026-11-03T00:42:46.243Z</td><td><b>karkas_apply_patch</b><small>902 мс · ответ</small></td><td>6</td><td>1140 деталей · 614 заготовок<br>0 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_apply_patch&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;expected_revision&quot;: 5,
+      &quot;operations&quot;: [
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/foundation/spacing&quot;,
+          &quot;value&quot;: 1.8
+        },
+        {
+          &quot;op&quot;: &quot;add&quot;,
+          &quot;path&quot;: &quot;/foundation/grillage/girderSpacing&quot;,
+          &quot;value&quot;: 2
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/roof/zones/0/spacing&quot;,
+          &quot;value&quot;: 0.5
+        },
+        {
+          &quot;op&quot;: &quot;replace&quot;,
+          &quot;path&quot;: &quot;/roof/zones/1/spacing&quot;,
+          &quot;value&quot;: 0.5
+        }
+      ]
+    }
+  },
+  &quot;revision&quot;: 6,
+  &quot;hash&quot;: &quot;d347bc8e89a7ec89b387996b4f50625a9fa47404dff3f5e752c9eea9121273a6&quot;,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-146 · КР · два этажа и второй свет&quot;,
+    &quot;area&quot;: 145.68,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 7,
+    &quot;boards&quot;: 1140,
+    &quot;timberVolume&quot;: 28.550734092449396,
+    &quot;timberMass&quot;: 12847.830341602385,
+    &quot;designVerticalLoad&quot;: 1338.6555220891112,
+    &quot;piles&quot;: 45,
+    &quot;grillageBoards&quot;: 68,
+    &quot;stockBoards&quot;: 614,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: null,
+    &quot;estimateTotal&quot;: 235650.53,
+    &quot;currency&quot;: &quot;EUR&quot;,
+    &quot;status&quot;: &quot;requires_engineering&quot;,
+    &quot;failedChecks&quot;: 0,
+    &quot;unverifiedOrWarningChecks&quot;: 108,
+    &quot;certified&quot;: false
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 c280be86e70bde26b4654cd88da775922230d6010d56d19d9f072fd2801da3f1.</small></details></td></tr><tr><td>20</td><td>2026-11-03T00:43:02.126Z</td><td><b>karkas_analyze</b><small>4 мс · ответ</small></td><td>6</td><td>1140 деталей · 614 заготовок<br>0 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_analyze&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 6
+    }
+  },
+  &quot;revision&quot;: 6,
+  &quot;hash&quot;: &quot;d347bc8e89a7ec89b387996b4f50625a9fa47404dff3f5e752c9eea9121273a6&quot;,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-146 · КР · два этажа и второй свет&quot;,
+    &quot;area&quot;: 145.68,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 7,
+    &quot;boards&quot;: 1140,
+    &quot;timberVolume&quot;: 28.550734092449396,
+    &quot;timberMass&quot;: 12847.830341602385,
+    &quot;designVerticalLoad&quot;: 1338.6555220891112,
+    &quot;piles&quot;: 45,
+    &quot;grillageBoards&quot;: 68,
+    &quot;stockBoards&quot;: 614,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: null,
+    &quot;estimateTotal&quot;: 235650.53,
+    &quot;currency&quot;: &quot;EUR&quot;,
+    &quot;status&quot;: &quot;requires_engineering&quot;,
+    &quot;failedChecks&quot;: 0,
+    &quot;unverifiedOrWarningChecks&quot;: 108,
+    &quot;certified&quot;: false
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 638f88640fb80b50463c31ca982192689063e6c6716e2d02af4e301372ea5e1e.</small></details></td></tr><tr><td>21</td><td>2026-11-03T00:43:02.142Z</td><td><b>karkas_check_envelope</b><small>16 мс · ответ</small></td><td>6</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_check_envelope&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 6
+    }
+  },
+  &quot;revision&quot;: 6
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 52a6692f0b0be5c7fa366a3775be711540fe6885d1baaf2c3a27d97626d1fa1e.</small></details></td></tr><tr><td>22</td><td>2026-11-03T00:43:02.179Z</td><td><b>karkas_snow_cases</b><small>15 мс · ответ</small></td><td>6</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_snow_cases&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 6
+    }
+  },
+  &quot;revision&quot;: 6
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 6073f1d76cb3703c430b2a3d70cdef693b28cc555dd30d4d21c99ae1fc3d4b81.</small></details></td></tr><tr><td>23</td><td>2026-11-03T00:43:02.192Z</td><td><b>karkas_compare_foundations</b><small>3 мс · ответ</small></td><td>6</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_compare_foundations&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 6
+    }
+  },
+  &quot;revision&quot;: 6
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 db9cae903a7046abfd5952b9bbad92f90d6eb892d992537b0a6d6ecc18dff800.</small></details></td></tr><tr><td>24</td><td>2026-11-03T00:43:02.501Z</td><td><b>karkas_export</b><small>308 мс · ответ</small></td><td>6</td><td>report_json, project_json, plan_svg, boards_csv, cutting_csv, estimate_csv, cutting_html, model_obj</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_export&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 6
+    }
+  },
+  &quot;revision&quot;: 6,
+  &quot;hash&quot;: &quot;d347bc8e89a7ec89b387996b4f50625a9fa47404dff3f5e752c9eea9121273a6&quot;,
+  &quot;artifacts&quot;: [
+    {
+      &quot;format&quot;: &quot;report_json&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/report.json&quot;,
+      &quot;bytes&quot;: 10318525,
+      &quot;sha256&quot;: &quot;7ce00cce974c618ad296338c674010f74b2c1a848b4ee49a49329978e2eb5662&quot;
+    },
+    {
+      &quot;format&quot;: &quot;project_json&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/project.json&quot;,
+      &quot;bytes&quot;: 34899,
+      &quot;sha256&quot;: &quot;e84d8994d9efa4b58c3eac1adef04c39ef66ce33087769db76996c0cfe7d8a7c&quot;
+    },
+    {
+      &quot;format&quot;: &quot;plan_svg&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/plan.svg&quot;,
+      &quot;bytes&quot;: 6389,
+      &quot;sha256&quot;: &quot;964545e469fa25de44270294bac1437dd97ca31cef5f9201585088ca7666e1f1&quot;
+    },
+    {
+      &quot;format&quot;: &quot;boards_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/boards.csv&quot;,
+      &quot;bytes&quot;: 327700,
+      &quot;sha256&quot;: &quot;7c97f42df420cd15ef4170abe00ebc7fd2f4869cf598bb34c431ffceca823d9c&quot;
+    },
+    {
+      &quot;format&quot;: &quot;cutting_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/cutting.csv&quot;,
+      &quot;bytes&quot;: 251664,
+      &quot;sha256&quot;: &quot;8b1853f1dd2dbfabb53fa4152c0ee543b79b0fee93b74bccc13d7fb875b0b321&quot;
+    },
+    {
+      &quot;format&quot;: &quot;estimate_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/estimate.csv&quot;,
+      &quot;bytes&quot;: 7886,
+      &quot;sha256&quot;: &quot;cb1281bde23a992fdc63dd32df547abfafe3598e70c9f0745e412f1de8c59464&quot;
+    },
+    {
+      &quot;format&quot;: &quot;cutting_html&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/cutting.html&quot;,
+      &quot;bytes&quot;: 714592,
+      &quot;sha256&quot;: &quot;e988e863b6ee2c1ffabde998e9a45453488fc51278f6c0c4498f47bfb8b2c2de&quot;
+    },
+    {
+      &quot;format&quot;: &quot;model_obj&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/model.obj&quot;,
+      &quot;bytes&quot;: 1569000,
+      &quot;sha256&quot;: &quot;c919a0bf9a7a04de3d423e2d1f9dda2c49c634d81c567bac79cc54474fdc9d4a&quot;
+    }
+  ]
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 6f00c0daf1d25d831d6e08237dc32c284fb4024fab754a04711d680024381301.</small></details></td></tr><tr><td>25</td><td>2026-11-03T00:43:04.116Z</td><td><b>karkas_export</b><small>1614 мс · ответ</small></td><td>6</td><td>structural_pdf</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_export&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 6,
+      &quot;formats&quot;: [
+        &quot;structural_pdf&quot;
+      ]
+    }
+  },
+  &quot;revision&quot;: 6,
+  &quot;hash&quot;: &quot;d347bc8e89a7ec89b387996b4f50625a9fa47404dff3f5e752c9eea9121273a6&quot;,
+  &quot;artifacts&quot;: [
+    {
+      &quot;format&quot;: &quot;structural_pdf&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/structural-album.pdf&quot;,
+      &quot;bytes&quot;: 1207899,
+      &quot;sha256&quot;: &quot;5250f05e571ea8aa2e022b842858c7088631d2bc17b3b22c1c0bfbce0e2fc2a0&quot;
+    }
+  ]
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 c379789176f718fa011c8f55b95579cf4298d1851a666a8da18bad9e4600e859.</small></details></td></tr><tr><td>26</td><td>2026-11-03T00:58:10.712Z</td><td><b>karkas_analyze</b><small>1147 мс · ответ</small></td><td>6</td><td>1140 деталей · 614 заготовок<br>0 превышений</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_analyze&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 6
+    }
+  },
+  &quot;revision&quot;: 6,
+  &quot;hash&quot;: &quot;d347bc8e89a7ec89b387996b4f50625a9fa47404dff3f5e752c9eea9121273a6&quot;,
+  &quot;summary&quot;: {
+    &quot;name&quot;: &quot;HELSINKI L-146 · КР · два этажа и второй свет&quot;,
+    &quot;area&quot;: 145.68,
+    &quot;floors&quot;: 2,
+    &quot;rooms&quot;: 7,
+    &quot;boards&quot;: 1140,
+    &quot;timberVolume&quot;: 28.550157584634064,
+    &quot;timberMass&quot;: 12847.570913085434,
+    &quot;designVerticalLoad&quot;: 1338.6520875208125,
+    &quot;piles&quot;: 45,
+    &quot;grillageBoards&quot;: 68,
+    &quot;stockBoards&quot;: 614,
+    &quot;unplaced&quot;: 0,
+    &quot;estimateRub&quot;: null,
+    &quot;estimateTotal&quot;: 235654.86,
+    &quot;currency&quot;: &quot;EUR&quot;,
+    &quot;status&quot;: &quot;requires_engineering&quot;,
+    &quot;failedChecks&quot;: 0,
+    &quot;unverifiedOrWarningChecks&quot;: 108,
+    &quot;certified&quot;: false
+  }
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 33f04052d79744383f82a8d20101d893eafe98238083e8dd34cf2e9444790332.</small></details></td></tr><tr><td>27</td><td>2026-11-03T00:58:10.714Z</td><td><b>karkas_compare_foundations</b><small>2 мс · ответ</small></td><td>6</td><td>Расчёт / данные</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_compare_foundations&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 6
+    }
+  },
+  &quot;revision&quot;: 6
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 ca558096f92fc76d1feaee5b66188019bf5352ddb90c40484297df928b11aef4.</small></details></td></tr><tr><td>28</td><td>2026-11-03T00:58:12.463Z</td><td><b>karkas_export</b><small>1747 мс · ответ</small></td><td>6</td><td>report_json, project_json, plan_svg, boards_csv, cutting_csv, estimate_csv, cutting_html, model_obj, structural_pdf</td><td><details><summary>Запрос и результат</summary><pre>{
+  &quot;request&quot;: {
+    &quot;name&quot;: &quot;karkas_export&quot;,
+    &quot;arguments&quot;: {
+      &quot;project_id&quot;: &quot;house-feb222a5-b803-4f4d-b79f-158af2904f5a&quot;,
+      &quot;revision&quot;: 6,
+      &quot;formats&quot;: [
+        &quot;report_json&quot;,
+        &quot;project_json&quot;,
+        &quot;plan_svg&quot;,
+        &quot;boards_csv&quot;,
+        &quot;cutting_csv&quot;,
+        &quot;estimate_csv&quot;,
+        &quot;cutting_html&quot;,
+        &quot;model_obj&quot;,
+        &quot;structural_pdf&quot;
+      ]
+    }
+  },
+  &quot;revision&quot;: 6,
+  &quot;hash&quot;: &quot;d347bc8e89a7ec89b387996b4f50625a9fa47404dff3f5e752c9eea9121273a6&quot;,
+  &quot;artifacts&quot;: [
+    {
+      &quot;format&quot;: &quot;report_json&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/report.json&quot;,
+      &quot;bytes&quot;: 10441714,
+      &quot;sha256&quot;: &quot;fbce847ed78ce86e29fd17c03ddefeb72c765879367d26d89437b94702bb6481&quot;
+    },
+    {
+      &quot;format&quot;: &quot;project_json&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/project.json&quot;,
+      &quot;bytes&quot;: 34899,
+      &quot;sha256&quot;: &quot;e84d8994d9efa4b58c3eac1adef04c39ef66ce33087769db76996c0cfe7d8a7c&quot;
+    },
+    {
+      &quot;format&quot;: &quot;plan_svg&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/plan.svg&quot;,
+      &quot;bytes&quot;: 6389,
+      &quot;sha256&quot;: &quot;964545e469fa25de44270294bac1437dd97ca31cef5f9201585088ca7666e1f1&quot;
+    },
+    {
+      &quot;format&quot;: &quot;boards_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/boards.csv&quot;,
+      &quot;bytes&quot;: 334078,
+      &quot;sha256&quot;: &quot;0a3cec4640f73df8ebea594e989a9fe44448dd13d09da2f2958382ca09688f32&quot;
+    },
+    {
+      &quot;format&quot;: &quot;cutting_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/cutting.csv&quot;,
+      &quot;bytes&quot;: 250579,
+      &quot;sha256&quot;: &quot;8ebf35a8815d70b19239c366cb323986235e496979d7c84ebc8c1f717af765ea&quot;
+    },
+    {
+      &quot;format&quot;: &quot;estimate_csv&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/estimate.csv&quot;,
+      &quot;bytes&quot;: 7888,
+      &quot;sha256&quot;: &quot;fd3c19e00c5e112f9fdd20c3110814982b60c2be7cdf9f782adfa262f65b1ece&quot;
+    },
+    {
+      &quot;format&quot;: &quot;cutting_html&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/cutting.html&quot;,
+      &quot;bytes&quot;: 713431,
+      &quot;sha256&quot;: &quot;534113aa0b4402939341d6999a226dc25c553a51a74a638b36543a1ade5a124f&quot;
+    },
+    {
+      &quot;format&quot;: &quot;model_obj&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/model.obj&quot;,
+      &quot;bytes&quot;: 1569000,
+      &quot;sha256&quot;: &quot;8350d658911686eb561a70cdc3978a0d63d566a248987cc9d36fcb87a394fdd1&quot;
+    },
+    {
+      &quot;format&quot;: &quot;structural_pdf&quot;,
+      &quot;path&quot;: &quot;/Users/woipot/Documents/Codex/2026-11-02/x20/work/karkas-data/exports/house-feb222a5-b803-4f4d-b79f-158af2904f5a/r6/structural-album.pdf&quot;,
+      &quot;bytes&quot;: 1214464,
+      &quot;sha256&quot;: &quot;330b0d81864f5e4310ce6daace2c22070db7da08e4bcae3c7e3835c821b9124e&quot;
+    }
+  ]
+}</pre><small>Полный ответ находится в исходном JSONL, запись SHA256 d61c130eb5886e1c099cfbc0252d985097ec96faf2c2889576a650171ada0635.</small></details></td></tr></tbody></table></div><footer>Проект house-feb222a5-b803-4f4d-b79f-158af2904f5a · R6<br>SHA256 проекта d347bc8e89a7ec89b387996b4f50625a9fa47404dff3f5e752c9eea9121273a6<br>SHA256 исходного журнала f000ee9bb18d2c7cb52e25d1adcc8ae0be42a899d3b2b947a552e44c9c49bca4</footer></main></html>

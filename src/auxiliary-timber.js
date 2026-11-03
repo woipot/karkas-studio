@@ -1,0 +1,109 @@
+/** Physical service battens and mono-roof secondary timber; metres / mm / kg. */
+const EPS=1e-7,G=9.80665,finite=Number.isFinite;
+const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
+const dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0),sub=(a,b)=>a.map((v,i)=>v-b[i]);
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const norm=a=>Math.hypot(...a),unit=a=>{const L=norm(a);return L>EPS?a.map(v=>v/L):null;};
+const move=(a,d,t)=>a.map((v,i)=>v+d[i]*t),key=x=>Math.round(x*1e6).toString();
+const section=s=>{const m=typeof s==='string'&&s.match(/^(\d+)\s*[x×]\s*(\d+)$/);return m&&+m[1]>=15&&+m[2]>=+m[1]&&+m[2]<=600?{b:+m[1],h:+m[2]}:null;};
+const inside=(q,p)=>{let hit=false;for(let i=0,j=p.length-1;i<p.length;j=i++){const a=p[i],b=p[j];if((a.y>q.y)!==(b.y>q.y)&&q.x<(b.x-a.x)*(q.y-a.y)/(b.y-a.y)+a.x)hit=!hit;}return hit;};
+const area=p=>Math.abs(p.reduce((s,a,i)=>s+a.x*p[(i+1)%p.length].y-p[(i+1)%p.length].x*a.y,0))/2;
+const square=()=>({scheme:'butt',angle:0});
+const cut=(c,sec)=>c?.scheme==='miter'?{scheme:'miter',angle:c.angle??0,tiltSign:c.tiltSign??1,plane:c.plane??'depth',cutWidthMM:c.plane==='width'?sec.b:sec.h}:square();
+const allowance=(c,h)=>c?.scheme==='miter'?(c.cutWidthMM??h)/2000*Math.tan(Math.abs(c.angle)*Math.PI/180):0;
+export const auxiliaryTimberDefaults=Object.freeze({enabled:false,wallService:'45x45',roofCounter:'50x50',roofBattens:'25x100',roofInternal:'48x148',roofService:'45x45',roofBattenStep:.35,roofInternalStep:.6,roofAboveRafterGap:0});
+export class AuxiliaryTimberInputError extends Error{constructor(field,message){super(message);this.name='AuxiliaryTimberInputError';this.code='INVALID_AUXILIARY_TIMBER';this.details={field};}}
+const invalid=(field,message)=>{throw new AuxiliaryTimberInputError(field,message);};
+
+export function buildAuxiliaryTimber(project,result={}){
+  const supplied=project?.auxiliaryTimber;if(supplied!==undefined&&!object(supplied))invalid('auxiliaryTimber','Нужен объект параметров вспомогательной древесины.');
+  const p={...auxiliaryTimberDefaults,...supplied},out={enabled:p.enabled,instances:[],roofExtraDeadByZone:{},checks:[],warnings:[],assumptions:[],quantities:{count:0,length:0,volume:0,mass:0,weight:0,byRole:{},skippedRoofZoneIds:[]},status:'disabled'};
+  if(typeof p.enabled!=='boolean')invalid('auxiliaryTimber.enabled','enabled должен быть boolean.');
+  if(!finite(p.roofAboveRafterGap)||p.roofAboveRafterGap<0||p.roofAboveRafterGap>.3)invalid('auxiliaryTimber.roofAboveRafterGap','Надстропильный сплошной слой должен быть конечной толщиной от0 до0.3м.');if(!p.enabled)return out;
+  const sections={};for(const k of ['wallService','roofCounter','roofBattens','roofInternal','roofService']){sections[k]=section(p[k]);if(!sections[k])invalid('auxiliaryTimber.'+k,'Некорректное сечение '+k);}
+  for(const k of ['roofBattenStep','roofInternalStep'])if(!finite(p[k])||p[k]<.05||p[k]>3)invalid('auxiliaryTimber.'+k,'Шаг должен быть от0.05 до3м.');
+  const density=project.material?.density;if(!finite(density)||density<=0)invalid('material.density','Нужна конечная положительная плотность древесины.');
+  const geometry=result.geometry??{},levels=geometry.levels??[],boards=result.timber?.instances??[],walls=project.walls??result.walls??[],roof=result.roofModel??{};
+  if(!Array.isArray(boards)||!Array.isArray(walls))invalid('result','Ожидаются массивы стен и физических досок.');
+  const add=(id,name,category,role,sec,a,b,extra={})=>{
+    if(![...a,...b].every(finite))invalid('instances','Координаты должны быть конечными.');const length=norm(sub(b,a));if(length<.005)return null;
+    const cs=extra.cutStart??square(),ce=extra.cutEnd??square(),cutLength=length+allowance(cs,sec.h)+allowance(ce,sec.h),volume=sec.b*sec.h*length/1e6,mass=volume*density;
+    const item={id,name,category,role,b:sec.b,h:sec.h,length,cutLength,actualCutLength:cutLength,volume,netVolume:volume,grossVolume:sec.b*sec.h*cutLength/1e6,mass,start:a,end:b,cutStart:cs,cutEnd:ce,auxiliary:true,requireSingleStock:true,connectionVerified:false,...extra};out.instances.push(item);return item;
+  };
+  // Copy the actual vertical framing intervals, not an invented full-height
+  // stud grid. Overlapping physical stock parts collapse into one service rail.
+  for(const w of walls.filter(w=>w.kind==='exterior')){
+    const L=Math.hypot(w.b.x-w.a.x,w.b.y-w.a.y);if(L<EPS)continue;const u=[(w.b.x-w.a.x)/L,0,(w.b.y-w.a.y)/L],left=[-u[2],0,u[0]];
+    const applicable=w.level!==undefined?[w.level]:[...new Set(boards.filter(b=>b.wallId===w.id).map(b=>b.level??b.floor??1))];
+    for(const level of applicable){
+      const l=levels.find(q=>q.index===level),polygon=l?.polygon??geometry.polygon??[];
+      if(!polygon.length){out.warnings.push(`${w.id}: направление тёплой стороны не определено без замкнутого контура.`);continue;}
+      const midpoint={x:(w.a.x+w.b.x)/2+left[0]*.02,y:(w.a.y+w.b.y)/2+left[2]*.02},exterior=inside(midpoint,polygon)?left.map(v=>-v):left;
+      const profile=geometry.wallProfiles?.find(q=>q.wallId===w.id&&q.level===level&&q.mode==='continuous'),wallSec=section(profile?.section??w.section);if(!wallSec)continue;
+      const osb=project.bracing?.method==='sheathing'&&project.bracing?.sheetSide==='interior'?(project.bracing.thickness??12)/1000:0;
+      const sec=sections.wallService,offset=-(wallSec.h/2000+osb+sec.h/2000),groups=new Map();
+      const owned=boards.filter(b=>b.wallId===w.id&&(b.level??b.floor??1)===level&&['stud','king','jack','cripple','sheathingStud'].includes(b.role)&&Array.isArray(b.start)&&Array.isArray(b.end)&&Math.hypot(b.end[0]-b.start[0],b.end[2]-b.start[2])<1e-5);
+      for(const b of owned){const station=dot(sub(b.start,[w.a.x,0,w.a.y]),u),k=key(station);if(!groups.has(k))groups.set(k,{station,intervals:[]});groups.get(k).intervals.push({a:Math.min(b.start[1],b.end[1]),b:Math.max(b.start[1],b.end[1]),startCut:b.start[1]<=b.end[1]?b.cutStart:b.cutEnd,endCut:b.start[1]<=b.end[1]?b.cutEnd:b.cutStart,sourceIds:[b.id]});}
+      const openings=(project.openings??[]).filter(o=>o.wallId===w.id&&(o.floor??w.level??1)===level),wallBase=l?.wallBaseY??profile?.baseY;
+      for(const {station,intervals} of [...groups.values()].sort((a,b)=>a.station-b.station)){
+        const merged=[];for(const q of intervals.sort((a,b)=>a.a-b.a||a.b-b.b)){const last=merged.at(-1);if(last&&q.a<=last.b+EPS){last.sourceIds.push(...q.sourceIds);if(q.b>last.b){last.b=q.b;last.endCut=q.endCut;}}else merged.push({...q,sourceIds:[...q.sourceIds]});}
+        for(const interval of merged){let parts=[{...interval}];if(finite(wallBase))for(const o of openings){if(station+sec.b/2000<=o.offset+EPS||station-sec.b/2000>=o.offset+o.width-EPS)continue;const a=wallBase+o.sill,b=a+o.height;parts=parts.flatMap(q=>b<=q.a+EPS||a>=q.b-EPS?[q]:[...(a>q.a+EPS?[{...q,b:a,endCut:square()}]:[]),...(b<q.b-EPS?[{...q,a:b,startCut:square()}]:[])]);}
+          for(const q of parts){const at=y=>move([w.a.x+u[0]*station,y,w.a.y+u[2]*station],exterior,offset);add(`AUX-W-${w.id}-L${level}-S${key(station)}-Y${key(q.a)}-${key(q.b)}`,'Сервисная рейка тёплой стороны стены','walls','wallServiceBatten',sec,at(q.a),at(q.b),{wallId:w.id,level,floor:level,crossAxis:u,exteriorNormal:exterior,warmSideOffset:offset,sourceMemberIds:[...new Set(q.sourceIds)],cutStart:cut(q.startCut,sec),cutEnd:cut(q.endCut,sec)});}
+        }
+      }
+    }
+  }
+  const roofMass=new Map();
+  for(const z of roof.zones??[]){
+    const rafters=(roof.instances??[]).filter(b=>b.zoneId===z.id&&b.role==='rafter');
+    const skip=reason=>{out.quantities.skippedRoofZoneIds.push(z.id);out.warnings.push(`${z.name??z.id}: ${reason}`);out.checks.push({id:`auxiliary-${z.id}-geometry`,zoneId:z.id,label:'Вспомогательные доски кровли: геометрия',status:'unverified',note:reason});};
+    if(z.shape!=='mono'||z.effectiveFraming!=='rafters'||rafters.length<2){skip('Поддержаны только прямоугольные односкатные зоны с фактическими параллельными стропилами; фермы/вальмы не дополнены вымышленной обрешёткой.');continue;}
+    const ref=rafters[0],d=unit(sub(ref.end,ref.start)),c0=ref.crossAxis??[1,0,0],ridge=d&&unit(c0.map((v,i)=>v-dot(c0,d)*d[i]));
+    if(!d||!ridge||Math.abs(ridge[1])>1e-5){skip('Не определены ортогональные оси ската и опорных стропил.');continue;}
+    let normal=unit(cross(ridge,d));if(normal[1]<0)normal=normal.map(v=>-v);const length=norm(sub(ref.end,ref.start)),planD=unit([d[0],0,d[2]]),polygon=z.polygon??[];
+    const projected=polygon.map(q=>({u:q.x*ridge[0]+q.y*ridge[2],v:q.x*planD[0]+q.y*planD[2]}));
+    const u0=Math.min(...projected.map(q=>q.u)),u1=Math.max(...projected.map(q=>q.u)),v0=Math.min(...projected.map(q=>q.v)),v1=Math.max(...projected.map(q=>q.v));
+    const rectangular=polygon.length===4&&Math.abs(area(polygon)-(u1-u0)*(v1-v0))<1e-5&&projected.every(q=>(Math.abs(q.u-u0)<1e-5||Math.abs(q.u-u1)<1e-5)&&(Math.abs(q.v-v0)<1e-5||Math.abs(q.v-v1)<1e-5));
+    const parallel=rafters.every(b=>{const axis=unit(sub(b.end,b.start));return axis&&dot(axis,d)>1-1e-6&&Math.abs(norm(sub(b.end,b.start))-length)<1e-5&&Math.abs(dot(sub(b.start,ref.start),d))<1e-5&&Math.abs(dot(sub(b.start,ref.start),normal))<1e-5&&Math.abs(b.h-ref.h)<EPS;});
+    if(!rectangular||!parallel){skip('Косой/частичный скат или неодинаковые стропила: требуется отдельная раскладка по контуру.');continue;}
+    const areaActual=finite(z.surfaceArea)&&z.surfaceArea>0?z.surfaceArea:area(polygon)/Math.hypot(d[0],d[2]);if(!(areaActual>0&&finite(areaActual))){skip('Не определена фактическая площадь ската для добавочного собственного веса.');continue;}
+    const sorted=rafters.map(b=>({board:b,u:dot(b.start,ridge)})).sort((a,b)=>a.u-b.u).filter((b,i,a)=>!i||Math.abs(b.u-a[i-1].u)>EPS);
+    const zoneStart=out.instances.length,level=z.levelIndex??ref.level??ref.floor??1,base={zoneId:z.id,level,floor:level},hasRidgeJoint=rafters.some(b=>b.rafterJointId);
+    const along=(role,label,sec,offset)=>{for(const {board:b}of sorted){
+      const a=move(b.start,normal,offset);let end=move(b.end,normal,offset),endCut=cut(b.cutEnd,sec),joint={};
+      if(b.rafterJointId){
+        // Offset axes no longer end on the rafter's common ridge plane. A
+        // copied miter alone would leave warm-side rails crossing that plane.
+        const N=unit(b.endCutPlane?.normal??planD),point=b.endCutPlane?.point??b.end,denominator=dot(d,N),localDepth=unit(cross(ridge,d));
+        if(Math.abs(denominator)>EPS){const shift=-dot(sub(end,point),N)/denominator;end=move(end,d,shift);const ratio=dot(localDepth,N)/denominator;endCut={scheme:'miter',angle:Math.abs(Math.atan(ratio)*180/Math.PI),tiltSign:Math.sign(ratio)||1,plane:'depth',cutWidthMM:sec.h};joint={rafterJointId:b.rafterJointId,endCutPlane:{point:[...point],normal:N}};}
+      }
+      add(`AUX-R-${z.id}-${role}-${b.id}`,label,'roof',role,sec,a,end,{...base,...joint,crossAxis:ridge,sourceMemberIds:[b.id],roofNormal:normal,normalOffset:offset,cutStart:cut(b.cutStart,sec),cutEnd:endCut});
+    }};
+    along('roofCounterBatten','Контробрешётка над стропилом',sections.roofCounter,ref.h/2000+p.roofAboveRafterGap+sections.roofCounter.h/2000);
+    along('roofServiceBatten','Сервисная рейка под перекрёстным утеплением кровли',sections.roofService,-ref.h/2000-sections.roofInternal.h/1000-sections.roofService.h/2000);
+    const transverse=(role,label,sec,step,offset,crossAxis,alongWidth)=>{
+      if(length<=alongWidth/1000+EPS){skip('Скат слишком короток для принятой ширины поперечной доски.');return;}
+      const margin=alongWidth/2000,depth=unit(cross(crossAxis,ridge)),extent=Math.abs(dot(crossAxis,planD))*sec.b/2000+Math.abs(dot(depth,planD))*sec.h/2000;
+      // The last warm-side transverse row must keep its entire section on its
+      // own side of a shared ridge, rather than only its centreline.
+      const highMargin=hasRidgeJoint?Math.max(margin,(dot(normal,planD)*offset+extent)/dot(d,planD)):margin;
+      const available=length-margin-highMargin;if(available<=EPS){skip('Вспомогательный ряд не помещается перед плоскостью конькового стыка.');return;}
+      const n=Math.max(1,Math.ceil((available-EPS)/step));if(n>2000)invalid('roof.rows','Слишком много рядов вспомогательных досок.');
+      for(let row=0;row<=n;row++){const s=margin+available*row/n;let first=0,part=0;
+        while(first<sorted.length-1){let last=first+1;while(last+1<sorted.length&&sorted[last+1].u-sorted[first].u<=6+EPS)last++;const a=move(move(sorted[first].board.start,d,s),normal,offset),b=move(move(sorted[last].board.start,d,s),normal,offset),startSupport=sorted[first].board.id,endSupport=sorted[last].board.id;
+          add(`AUX-R-${z.id}-${role}-ROW${row}-P${part++}`,label,'roof',role,sec,a,b,{...base,crossAxis,roofNormal:normal,normalOffset:offset,slopeStation:s,supportRafterIds:[startSupport,endSupport],startSupportRafterId:startSupport,endSupportRafterId:endSupport,supportedSpliceStart:first>0,supportedSpliceEnd:last<sorted.length-1,cutStart:{...square(),supportRafterId:startSupport},cutEnd:{...square(),supportRafterId:endSupport}});first=last;
+        }
+      }
+    };
+    transverse('roofBatten','Поперечная кровельная обрешётка',sections.roofBattens,p.roofBattenStep,ref.h/2000+p.roofAboveRafterGap+sections.roofCounter.h/1000+sections.roofBattens.b/2000,normal,sections.roofBattens.h);
+    transverse('roofInternalBatten','Перекрёстная доска внутреннего утепления кровли',sections.roofInternal,p.roofInternalStep,-ref.h/2000-sections.roofInternal.h/2000,d,sections.roofInternal.b);
+    const mass=out.instances.slice(zoneStart).reduce((s,b)=>s+b.mass,0);roofMass.set(z.id,mass);out.roofExtraDeadByZone[z.id]=mass*G/1000/areaActual;
+  }
+  for(const b of out.instances){const q=out.quantities.byRole[b.role]??{count:0,length:0,volume:0,mass:0};q.count++;q.length+=b.length;q.volume+=b.volume;q.mass+=b.mass;out.quantities.byRole[b.role]=q;out.quantities.count++;out.quantities.length+=b.length;out.quantities.volume+=b.volume;out.quantities.mass+=b.mass;}
+  out.quantities.weight=out.quantities.mass*G/1000;out.quantities.roofMassByZone=Object.fromEntries(roofMass);
+  const tooLong=out.instances.filter(b=>b.cutLength>6+EPS);out.checks.push({id:'auxiliary-stock',label:'Вспомогательная древесина: шестиметровые заготовки',status:tooLong.length?'fail':'pass',value:tooLong.length,limit:0,unit:'шт.',note:tooLong.length?'Цельные длинные детали оставлены неразрезанными: опора не выдумана.':'Поперечные доски разорваны только на фактических стропилах; соединения требуют крепёжного решения.'},{id:'auxiliary-connections',label:'Крепление реек и обрешётки',status:'unverified',note:'Саморезы, пролёты самих реек, ветровой отрыв, примыкания у проёмов/углов и опирание обрешётки требуют проектирования.'});
+  if(tooLong.length)out.warnings.push(`${tooLong.length} детали вспомогательной древесины не помещаются в6м без нового опорного решения.`);
+  if(p.roofAboveRafterGap>0){out.checks.push({id:'auxiliary-counter-through-insulation',label:'Контробрешётка над сплошным надстропильным слоем',status:'unverified',note:`Слой ${Math.round(p.roofAboveRafterGap*1000)}мм учтён в положении досок. Смятие слоя, длинные крепления, сдвиг и ветровой отрыв не проверены; непосредственное опирание на стропило не предполагается.`});out.warnings.push('Контробрешётка отделена от стропил сплошным слоем; требуется рассчитанное крепление через этот слой.');}
+  out.assumptions=['Ведомость включает сервисные рейки наружных стен по существующим вертикальным элементам, контробрешётку, поперечную обрешётку, внутренние перекрёстные доски и сервисные рейки прямоугольных односкатных стропильных зон.','Сервисные рейки стен находятся с тёплой стороны, за внутренней OSB при interior. Проёмы вычтены; угловые пакеты и внутренние стены не скопированы как вымышленные рейки.','Стыки поперечных досок расположены только по осям реальных стропил. Обычный торцевой стык не подтверждает передачу усилий или ветрового отрыва.','roofExtraDeadByZone — только вес добавленной кровельной древесины/фактическая площадь ската. Он нужен для частных расчётов кровли; глобально доски уже входят в общий вес, повторно прибавлять его к roofDead нельзя.'];
+  out.status=tooLong.length?'fail':'unverified';return out;
+}

@@ -1,3 +1,5 @@
+import {buildAuxiliaryTimber} from './auxiliary-timber.js';
+import {buildFloorOpenings} from './floor-openings.js';
 import {buildGrillage} from './grillage.js';
 import {analyzeGrillageLoads} from './grillage-loads.js';
 import {buildWallBracing} from './wall-bracing.js';
@@ -148,6 +150,7 @@ export function validateDesignerProject(input){
         if(typeof z.name!=='string'||z.name.length>160)error(f+'.name','Название зоны: строка до 160 символов.');
         if(!['gable','mono','hip'].includes(z.shape))error(f+'.shape','Форма зоны: gable, mono или hip.');
         if(z.framing!==undefined&&!['auto','rafters','truss'].includes(z.framing))error(f+'.framing','Несущая схема: auto, rafters или truss.');
+        if(z.loadSnowFactor!==undefined)range(z.loadSnowFactor,0,4,f+'.loadSnowFactor');
         if(z.deflectionRatio!==undefined)range(z.deflectionRatio,150,600,f+'.deflectionRatio');
         if(!finite(z.ridgeAngle))error(f+'.ridgeAngle','Азимут конька должен быть конечным числом.');
         range(z.pitchLeft,2,60,f+'.pitchLeft');range(z.pitchRight,2,60,f+'.pitchRight');range(z.spacing,.2,3,f+'.spacing');
@@ -164,23 +167,25 @@ export function validateDesignerProject(input){
   if(!object(p.floor))error('floor','Параметры перекрытия должны быть объектом.');
   else{if(!parseSection(p.floor.section))error('floor.section','Некорректное сечение балки.');range(p.floor.spacing,.2,1.2,'floor.spacing');if(!['x','y'].includes(p.floor.axis))error('floor.axis','Направление балок: x или y.');}
   if(!object(p.bracing))error('bracing','Жёсткость стен: требуется объект параметров.');
-  else{if(!['sheathing','letIn','none'].includes(p.bracing.method))error('bracing.method','Схема жёсткости: sheathing, letIn или none.');if(!parseSection(p.bracing.section))error('bracing.section','Некорректное сечение укосины.');for(const [k,a,b]of [['sheetWidth',.3,4],['sheetHeight',.3,6],['thickness',6,40],['sheetDensity',100,1500],['edgeNailSpacing',25,500],['fieldNailSpacing',25,1000]])range(p.bracing[k],a,b,'bracing.'+k);if(p.bracing.designShear!==null&&p.bracing.designShear!==undefined)range(p.bracing.designShear,.01,100,'bracing.designShear');}
+  else{if(p.bracing.sheetSide!==undefined&&!['interior','exterior'].includes(p.bracing.sheetSide))error('bracing.sheetSide','Сторона обшивки: interior/exterior.');if(!['sheathing','letIn','none'].includes(p.bracing.method))error('bracing.method','Схема жёсткости: sheathing, letIn или none.');if(!parseSection(p.bracing.section))error('bracing.section','Некорректное сечение укосины.');for(const [k,a,b]of [['sheetWidth',.3,4],['sheetHeight',.3,6],['thickness',6,40],['sheetDensity',100,1500],['edgeNailSpacing',25,500],['fieldNailSpacing',25,1000]])range(p.bracing[k],a,b,'bracing.'+k);if(p.bracing.designShear!==null&&p.bracing.designShear!==undefined)range(p.bracing.designShear,.01,100,'bracing.designShear');}
   if(object(p.material)){if(p.material.Emin!==undefined&&(!finite(p.material.Emin)||p.material.Emin<=0||p.material.Emin>p.material.E))error('material.Emin','Emin должен быть положительным и не превышать E.');if(p.material.wallDeflectionRatio!==undefined)range(p.material.wallDeflectionRatio,100,600,'material.wallDeflectionRatio');}
   if(object(p.material))for(const [k,a,b] of [['density',100,1500],['E',1000,30000],['Fb',.5,80],['Ft',.5,80],['Fc',.5,100]])range(p.material[k],a,b,'material.'+k);
   if(!object(p.bracing))error('bracing','Жёсткость стен: требуется объект параметров.');
-  else{if(!['sheathing','letIn','none'].includes(p.bracing.method))error('bracing.method','Схема жёсткости: sheathing, letIn или none.');if(!parseSection(p.bracing.section))error('bracing.section','Некорректное сечение укосины.');for(const [k,a,b]of [['sheetWidth',.3,4],['sheetHeight',.3,6],['thickness',6,40],['sheetDensity',100,1500],['edgeNailSpacing',25,500],['fieldNailSpacing',25,1000]])range(p.bracing[k],a,b,'bracing.'+k);if(p.bracing.designShear!==null&&p.bracing.designShear!==undefined)range(p.bracing.designShear,.01,100,'bracing.designShear');}
+  else{if(p.bracing.sheetSide!==undefined&&!['interior','exterior'].includes(p.bracing.sheetSide))error('bracing.sheetSide','Сторона обшивки: interior/exterior.');if(!['sheathing','letIn','none'].includes(p.bracing.method))error('bracing.method','Схема жёсткости: sheathing, letIn или none.');if(!parseSection(p.bracing.section))error('bracing.section','Некорректное сечение укосины.');for(const [k,a,b]of [['sheetWidth',.3,4],['sheetHeight',.3,6],['thickness',6,40],['sheetDensity',100,1500],['edgeNailSpacing',25,500],['fieldNailSpacing',25,1000]])range(p.bracing[k],a,b,'bracing.'+k);if(p.bracing.designShear!==null&&p.bracing.designShear!==undefined)range(p.bracing.designShear,.01,100,'bracing.designShear');}
   if(object(p.material)){if(p.material.Emin!==undefined&&(!finite(p.material.Emin)||p.material.Emin<=0||p.material.Emin>p.material.E))error('material.Emin','Emin должен быть положительным и не превышать E.');if(p.material.wallDeflectionRatio!==undefined)range(p.material.wallDeflectionRatio,100,600,'material.wallDeflectionRatio');}
   if(object(p.material))for(const [k,a,b] of [['Fv',.1,20],['studRestraint',.2,5],['columnK',.5,2]])if(p.material[k]!==undefined)range(p.material[k],a,b,'material.'+k);
   if(object(p.loads))for(const [k,a,b] of [['floorDead',0,20],['live',0,20],['roofDead',0,20],['wallDead',0,20],['openingDead',0,20],['snow',0,20],['wind',0,10],['gammaG',1,2],['gammaQ',1,3]])range(p.loads[k],a,b,'loads.'+k);
   if(object(p.foundation)){
     range(p.foundation.spacing,.5,6,'foundation.spacing');range(p.foundation.capacity,1,1000,'foundation.capacity');
     const g=p.foundation.grillage;if(!object(g))error('foundation.grillage','Ростверк: требуется объект параметров.');else{
+      if(g.girderSpacing!==undefined)range(g.girderSpacing,.5,6,'foundation.grillage.girderSpacing');
       if(!parseSection(g.section))error('foundation.grillage.section','Некорректное сечение доски ростверка.');
       range(g.plies,2,6,'foundation.grillage.plies');if(!Number.isInteger(g.plies))error('foundation.grillage.plies','Число досок в пакете — целое.');
       range(g.deflectionRatio,100,600,'foundation.grillage.deflectionRatio');range(g.capSize,100,1000,'foundation.grillage.capSize');
     }
   }
   if(object(p.prices))for(const [k,v] of Object.entries(p.prices)){
+    if(k==='currency'){if(!['RUB','EUR','USD'].includes(v))error('prices.currency','Валюта: RUB, EUR или USD.');continue;}
     if(k==='sectionPrices'){
       if(!object(v)||Object.keys(v).length>1000)error('prices.sectionPrices','Цены сечений: объект до 1000 позиций.');
       else for(const [id,price] of Object.entries(v)){if(!id||id.length>100)error('prices.sectionPrices','ID сечения должен быть непустой строкой до 100 символов.');range(price,0,1e9,'prices.sectionPrices.'+id);}
@@ -418,13 +423,14 @@ function timberModel(p,graph,corners,bounds,truss,warnings,roofModel){
   if(graph.closed){
     const axis=p.floor.axis,fixed=axis==='y'?'x':'y',along=axis==='y'?'y':'x',min=fixed==='x'?bounds.minX:bounds.minY,max=fixed==='x'?bounds.maxX:bounds.maxY,n=Math.max(1,Math.ceil((max-min)/p.floor.spacing));
     for(let i=0;i<=n;i++){const line=min+(max-min)*i/n;
-      const voidIntervals=(p._voids||[]).flatMap(v=>interiorIntervals(v.polygon,line,axis));
+      const voidIntervals=(p._voids||[]).flatMap(v=>{const half=parseSection(v.edgeSection).b/2000;return interiorIntervals(v.polygon,line,axis).map(([a,b])=>[a-half,b+half]);});
+      for(const opening of p._floorOpenings??[])if(opening.replaceLegacy)for(const t of opening.trimmers??[]){const f=axis==='y'?0:2,a=axis==='y'?2:0;if(Math.abs(line-t.start[f])<(t.b+floorSection.b)/2000-EPS)voidIntervals.push([Math.min(t.start[a],t.end[a]),Math.max(t.start[a],t.end[a])]);}
       for(const [a,z] of subtractIntervals(interiorIntervals(graph.polygon,line,axis),voidIntervals)){
         const breaks=[a,z];for(const w of [...p.walls.filter(w=>w.kind==='bearing'),...(p._grillageBeams??[])]){if(Math.abs(w.b[fixed]-w.a[fixed])<EPS)continue;const t=(line-w.a[fixed])/(w.b[fixed]-w.a[fixed]);if(t>=0&&t<=1){const at=w.a[along]+(w.b[along]-w.a[along])*t;if(at>a+EPS&&at<z-EPS)breaks.push(at);}}
         const sorted=[...new Set(breaks.map(coord))].sort((a,b)=>a-b);for(let j=1;j<sorted.length;j++)for(let f=0;f<p.floors;f++){const aa={x:line,y:sorted[j-1]},zz={x:line,y:sorted[j]};if(axis==='x'){[aa.x,aa.y]=[aa.y,aa.x];[zz.x,zz.y]=[zz.y,zz.x];}const y=base+f*story+floorSection.h/2000;add('Балка перекрытия','floor','joist',floorSection.b,floorSection.h,[aa.x,y,aa.y],[zz.x,y,zz.y],{floor:f+1,crossAxis:axis==='y'?[1,0,0]:[0,0,1]});}
       }
     }
-    for(const v of p._voids||[]){const section=parseSection(v.edgeSection),y=base+floorSection.h/1000-section.h/2000;for(let i=0;i<v.polygon.length;i++){const a=v.polygon[i],z=v.polygon[(i+1)%v.polygon.length],length=dist(a,z),dx=(z.x-a.x)/length,dz=(z.y-a.y)/length;add(v.kind==='doubleHeight'?'Обрамление второго света':'Обрамление проёма перекрытия','floor','voidHeader',section.b,section.h,[a.x,y,a.y],[z.x,y,z.y],{voidId:v.id,floor:1,crossAxis:[-dz,0,dx]});}warnings.push(`Обрамление проёма ${v.id}: соединения, опирание и удвоенные балки требуют отдельного расчёта.`);}
+    for(const v of p._voids||[]){if((p._floorOpenings??[]).some(o=>o.voidId===v.id&&o.replaceLegacy))continue;const section=parseSection(v.edgeSection),y=base+floorSection.h/1000-section.h/2000;for(let i=0;i<v.polygon.length;i++){const a=v.polygon[i],z=v.polygon[(i+1)%v.polygon.length],length=dist(a,z),dx=(z.x-a.x)/length,dz=(z.y-a.y)/length;add(v.kind==='doubleHeight'?'Обрамление второго света':'Обрамление проёма перекрытия','floor','voidHeader',section.b,section.h,[a.x,y,a.y],[z.x,y,z.y],{voidId:v.id,floor:1,crossAxis:[-dz,0,dx]});}warnings.push(`Обрамление проёма ${v.id}: соединения, опирание и удвоенные балки требуют отдельного расчёта.`);}
   }
   for(const o of p.objects){const {b,h}=parseSection(o.section),y=base+platform+(o.elevation??(o.type==='beam'?p.height:0));if(o.type==='post')add('Отдельная стойка','objects','post',b,h,[o.a.x,y,o.a.y],[o.a.x,y+(o.height??p.height),o.a.y],{objectId:o.id});else{const len=dist(o.a,o.b),dx=(o.b.x-o.a.x)/len,dz=(o.b.y-o.a.y)/len;add('Отдельная балка','objects','customBeam',b,h,[o.a.x,y,o.a.y],[o.b.x,y,o.b.y],{objectId:o.id,crossAxis:[-dz,0,dx]});}}
   if(p.objects.length)warnings.push('Отдельные стойки и балки включены в массу, но не считаются автоматическими опорами перекрытия; передача нагрузки и узлы требуют задания.');
@@ -479,9 +485,20 @@ function pileField(p,geometry,walls,timber,loads,grillageModel){
     for(const q of samples){distribute(q,da*p.loads.floorDead,p.loads.gammaG,da);distribute(q,da*p.loads.live,p.loads.gammaQ);}
   }
   const exterior=walls.filter(w=>w.kind==='exterior'),perimeter=sum(exterior.map(w=>w.length));
-  // Concept roof load follows the exterior outline; no hidden assumption that
-  // every irregular roof has a solved ridge/support scheme.
-  for(const w of exterior){const n=Math.max(1,Math.ceil(w.length/.5));for(let i=0;i<n;i++){const q=lerp(w.a,w.b,(i+.5)/n),share=w.length/(perimeter*n);distribute(q,loads.roofWeight*share,p.loads.gammaG);distribute(q,loads.snow*share,p.loads.gammaQ);}}
+  // For rectangular standalone rafter zones, transfer vertical gravity at the
+  // real rafter ends with actual edge tributaries. Asymmetric snow therefore
+  // follows its own zone instead of being spread around the entire perimeter.
+  let assignedRoof=0,assignedSnow=0;
+  for(const z of loads.roofZones??[]){
+    const rafters=(loads.rawRoofInstances??[]).filter(b=>b.zoneId===z.id&&b.role==='rafter');
+    if(z.effectiveFraming!=='rafters'||!z.analysisApplicable||!rafters.length)continue;
+    const theta=z.ridgeAngle*Math.PI/180,u=q=>q[0]*Math.cos(theta)+q[2]*Math.sin(theta),rows=rafters.map(b=>({b,at:(u(b.start)+u(b.end))/2})).sort((a,b)=>a.at-b.at),min=z.bounds.minU,max=z.bounds.maxU,span=max-min;
+    const wood=sum(timber.instances.filter(b=>b.category==='roof'&&b.zoneId===z.id).map(b=>b.mass))*G/1000,dead=z.surfaceArea*p.loads.roofDead+wood,snow=p.loads.snow*z.snowEffectiveArea;
+    for(let i=0;i<rows.length;i++){const lo=i?(rows[i-1].at+rows[i].at)/2:min,hi=i<rows.length-1?(rows[i].at+rows[i+1].at)/2:max,share=(hi-lo)/span;for(const end of [rows[i].b.start,rows[i].b.end]){const q={x:end[0],y:end[2]};distribute(q,dead*share/2,p.loads.gammaG);distribute(q,snow*share/2,p.loads.gammaQ);}}
+    assignedRoof+=dead;assignedSnow+=snow;
+  }
+  const remainingRoof=loads.roofWeight-assignedRoof,remainingSnow=loads.snow-assignedSnow;
+  if(Math.abs(remainingRoof)>EPS||Math.abs(remainingSnow)>EPS)for(const w of exterior){const n=Math.max(1,Math.ceil(w.length/.5));for(let i=0;i<n;i++){const q=lerp(w.a,w.b,(i+.5)/n),share=w.length/(perimeter*n);distribute(q,remainingRoof*share,p.loads.gammaG);distribute(q,remainingSnow*share,p.loads.gammaQ);}}
   for(const row of loads.wallLineLoads){const w=walls.find(w=>w.id===row.wallId);if(!w)continue;const n=Math.max(1,Math.ceil(w.length/.5));for(let i=0;i<n;i++)distribute(lerp(w.a,w.b,(i+.5)/n),row.weight/n,p.loads.gammaG);}
   if(loads.gableWeight)for(const w of exterior){const n=Math.max(1,Math.ceil(w.length/.5));for(let i=0;i<n;i++)distribute(lerp(w.a,w.b,(i+.5)/n),loads.gableWeight*w.length/(perimeter*n),p.loads.gammaG);}
   const panels=loads.structuralPanels??[],panelArea=sum(panels.map(q=>q.area??0));
@@ -516,10 +533,11 @@ export function calculateDesigner(input,{truss,roofModel}={}){
   const gableArea=finite(roofModel?.gableArea)?roofModel.gableArea:roofModel?0:roofLevel&&roofRect&&!['none','mono'].includes(p.roof.type)?roofLevel.bounds.height**2/2*Math.tan(p.roof.pitch*Math.PI/180):0;
   geometry.gableArea=gableArea;geometry.grossWallArea=sum(walls.filter(w=>w.kind==='exterior').map(w=>w.grossArea))+gableArea;geometry.netWallArea=geometry.grossWallArea-exteriorOpeningArea;geometry.openingArea=openingArea;geometry.exteriorOpeningArea=exteriorOpeningArea;geometry.innerWallArea=innerGross-(openingArea-exteriorOpeningArea);
   const grillageModel=buildGrillage(p,{geometry,walls});
+  const floorOpenings=buildFloorOpenings(p,{geometry,walls});
   const corners=levelModels.flatMap(l=>cornerData(p,l.graph,l.index));warnings.push(...corners.filter(c=>c.warning).map(c=>c.warning));
   const timberParts=levelModels.map(level=>{
     const includeRoof=level.index===roofLevel?.index;
-    const local={...p,height:level.height,floors:1,_baseY:level.baseY,_levelIndex:level.index,_wallProfiles:wallProfiles.filter(q=>q.level===level.index),_voids:level.voids,_grillageBeams:level.index===1?grillageModel.beams:[],walls:level.walls,openings:p.openings.filter(o=>{const wall=p.walls.find(w=>w.id===o.wallId);return (o.floor??wall?.level??1)===level.index;}).map(o=>({...o,floor:1})),objects:p.objects.filter(o=>(o.level??1)===level.index),roof:includeRoof?p.roof:{...p.roof,type:'none'}};
+    const local={...p,height:level.height,floors:1,_baseY:level.baseY,_levelIndex:level.index,_wallProfiles:wallProfiles.filter(q=>q.level===level.index),_voids:level.voids,_grillageBeams:level.index===1?grillageModel.beams:[],_floorOpenings:floorOpenings.openings.filter(o=>o.level===level.index),walls:level.walls,openings:p.openings.filter(o=>{const wall=p.walls.find(w=>w.id===o.wallId);return (o.floor??wall?.level??1)===level.index;}).map(o=>({...o,floor:1})),objects:p.objects.filter(o=>(o.level??1)===level.index),roof:includeRoof?p.roof:{...p.roof,type:'none'}};
     const model=timberModel(local,level.graph,corners.filter(c=>c.level===level.index),level.bounds,includeRoof?truss:undefined,warnings,includeRoof?roofModel:undefined);
     for(const board of model.instances){const ownLevel=board.category==='roof'&&(Number.isInteger(board.floor)||Number.isInteger(board.level))?(board.floor??board.level):level.index;board.level=ownLevel;board.floor=ownLevel;}
     model.braceBays=model.braceBays.map(b=>({...b,floor:level.index,level:level.index}));return model;
@@ -528,9 +546,13 @@ export function calculateDesigner(input,{truss,roofModel}={}){
   let timber=mergeTimber([...timberParts,grillageTimber],p);const checks=[...(grillageModel.checks??[])];warnings.push(...(grillageModel.warnings??[]));
   const bracingModel=buildWallBracing(p,{geometry,walls,timber,roofModel});
   for(const notch of bracingModel.notches??[]){const board=timber.instances.find(b=>b.id===notch.boardId);if(!board)continue;const removed=Math.min(board.volume,Math.max(0,notch.volume??0));board.volume-=removed;board.netVolume=board.volume;board.mass=board.volume*p.material.density;(board.notches??=[]).push(...(notch.cuts??[notch]).map(c=>({...c,removedVolume:c.volume??0})));}
-  const added=timberModel({...p,walls:[],openings:[],objects:[],floors:1,roof:{...p.roof,type:'none'},_extraInstances:bracingModel.instances??[]},{closed:false},[],bounds,undefined,warnings,undefined);
+  const added=timberModel({...p,walls:[],openings:[],objects:[],floors:1,roof:{...p.roof,type:'none'},_extraInstances:[...(bracingModel.instances??[]),...(floorOpenings.instances??[])]},{closed:false},[],bounds,undefined,warnings,undefined);
   timber=mergeTimber([{...timber,braceBays:[]},added],p);
+  checks.push(...(floorOpenings.checks??[]));warnings.push(...(floorOpenings.warnings??[]));
   checks.push(...(bracingModel.checks??[]));warnings.push(...(bracingModel.warnings??[]));
+  const auxiliaryTimber=buildAuxiliaryTimber(p,{geometry,walls,timber,roofModel});
+  if(auxiliaryTimber.instances.length){const extra=timberModel({...p,walls:[],openings:[],objects:[],floors:1,roof:{...p.roof,type:'none'},_extraInstances:auxiliaryTimber.instances},{closed:false},[],bounds,undefined,warnings,undefined);timber=mergeTimber([timber,extra],p);}
+  checks.push(...(auxiliaryTimber.checks??[]));warnings.push(...(auxiliaryTimber.warnings??[]));
   const fullHeightWalls=checkFullHeightWalls(p,{timber,geometry,bracingModel},roofModel);checks.push(...fullHeightWalls.checks);warnings.push(...fullHeightWalls.walls.flatMap(w=>w.warnings??[]));
   if(bracingModel.notches?.length){fullHeightWalls.capacityPass=false;checks.push({id:'full-wall-notches',label:'Вырезы стоек под врезные укосины',status:'unverified',note:'Масса выборок учтена. Несущая способность ослабленных сечений и крепления укосин требуют отдельного расчёта.'});}
 
@@ -556,7 +578,7 @@ export function calculateDesigner(input,{truss,roofModel}={}){
     'Физические стыки длинных досок не добавляют шарниры или жёсткость в расчёт фермы: её FEM-модель остаётся идеальной неразрезной по стержням. Геометрическое наращивание не подтверждает передачу усилий.',
     'При наращивании halfLap/scarf геометрические части перекрываются на lapLength; из массы каждого конца вычитается половина объёма нахлёста. Накладки fishplate — отдельные доски. Закупочный объём считается по полным cutLength, не по чистой массе.',
   ];
-  assumptions.push(...(grillageModel.assumptions??[]),...fullHeightWalls.assumptions,...(bracingModel.assumptions??[]));
+  assumptions.push(...(auxiliaryTimber.assumptions??[]),...(floorOpenings.assumptions??[]),...(grillageModel.assumptions??[]),...fullHeightWalls.assumptions,...(bracingModel.assumptions??[]));
   let loads=null,piles=[],foundation=null;
   if(graph.closed){
     const A=graph.area,F=p.floors,mu=p.roof.pitch<=30?.8:.8*(60-p.roof.pitch)/30,roofArea=p.roof.type==='none'?0:finite(roofModel?.area)?roofModel.area:(roofLevel?.area??A)/Math.cos(p.roof.pitch*Math.PI/180),projectedRoofArea=finite(roofModel?.projectedArea)?roofModel.projectedArea:roofLevel?.area??A;
@@ -566,11 +588,11 @@ export function calculateDesigner(input,{truss,roofModel}={}){
     const wallLineLoads=walls.map(w=>({wallId:w.id,weight:(w.grossArea-w.openingArea)*p.loads.wallDead+w.openingArea*p.loads.openingDead}));
     const roofMassIncluded=timber.roofGeometryAvailable||p.roof.type==='none',complete=roofMassIncluded&&geometry.areaComplete;
     const facadeArea=axis=>Math.max(...[1,-1].map(sign=>sum(walls.filter(w=>w.kind==='exterior').map(w=>{const normal=axis==='x'?(w.b.y-w.a.y)/w.length:-(w.b.x-w.a.x)/w.length;return w.grossArea*Math.max(0,sign*normal);}))))+gableArea;
-    loads={rows,structuralPanelWeight,structuralPanels:bracingModel.panels??[],dead,live,snow,mu,roofArea,projectedRoofArea,floorArea:geometry.totalFloorArea,roofWeight:roofLayers+timber.totals.roof.weight,wallWeight,innerWallWeight,openingWeight,gableWeight,wallLineLoads,timberWeight:timber.weight,totalCharacteristic:dead+live+snow,totalDesign:dead*p.loads.gammaG+(live+snow)*p.loads.gammaQ,windForceX:p.loads.wind*facadeArea('x'),windForceY:p.loads.wind*facadeArea('y'),complete,roofMassIncluded,missingLoads:[...(!roofMassIncluded?['Древесина кровли не сформирована.']:[]),...(!geometry.areaComplete?['Не все контуры этажей замкнуты.']:[])]};
+    loads={rows,roofZones:roofModel?.zones??[],rawRoofInstances:roofModel?.instances??[],structuralPanelWeight,structuralPanels:bracingModel.panels??[],dead,live,snow,mu,roofArea,projectedRoofArea,floorArea:geometry.totalFloorArea,roofWeight:roofLayers+timber.totals.roof.weight,wallWeight,innerWallWeight,openingWeight,gableWeight,wallLineLoads,timberWeight:timber.weight,totalCharacteristic:dead+live+snow,totalDesign:dead*p.loads.gammaG+(live+snow)*p.loads.gammaQ,windForceX:p.loads.wind*facadeArea('x'),windForceY:p.loads.wind*facadeArea('y'),complete,roofMassIncluded,missingLoads:[...(!roofMassIncluded?['Древесина кровли не сформирована.']:[]),...(!geometry.areaComplete?['Не все контуры этажей замкнуты.']:[])]};
     ({piles,foundation}=pileField(p,geometry,walls,timber,loads,grillageModel));
     checks.push(...(grillageModel.loadChecks??[]));
     checks.push({id:'verticalBalance',label:'Баланс вертикальных сил',status:Math.abs(foundation.balanceError)<1e-6?'pass':'fail',value:Math.abs(foundation.balanceError),limit:1e-6,unit:'кН'},{id:'pileCapacity',label:'Вертикальная реакция опоры',status:foundation.utilization>1?'fail':'warning',value:foundation.maxReaction,limit:p.foundation.capacity,unit:'кН',utilization:foundation.utilization});
-    geometry.roofArea=roofArea;
+    geometry.roofArea=roofArea;delete loads.roofZones;delete loads.rawRoofInstances;
   }
   if(truss&&!roofModel){
     checks.push(...(Array.isArray(truss.checks)?truss.checks.map(c=>({...c,id:'truss-'+c.id})):[]));
@@ -579,5 +601,5 @@ export function calculateDesigner(input,{truss,roofModel}={}){
   }
   if(roofModel){if(Array.isArray(roofModel.checks))checks.push(...roofModel.checks.map(c=>({...c,id:'roof-'+c.id})));if(roofModel.status==='fail')checks.push({id:'roofZonesSolution',label:'Зонная модель кровли',status:'fail',note:'Кровля содержит невыполненные частные проверки.'});warnings.push(...(roofModel.warnings||[]));assumptions.push(...(roofModel.assumptions||[]));}
   checks.push({id:'roofSystem',label:'Покрытие и опирание кровли',status:'unverified',note:'Геометрия не подтверждает опирание ферм и устойчивость кровли.'},{id:'lateralStability',label:'Пространственная устойчивость',status:'unverified',note:'Связи, узлы, диафрагмы, ростверк и грунт требуют отдельных проверок.'});
-  return {project:p,validation,geometry,walls,corners,grillageModel,fullHeightWalls,bracingModel,graph:{nodes:levelModels.flatMap(l=>l.graph.nodes.map(({edges,...n})=>({...n,id:l.index===1?n.id:'j_'+l.index+'_'+nodeKey(n.point),level:l.index,degree:edges.length}))),edges:levelModels.flatMap(l=>l.graph.edges.map(e=>({...e,level:l.index})))},timber,splices:timber.splices,loads,piles,foundation,checks,warnings:[...new Set(warnings)],assumptions,roofModel:roofModel??null,status:!graph.closed?'open':checks.some(c=>c.status==='fail')?'fail':'unverified'};
+  return {project:p,validation,geometry,walls,corners,grillageModel,floorOpenings,auxiliaryTimber,fullHeightWalls,bracingModel,graph:{nodes:levelModels.flatMap(l=>l.graph.nodes.map(({edges,...n})=>({...n,id:l.index===1?n.id:'j_'+l.index+'_'+nodeKey(n.point),level:l.index,degree:edges.length}))),edges:levelModels.flatMap(l=>l.graph.edges.map(e=>({...e,level:l.index})))},timber,splices:timber.splices,loads,piles,foundation,checks,warnings:[...new Set(warnings)],assumptions,roofModel:roofModel??null,status:!graph.closed?'open':checks.some(c=>c.status==='fail')?'fail':'unverified'};
 }

@@ -44,3 +44,6 @@ test('malformed site, nonfinite demand and inconsistent pile summaries fail expl
 test('comparison is deterministic, serializable and never mutates source projects or calculated reactions',()=>{
   const x={...sample(),site:{soilProfile:'dense-granular',vibrationSensitive:false,boulders:false}},before=JSON.stringify(x),a=compareFoundationOptions(x.project,x.result,x.site),b=compareFoundationOptions(x.project,x.result,x.site);assert.deepEqual(a,b);assert.equal(JSON.stringify(x),before);assert.doesNotThrow(()=>JSON.stringify(a));
 });
+
+
+test('unknown Russian site does not default to a Finnish RD product family',()=>{const {project,result}=sample();project.site={country:'RU'};const r=compareFoundationOptions(project,result);assert.equal(r.provisionalChoice.type,null);assert.equal(r.provisionalChoice.status,'unverified');assert.ok(r.candidates.every(c=>c.designResistance===null));});

@@ -353,7 +353,7 @@ class Album:
         if openings:
             self.table_pages('Проёмы · ведомость окон и дверей', [('ID проёма', .2, 'mono'), ('Стена', .12), ('Тип / этаж', .12), ('От A, мм', .12), ('Ширина, мм', .12), ('Высота, мм', .12), ('Низ от основания стены, мм', .2)], [[o.get('id'), self.wall_names.get(str(o.get('wallId')), o.get('wallId')), ('Дверь' if o.get('type') == 'door' else 'Окно') + f' / {o.get("floor", o.get("level", "-"))}', number(finite(o.get('offset')) * 1000, 0), number(finite(o.get('width')) * 1000, 0), number(finite(o.get('height')) * 1000, 0), number(finite(o.get('sill')) * 1000, 0)] for o in openings], 'Отступ измеряется вдоль локальной оси стены A → B. Конструктивные перемычки и опорные стойки - на фасадах каркаса.', 8)
         if self.planning.get('rooms'):
-            self.table_pages('Помещения · экспликация', [('ID', .2, 'mono'), ('Этаж', .1), ('Наименование', .45), ('Площадь, м²', .25)], [[room.get('id'), room.get('level', room.get('floor')), room.get('name'), number(room.get('area'), 3)] for room in self.planning['rooms']], 'Экспликация из планировочных данных отчёта; площади помещений не пересчитываются рендерером.', 8)
+            self.table_pages('Помещения · экспликация', [('ID', .16, 'mono'), ('Этаж', .07), ('Наименование', .33), ('Площадь, м²', .15), ('Чистые габариты, м', .29)], [[room.get('id'), room.get('level', room.get('floor')), room.get('name'), number(room.get('area'), 3), self.room_dimensions(room)] for room in self.planning['rooms']], 'Площади из отчёта; чистые габариты - между гранями полигонов помещений. Расстановка мебели не добавляет расчётную массу.', 8)
         self.add('Свайное поле', 'piles', subtitle='Положение и расчётные реакции по модели. Несущая способность грунта не подтверждена геологией.')
         self.add('Ростверк · общий план и уровни', 'grillage')
         alignment_nodes = self.platform_alignment_nodes()
@@ -425,8 +425,12 @@ class Album:
         zones = self.roof.get('zones') or []
         for i in range(0, len(zones), 2):
             self.add('Кровля · несущие схемы и разрезы', 'roofsections', zones[i:i + 2], 'Показана геометрия фактических элементов. Опорные узлы и крепёж не подтверждены.')
-        self.add('Разрез здания через второй свет', 'section', subtitle='Отметки по фактической модели; пересечение выбрано через пустоту перекрытия.')
+        has_second_light = any(v.get('kind') == 'doubleHeight' for v in self.p.get('voids') or [])
+        self.add('Разрез здания через второй свет' if has_second_light else 'Разрез здания', 'section', subtitle='Отметки по фактической модели; пересечение выбрано через пустоту перекрытия.' if has_second_light else 'Пересечение стен, платформы и кровли фактической модели.')
         self.add('Типовые узлы · геометрия сборки', 'details', subtitle='ГЕОМЕТРИЯ. Крепёж, анкеры, опирание и совместная работа отдельно не рассчитаны.')
+        for junction in (self.p.get('envelope') or {}).get('junctionDetails') or []:
+            if isinstance(junction, dict) and junction.get('kind') == 'insulatedTwoStud':
+                self.add('Утепляемый двухстоечный угол · непрерывность слоёв', 'insulatedcorner', junction, 'Схема сопряжения каркаса и оболочки. Герметичность, тепловой мост и рабочие соединения не подтверждены.')
         bracing = self.r.get('bracingModel') or {}
         if bracing.get('wallLines'):
             rows = [[self.wall_names.get(str(w.get('wallId')), w.get('wallId')), w.get('level'), number(w.get('length'), 3), number(w.get('availableLength'), 3), number(w.get('demandShear'), 3), number(w.get('designShear'), 3), number(w.get('capacity'), 3), number(w.get('utilization'), 3), '; '.join(clean(q.get('note') or q.get('label')) for q in w.get('checks', []))] for w in bracing['wallLines']]
@@ -535,6 +539,14 @@ class Album:
         if q.get('utilization') is not None:
             out += '\nη = ' + number(q['utilization'], 4)
         return out
+
+    def room_dimensions(self, room):
+        poly = [xy(p) for p in room.get('polygon') or []]
+        if len(poly) < 3: return '-'
+        a, b, d, e = bounds(poly)
+        area = abs(sum(p[0] * q[1] - q[0] * p[1] for p, q in zip(poly, poly[1:] + poly[:1]))) / 2
+        if abs(area - (d - a) * (e - b)) > 1e-7: return 'Непрямоугольная форма · см. полигон на плане'
+        return number(d - a, 3) + ' × ' + number(e - b, 3)
 
     def application_summary(self, group):
         totals = collections.OrderedDict()
@@ -663,7 +675,8 @@ class Album:
         text(c, f'Проект: {self.engine.get("projectId", "-")}   Ревизия: {self.engine.get("revision", "-")}   Схема: {self.engine.get("schemaVersion", "-")}', x, meta_y - 18, 8)
         text(c, f'Создан: {self.engine.get("generatedAt", "-")}   Движок: {self.engine.get("version", "-")}', x, meta_y - 34, 8)
         text(c, 'SHA-256: ' + clean(self.engine.get('hash')), x, meta_y - 51, 7.8, 'Mono')
-        text(c, 'Принятые исходные Eurocode / Finnish National Annex отображаются из отчёта площадки. Полное нормативное соответствие не подтверждено.', 45, 98, 8, color=ORANGE, width=W - 100)
+        basis = site.get('jurisdiction') or site.get('designBasis') or 'Нормативная база в исходном отчёте не задана.'
+        text(c, 'Принятые исходные: ' + clean(basis) + ' Полное нормативное соответствие не подтверждено.', 45, 98, 8, color=ORANGE, width=W - 100)
 
     def draw_iso(self, c, box):
         def project(p):
@@ -852,8 +865,10 @@ class Album:
                 text(c, annex.get('name', annex.get('id')), *fn(((a + d) / 2, (b + e) / 2)), 7.5, 'Bold', GREEN, width=100)
         c.setDash([5, 3]); polygon(c, [fn(p) for p in pts], None, MUTED, .55); c.setDash([])
         if axes:
-            xs = sorted(set(round(p[0], 4) for p in axispts))
-            ys = sorted(set(round(p[1], 4) for p in axispts))
+            # Face-trimmed partition endpoints are not coordinate axes. Their
+            # 49/99 mm offsets otherwise create false grids and unreadable dots.
+            xs = sorted(set(round(p[0], 4) for p in pts))
+            ys = sorted(set(round(p[1], 4) for p in pts))
             a, b, d, e = bounds(axispts)
             for n, xx in enumerate(xs):
                 aa, bb = fn((xx, b)), fn((xx, e))
@@ -870,6 +885,9 @@ class Album:
             for y1, y2 in zip(ys, ys[1:]):
                 dimension(c, fn((a, y1)), fn((a, y2)), 49, number((y2 - y1) * 1000, 0))
             dimension(c, fn((a, e)), fn((d, e)), 28, number((d - a) * 1000, 0))
+            if wall_faces and platform_pts:
+                pa, pb, pc, pd = bounds(platform_pts)
+                dimension(c, fn((pa, pd)), fn((pc, pd)), 55, number((pc - pa) * 1000, 0) + ' · наружные грани каркаса')
         if rooms:
             for i, room in enumerate(self.planning.get('rooms') or []):
                 if int(room.get('level', room.get('floor', 1))) != int(level_index):
@@ -880,6 +898,10 @@ class Album:
                 polygon(c, [fn(p) for p in rp], colors.Color(.85, .9, .79, alpha=.22), LINE, .4)
                 center = (sum(p[0] for p in rp) / len(rp), sum(p[1] for p in rp) / len(rp))
                 exclusions = []
+                for fixture in room.get('fixtures') or []:
+                    fp = [xy(p) for p in fixture.get('polygon') or []]
+                    if len(fp) >= 3:
+                        exclusions.append(bounds(fp))
                 for void in self.p.get('voids') or []:
                     if int(void.get('level', 2)) == int(level_index):
                         exclusions.append(bounds([xy(p) for p in void.get('polygon', [])]))
@@ -902,9 +924,20 @@ class Album:
                                 candidates.append(((xb - xa) * (yb - ya), point))
                     if candidates:
                         center = max(candidates)[1]
+                supplied = room.get('labelPoint')
+                if supplied and inside_polygon(xy(supplied), rp):
+                    center = xy(supplied)
+                self.draw_room_fixtures(c, room, fn, scale)
                 xx, yy = fn(center)
-                label_y = text(c, room.get('name', f'Помещение {i + 1}'), xx - 47, yy + 4, 8, 'Bold', width=100)
-                text(c, number(room.get('area'), 2) + ' м²', xx - 30, label_y - 4, 8, color=MUTED)
+                ra, rb, rd, re_ = bounds(rp)
+                label_width = max(75, min(125, (rd - ra) * scale * .8))
+                caption = next((room.get(key) for key in ('planLabel', 'shortName', 'name') if isinstance(room.get(key), str) and room.get(key).strip()), f'Помещение {i + 1}')
+                label_lines = wrap(caption, label_width, 'Bold', 8)
+                label_y = yy + 4
+                for label in label_lines:
+                    tw = pdfmetrics.stringWidth(label, 'Bold', 8); text(c, label, xx - tw / 2, label_y, 8, 'Bold'); label_y -= 10.3
+                area_label = number(room.get('area'), 2) + ' м²'; tw = pdfmetrics.stringWidth(area_label, 'Body', 8)
+                text(c, area_label, xx - tw / 2, label_y - 4, 8, color=MUTED)
         for void in self.p.get('voids') or []:
             if int(void.get('level', 2)) != int(level_index):
                 continue
@@ -960,6 +993,7 @@ class Album:
         if wall_faces:
             for wall in walls:
                 line(c, fn(xy(wall['a'])), fn(xy(wall['b'])), MUTED, .5, [5, 3])
+            self.draw_door_swings(c, level_index, fn)
         stair = self.p.get('staircase') or {}
         actual_stairs = self.spatial.get('staircases') or []
         if actual_stairs:
@@ -967,6 +1001,76 @@ class Album:
         elif stair and int(level_index) in (int(stair.get('levelFrom', 1)), int(stair.get('levelTo', 2))):
             self.draw_stair_plan(c, stair, fn, show_note=stair_note)
         return fn, scale
+
+    def draw_room_fixtures(self, c, room, fn, scale):
+        grouped = collections.OrderedDict()
+        for fixture in room.get('fixtures') or []:
+            key = 'stack:' + clean(fixture['stackGroup']) if fixture.get('stackGroup') else 'id:' + clean(fixture.get('id'))
+            if key in grouped:
+                old = grouped[key]
+                if {old.get('kind'), fixture.get('kind')} == {'washer', 'dryer'}:
+                    old['label'] = 'СМ + СШ'
+                else:
+                    old['label'] = clean(old.get('label') or old.get('kind')) + ' + ' + clean(fixture.get('label') or fixture.get('kind'))
+            else:
+                grouped[key] = dict(fixture)
+        for fixture in grouped.values():
+            pts = [xy(p) for p in fixture.get('polygon') or []]
+            if len(pts) < 3: continue
+            i = int(finite(fixture.get('frontEdge'))) % len(pts); a, b = pts[i], pts[(i + 1) % len(pts)]
+            width = math.dist(a, b)
+            if width < 1e-9: continue
+            u = ((b[0] - a[0]) / width, (b[1] - a[1]) / width)
+            center = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+            sign = 1 if (center[0] - a[0]) * -u[1] + (center[1] - a[1]) * u[0] >= 0 else -1
+            v = (-u[1] * sign, u[0] * sign); depth = max((p[0] - a[0]) * v[0] + (p[1] - a[1]) * v[1] for p in pts)
+            at = lambda x, y: fn((a[0] + x * u[0] + y * v[0], a[1] + x * u[1] + y * v[1]))
+            def seg(x1, y1, x2, y2): line(c, at(x1, y1), at(x2, y2), MUTED, .5)
+            def rect(x, y, w, h): polygon(c, [at(x, y), at(x + w, y), at(x + w, y + h), at(x, y + h)], None, MUTED, .5)
+            def ellipse(x, y, rx, ry):
+                xx, yy = at(x, y); c.saveState(); c.translate(xx, yy); c.rotate(math.degrees(math.atan2(u[1], u[0]))); c.setStrokeColor(MUTED); c.setLineWidth(.5); c.ellipse(-rx * scale, -ry * scale, rx * scale, ry * scale, fill=0, stroke=1); c.restoreState()
+            kind = fixture.get('kind'); wet = kind in ('shower', 'wc', 'sink', 'washbasin', 'washer', 'dryer')
+            polygon(c, [fn(p) for p in pts], colors.HexColor('#e1eceb') if wet else colors.HexColor('#e9e2d5'), MUTED, .7)
+            if kind == 'bed':
+                rect(width * .07, depth * .08, width * .86, depth * .17); seg(width * .05, depth * .34, width * .95, depth * .34); seg(width * .5, depth * .08, width * .5, depth * .25)
+            elif kind == 'sofa':
+                rect(width * .08, depth * .67, width * .84, depth * .25); seg(width * .08, depth * .1, width * .08, depth * .65); seg(width * .92, depth * .1, width * .92, depth * .65); seg(width * .5, depth * .1, width * .5, depth * .65)
+            elif kind in ('wardrobe', 'kitchenRun'):
+                count = max(1, round(width / .6))
+                for j in range(1, count): seg(width * j / count, 0, width * j / count, depth)
+                if kind == 'wardrobe': seg(0, depth * .13, width, depth * .13)
+            elif kind == 'table': rect(width * .08, depth * .08, width * .84, depth * .84)
+            elif kind == 'chair': rect(width * .1, depth * (.75 if isinstance(fixture.get('frontEdge'), int) else .1), width * .8, depth * (.2 if isinstance(fixture.get('frontEdge'), int) else .8))
+            elif kind == 'hob':
+                for x in (.29, .71):
+                    for y in (.3, .7): ellipse(width * x, depth * y, min(width, depth) * .12, min(width, depth) * .12)
+            elif kind in ('sink', 'washbasin'):
+                ellipse(width * .5, depth * .47, width * .34, depth * .32); seg(width * .5, depth * .75, width * .5, depth * .95)
+            elif kind == 'wc': rect(width * .08, depth * .73, width * .84, depth * .23); ellipse(width * .5, depth * .39, width * .34, depth * .28)
+            elif kind == 'shower': seg(0, 0, width, depth); seg(0, depth, width, 0)
+            elif kind in ('washer', 'dryer'): ellipse(width * .5, depth * .52, width * .3, depth * .3); seg(0, depth * .15, width, depth * .15)
+            elif kind == 'fridge': seg(0, depth * .25, width, depth * .25); seg(width * .12, depth * .32, width * .12, depth * .7)
+            if fixture.get('label'):
+                xx, yy = fn(center); label = clean(fixture['label']); tw = pdfmetrics.stringWidth(label, 'Body', 6)
+                text(c, label, xx - tw / 2, yy - 2, 6, color=BLUE)
+
+    def draw_door_swings(self, c, level_index, fn):
+        seen = set()
+        for room in self.planning.get('rooms') or []:
+            if int(room.get('level', 1)) != int(level_index): continue
+            for swing in room.get('doorSwings') or []:
+                oid = swing.get('openingId')
+                if oid in seen: continue
+                op = next((o for o in self.p.get('openings') or [] if o.get('id') == oid and o.get('type') == 'door'), None)
+                wall = self.wall_map.get(str(op.get('wallId'))) if op else None
+                if not wall or swing.get('hinge') not in ('start', 'end') or swing.get('normal') not in (-1, 1): continue
+                a, b = xy(wall.get('a')), xy(wall.get('b')); length = math.dist(a, b); width = finite(op.get('width')); angle = finite(swing.get('angle'), 90)
+                if min(length, width, angle) <= 0 or angle > 180: continue
+                u = ((b[0] - a[0]) / length, (b[1] - a[1]) / length); normal = (-u[1] * swing['normal'], u[0] * swing['normal']); end = swing['hinge'] == 'end'
+                station = finite(op.get('offset')) + (width if end else 0); hinge = (a[0] + u[0] * station, a[1] + u[1] * station); along = (u[0] * (-1 if end else 1), u[1] * (-1 if end else 1))
+                arc = [(hinge[0] + width * (along[0] * math.cos(math.radians(angle * i / 24)) + normal[0] * math.sin(math.radians(angle * i / 24))), hinge[1] + width * (along[1] * math.cos(math.radians(angle * i / 24)) + normal[1] * math.sin(math.radians(angle * i / 24)))) for i in range(25)]
+                for x, y in zip(arc, arc[1:]): line(c, fn(x), fn(y), GREEN, .55)
+                line(c, fn(hinge), fn(arc[-1]), GREEN, .9); seen.add(oid)
 
     def draw_actual_stair_plan(self, c, fn, level_index=None, note=False):
         """Physical tread/landing polygons and guard axes, not invented step divisions."""
@@ -1040,7 +1144,8 @@ class Album:
         x, y = 885, H - 138
         text(c, level.get('name', f'Этаж {level.get("index")}'), x, y, 14, 'Bold')
         y -= 30
-        facts = [('Контур по осям', number(level.get('area'), 2) + ' м²'), ('По осям без проёмов', number(level.get('netFloorArea'), 2) + ' м²')]
+        pa, pb, pc, pd = bounds(self.platform_polygon(level))
+        facts = [('Каркас · наружные грани', number(pc - pa, 3) + ' × ' + number(pd - pb, 3) + ' м'), ('Контур по осям', number(level.get('area'), 2) + ' м²'), ('По осям без проёмов', number(level.get('netFloorArea'), 2) + ' м²')]
         if level.get('platformNetArea') is not None:
             facts.append(('Платформа без проёмов', number(level.get('platformNetArea'), 2) + ' м²'))
         facts += [('Проёмы перекрытия', number(level.get('voidArea'), 2) + ' м²'), ('Низ платформы', '+' + number(level.get('platformBase'), 3)), ('Основание стены', '+' + number(level.get('wallBaseY'), 3)), ('Номинальный верх', '+' + number(level.get('topY'), 3))]
@@ -1050,7 +1155,7 @@ class Album:
             y -= 51
         if not self.planning.get('rooms'):
             text(c, 'Разбивка помещений отсутствует в исходном отчёте.', x, y - 6, 8, color=ORANGE, width=245)
-        if not self.p.get('staircase'):
+        if int(self.p.get('floors', 1)) > 1 and not self.p.get('staircase'):
             text(c, 'Геометрия лестницы в отчёте не задана.', x, y - 48, 8, color=ORANGE, width=245)
         stair = next((s for s in self.spatial.get('staircases') or [] if int(level.get('index', 1)) in (int(s.get('levelFrom', 1)), int(s.get('levelTo', 2)))), None)
         if stair:
@@ -1360,14 +1465,19 @@ class Album:
             text(c, f'Всего {len(members)} физических деталей.\nКрасным - переданные геометрические выборки.\nFG - группа; точные ID и позиции - в CSV/JSON.', sx, y + 49, 7, color=MUTED, width=250)
 
     def draw_roofplan(self, c, data, index):
-        pts = [xy(p) for s in self.roof.get('surfaces', []) for p in s.get('points', [])] + self.level_polygon() + [xy(p) for z in self.roof.get('zones', []) for p in z.get('coverPolygon', [])]
+        annex_roofs = [(annex, face) for annex in self.annexes for face in (annex.get('roof') or {}).get('surfaces') or []]
+        pts = [xy(p) for s in self.roof.get('surfaces', []) for p in s.get('points', [])] + self.level_polygon() + [xy(p) for z in self.roof.get('zones', []) for p in z.get('coverPolygon', [])] + [xy(p) for _, face in annex_roofs for p in face.get('points') or []]
         fn, scale = transform(pts, (45, 135, 800, H - 245), 45)
         polygon(c, [fn(p) for p in self.level_polygon()], None, LINE, 1)
+        for annex, face in annex_roofs:
+            polygon(c, [fn(xy(p)) for p in face.get('points') or []], colors.HexColor('#e3edf0'), BLUE, .8)
         palette = [colors.HexColor(s) for s in ('#d9e5c7', '#e8d5b6', '#cddfe5', '#e0d7e8')]
         zones = self.roof.get('zones') or []
         for surface in self.roof.get('surfaces') or []:
             zi = next((j for j, z in enumerate(zones) if z.get('id') == surface.get('zoneId')), 0)
-            polygon(c, [fn(xy(p)) for p in surface.get('points', [])], palette[zi % len(palette)], colors.white, .5)
+            # Tessellation boundaries are not roof joints or valleys. Only
+            # explicit roof topology below receives a visible line.
+            polygon(c, [fn(xy(p)) for p in surface.get('points', [])], palette[zi % len(palette)], None, .5)
         for zone in zones:
             bearing = [xy(p) for p in (zone.get('bearingPolygon') or zone.get('polygon') or [])]
             cover = [xy(p) for p in (zone.get('coverPolygon') or [])]
@@ -1415,8 +1525,25 @@ class Album:
             y = text(c, f'К{j + 1} · {zone.get("name", zone.get("id"))}', x, y, 9, 'Bold', width=240) - 9
             y = text(c, f'{zone.get("shape")} / {zone.get("effectiveFraming", "-")}\nУклоны {number(zone.get("pitchLeft"), 1)}° / {number(zone.get("pitchRight"), 1)}°\nНаправление конька {number(zone.get("ridgeAngle"), 1)}°\nПоверхность {number(zone.get("surfaceArea"), 2)} м²', x, y, 8, width=240) - 13
             if zone.get('overhangs'):
-                y = text(c, 'Свесы низ / верх / начало / конец: ' + ' / '.join(number(finite(zone['overhangs'].get(key)) * 1000, 0) for key in ('low', 'high', 'start', 'end')) + ' мм по горизонтали.', x, y, 7.5, width=240) - 13
-        self.note(c, 'Пунктир - опорный контур; зелёный контур - покрытие со свесами. Синие стрелки - сток; оранжевый - ендовы; красный - примыкания. Размеры свесов - переданные горизонтальные значения.', y=105)
+                y = text(c, 'Свесы ОТ ОСЕЙ ОПОРНОГО КОНТУРА\nНиз / верх / начало / конец: ' + ' / '.join(number(finite(zone['overhangs'].get(key)) * 1000, 0) for key in ('low', 'high', 'start', 'end')) + ' мм по горизонтали.', x, y, 7.5, width=240) - 17
+        facade_ref = (self.p.get('site') or {}).get('overhangReference') or {}
+        if all(optional_number(facade_ref.get(key)) is not None for key in ('front', 'rear', 'side')):
+            text(c, 'ОТ ГОТОВОГО ФАСАДА', x, y, 8.5, 'Bold', GREEN); y -= 20
+            y = text(c, 'Передний / задний / боковые: ' + ' / '.join(number(finite(facade_ref[key]) * 1000, 0) for key in ('front', 'rear', 'side')) + ' мм.\nФасад выступает за каркас на ' + number(finite(facade_ref.get('facadeOutsideFrame')) * 1000, 0) + ' мм. Обе привязки приведены из проекта.', x, y, 7.8, width=240) - 22
+        for j, annex in enumerate(self.annexes):
+            faces = (annex.get('roof') or {}).get('surfaces') or []
+            if not faces: continue
+            points = [xyz(p) for face in faces for p in face.get('points') or []]
+            if not points: continue
+            center = (sum(p[0] for p in points) / len(points), sum(p[2] for p in points) / len(points))
+            cc = fn(center); text(c, 'В' + str(j + 1), cc[0] - 7, cc[1] + 5, 11, 'Bold', BLUE)
+            high, low = max(p[1] for p in points), min(p[1] for p in points)
+            if high - low > 1e-6:
+                upper = [p for p in points if abs(p[1] - high) < 1e-6]; lower = [p for p in points if abs(p[1] - low) < 1e-6]
+                a = (sum(p[0] for p in upper) / len(upper), sum(p[2] for p in upper) / len(upper)); b = (sum(p[0] for p in lower) / len(lower), sum(p[2] for p in lower) / len(lower))
+                arrow(c, fn((a[0] * .45 + b[0] * .55, a[1] * .45 + b[1] * .55)), fn((a[0] * .1 + b[0] * .9, a[1] * .1 + b[1] * .9)), BLUE, 1)
+            y = text(c, 'В' + str(j + 1) + ' · ' + clean(annex.get('name', annex.get('id'))) + '\nКровля независимой пристройки; подробный план и опоры - на её листе.', x, y, 8, 'Bold', BLUE, width=240) - 16
+        self.note(c, 'Пунктир - оси опорного контура; зелёный - покрытие дома; голубой - кровля веранды. Стрелки - сток; оранжевый - ендовы; красный - примыкания. Размерные линии свесов: от опорных осей, по горизонтали.', y=105)
 
     def draw_roofsections(self, c, zones, index):
         for j, zone in enumerate(zones or []):
@@ -1723,7 +1850,67 @@ class Album:
                 aa, bb = fn((va, yy)), fn((vc, yy))
                 dimension(c, aa, bb, 27, 'ВТОРОЙ СВЕТ ' + number((vc - va) * 1000, 0))
         text(c, f'Разрез при Y = {number(cut_y, 3)} м', W - 265, H - 150, 11, 'Bold', width=220)
-        text(c, 'Показаны пересечения стен, платформ и кровли фактической модели. Сечения стен берутся по текущему высотному профилю.\n\nПустота второго света вычтена из платформы. Зелёная полоса - габарит платформы, не сплошной материал.\n\nОтметки относятся к единому нулю цифровой модели.', W - 265, H - 192, 9, color=MUTED, width=215)
+        text(c, 'Показаны пересечения стен, платформ и кровли фактической модели. Сечения стен берутся по текущему высотному профилю.\n\n' + ('Пустота второго света вычтена из платформы. ' if voids else '') + 'Зелёная полоса - габарит платформы, не сплошной материал.\n\nОтметки относятся к единому нулю цифровой модели.', W - 265, H - 192, 9, color=MUTED, width=215)
+
+    def draw_insulatedcorner(self, c, detail, index):
+        exterior = next((w for w in self.p.get('walls') or [] if w.get('kind') == 'exterior'), {})
+        b, h = self.section_size(exterior.get('section', '48x198'))
+        wall_assembly = next((a for a in (self.p.get('envelope') or {}).get('assemblies') or [] if a.get('id') == 'wall'), {})
+        outside_layer = next((layer for layer in wall_assembly.get('layers') or [] if layer.get('id') == 'external-insulation'), {})
+        continuous = max(0, finite(outside_layer.get('thickness')) * 1000)
+        reach = max(600, h * 3)
+        fn, sc = transform([(-continuous - 65, -continuous - 65), (reach + 45, reach + 45)], (48, 160, 650, 530), 34)
+        text(c, 'ПЛАН · ОТКРЫТАЯ ПОЛОСТЬ ДЛЯ УТЕПЛЕНИЯ', 48, H - 137, 10, 'Bold', GREEN)
+        if continuous:
+            band = [(-continuous, -continuous), (reach, -continuous), (reach, 0), (0, 0), (0, reach), (-continuous, reach)]
+            polygon(c, [fn(p) for p in band], colors.HexColor('#cbdcb3'), GREEN, .7)
+        wall = [(0, 0), (reach, 0), (reach, h), (h, h), (h, reach), (0, reach)]
+        polygon(c, [fn(p) for p in wall], colors.HexColor('#e4edcd'), GREEN, .7)
+        # Same two non-overlapping b×h rectangles as the schematic California2
+        # convention. Membrane offsets are graphic offsets, never real thickness.
+        boards = [[(0, 0), (b, 0), (b, h), (0, h)], [(b, 0), (b + h, 0), (b + h, b), (b, b)]]
+        for mark, points in zip(('A', 'B'), boards):
+            polygon(c, [fn(p) for p in points], WOOD, WOOD_DARK, 1)
+            center = (sum(p[0] for p in points) / 4, sum(p[1] for p in points) / 4)
+            xx, yy = fn(center); text(c, mark, xx - 3, yy - 3, 9, 'Bold')
+        inner = [(reach, h + 10), (h + 10, h + 10), (h + 10, reach)]
+        outer = [(reach, -continuous - 12), (-continuous - 12, -continuous - 12), (-continuous - 12, reach)]
+        for a, z in zip(inner, inner[1:]): line(c, fn(a), fn(z), BLUE, 2.6)
+        for a, z in zip(outer, outer[1:]): line(c, fn(a), fn(z), ORANGE, 2.3)
+        corner = fn((h + 10, h + 10)); c.setStrokeColor(BLUE); c.setLineWidth(1.1); c.circle(*corner, 9, fill=0, stroke=1)
+        line(c, corner, fn((h + 145, h + 145)), BLUE, .8)
+        text(c, 'Непрерывный поворот\nи проклейка стыков', *fn((h + 150, h + 150)), 8, color=BLUE, width=150)
+        cavity = ((b + h) / 2, (b + h) / 2)
+        note_point = (b + h + 85, h - 20)
+        line(c, fn(cavity), fn((note_point[0] - 6, note_point[1] - 4)), GREEN, .6)
+        text(c, 'Утеплитель в открытой\nугловой полости', *fn(note_point), 7, color=GREEN, width=120)
+        text(c, 'ВНУТРИ', *fn((h + 155, h + 330)), 12, 'Bold', MUTED)
+        text(c, 'СНАРУЖИ', *fn((reach * .4, -continuous - 53)), 8, 'Bold', ORANGE)
+        if continuous:
+            text(c, 'Сплошной наружный слой ' + number(continuous, 0) + ' мм', *fn((h + 65, -continuous * .6)), 7, color=GREEN)
+        dimension(c, fn((0, reach)), fn((h, reach)), 19, number(h, 0) + ' мм · глубина каркаса')
+        dimension(c, fn((0, 0)), fn((b, 0)), -27, number(b, 0))
+        x, y = 755, H - 143
+        text(c, detail.get('name', 'Утепляемый двухстоечный угол'), x, y, 16, 'Bold', GREEN, width=375); y -= 63
+        text(c, '2 × ' + number(b, 0) + ' × ' + number(h, 0) + ' мм', x, y, 20, 'Bold'); y -= 41
+        for label, key, color in [('Воздушный барьер', 'airBarrier', BLUE), ('Наружный ветрозащитный слой', 'windBarrier', ORANGE), ('Теплоизоляция', 'insulation', GREEN)]:
+            line(c, (x, y + 3), (x + 22, y + 3), color, 2.7)
+            text(c, label, x + 31, y, 10, 'Bold', color); y -= 23
+            y = text(c, detail.get(key) or 'Состав и сопряжение уточняются в рабочем узле.', x, y, 8.6, width=375) - 21
+        notes = detail.get('notes') or []
+        if isinstance(notes, str): notes = [notes]
+        for note in notes:
+            y = text(c, clean(note), x, y, 8.1, width=375) - 12
+        y = min(y, 245)
+        text(c, 'ГЕРМЕТИЧНОСТЬ НЕ ПОДТВЕРЖДЕНА', x, y, 9, 'Bold', ORANGE); y -= 22
+        y = text(c, 'Непрерывность нарисованной линии не подтверждает герметичность собранного узла. Нужны совместимость лент и мембран, основание для приклейки, рабочие нахлёсты, сопряжение с полом/кровлей и проверка оболочки здания.', x, y, 8.3, width=375) - 19
+        for source in detail.get('sourceUrls') or []:
+            url = source.get('url') if isinstance(source, dict) else str(source)
+            if url.startswith(('https://', 'http://')):
+                label = clean(source.get('title') or url) if isinstance(source, dict) else url
+                new_y = text(c, label, x, y, 6.4, color=BLUE, width=375)
+                c.linkURL(url, (x, new_y, x + 375, y + 8), relative=0, thickness=0); y = new_y - 6
+        self.note(c, 'СХЕМА СЛОЁВ: толщины мембран и отделки условные. Стойки A/B не пересекаются; их крепёж, опирание обшивки, тепловой мост и влагорежим угла требуют отдельного рабочего решения.', y=102)
 
     def draw_details(self, c, data, index):
         cards = [(43, 410, 535, 290), (610, 410, 535, 290), (43, 105, 535, 285), (610, 105, 535, 285)]
@@ -1848,7 +2035,7 @@ class Album:
         y = min(y - 24, 235)
         text(c, 'ГРАНИЦЫ СНЕГОВОГО СКРИНИНГА', 43, y, 9, 'Bold', ORANGE)
         y -= 18
-        notes = ['Полные требования Finnish NA, нормативные сочетания, местные снеговые мешки и сползание не подтверждены. Равномерный множитель зоны не заменяет форму локального заноса.'] + list(assessment.get('assumptions') or [])
+        notes = ['Полный набор местных нормативных требований, сочетания, снеговые мешки и сползание не подтверждены. Равномерный множитель зоны не заменяет форму локального заноса.'] + list(assessment.get('assumptions') or [])
         for note in notes:
             if y < 116:
                 break
@@ -1994,15 +2181,16 @@ class Album:
         if assembly.get('targetU') is not None or assembly.get('thermalTargetStatus') is not None:
             target_color = RED if assembly.get('thermalTargetStatus') == 'fail' else GREEN
             yy = text(c, 'Принятый ориентир U: ' + number(assembly.get('targetU'), 3) + ' Вт/(м²К)\nСтатус сравнения: ' + STATUSES.get(clean(assembly.get('thermalTargetStatus')), clean(assembly.get('thermalTargetStatus'))), x, yy, 8, 'Bold', target_color, width=350) - 10
-            yy = text(c, 'Finnish 1010/2017; применимость и полная энергосертификация не подтверждены.', x, yy, 7.2, color=MUTED, width=350) - 12
+            yy = text(c, clean(assembly.get('targetUBasis') or 'Ориентир принят в проекте; его нормативная применимость и полная энергетическая оценка не подтверждены.'), x, yy, 7.2, color=MUTED, width=350) - 12
         framing = assembly.get('framingPath') or {}
         if framing:
             yy = text(c, 'Путь древесины: Tsi ' + number(framing.get('internalSurfaceTemp'), 2) + ' °C; RHsi ' + number(framing.get('surfaceRH'), 2) + ' %. Диффузия по каркасу отдельно не подтверждена.', x, yy, 8, width=350) - 13
         text(c, 'Это НЕ годовой расчёт. Не вычислены накопление и высыхание влаги, дождь, солнечный нагрев, конвективный перенос и реальные 2D/3D мостики холода.\n\nТочка росы относится к воздуху помещения и не является неподвижным слоем стены. Превышение pv над psat - индикатор риска, не масса конденсата.', x, yy, 8.5, color=MUTED, width=350)
         if assembly.get('targetU') is not None:
-            source = 'https://www.finlex.fi/fi/lainsaadanto/saadoskokoelma/2017/1010'
-            text(c, 'Ориентир U: Finnish 1010/2017 · ' + source + ' · полная энергосертификация не подтверждена.', 43, 123, 7.2, color=MUTED, width=W - 90)
-            c.linkURL(source, (43, 118, W - 43, 132), relative=0, thickness=0)
+            source = assembly.get('targetUSource') or ''
+            if isinstance(source, dict): source = source.get('url') or ''
+            text(c, 'Ориентир U: ' + clean(assembly.get('targetUBasis') or 'значение из исходного проекта') + (' · ' + source if source else '') + ' · нормативная применимость не подтверждена.', 43, 123, 7.2, color=MUTED, width=W - 90)
+            if source.startswith(('https://', 'http://')): c.linkURL(source, (43, 118, W - 43, 132), relative=0, thickness=0)
         self.note(c, 'Графики построены по переданным samples/interfaces; свойства материалов и граничные условия приняты из отчёта. Полные проверки, допущения и источники - следом.', y=105, color=ORANGE)
 
     def draw_table(self, c, data, index):

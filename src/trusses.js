@@ -1,3 +1,4 @@
+import {physicalTrussBoards} from './physical-truss.js';
 /**
  * Plane pin-jointed timber trusses. Coordinates m, sections mm, E/F MPa,
  * nodal loads / member forces kN, returned displacements mm. N>0 tension.
@@ -10,7 +11,7 @@ export const trussTypes = [
   {id:'mono',name:'Односкатная',description:'Односкатная треугольная решётка с тремя вертикальными стойками.'},
 ];
 
-export const trussDefaults={type:'fink',span:8,rise:1.865,crestRatio:.5,chordB:50,chordH:150,webB:50,webH:100,spacing:.6,roofDead:.5,snow:1.5,mu:.8,gammaG:1.1,gammaQ:1.4,E:10000,tensionDesign:8,compressionDesign:12,timberDensity:500,deflectionLimit:300,stockLength:6};
+export const trussDefaults={type:'fink',span:8,rise:1.865,crestRatio:.5,chordB:50,chordH:150,webB:50,webH:100,spacing:.6,roofDead:.5,snow:1.5,mu:.8,gammaG:1.1,gammaQ:1.4,E:10000,tensionDesign:8,compressionDesign:12,timberDensity:500,deflectionLimit:300,stockLength:6,overhangLow:0,overhangHigh:0,heelHeight:0,ceilingDead:0,ceilingSpacing:null};
 const g=9.80665;
 const sum=a=>a.reduce((s,x)=>s+x,0);
 const zeros=n=>Array(n).fill(0);
@@ -26,12 +27,12 @@ export const trussSources=[
 const assumptions=[
   'Плоская шарнирно-стержневая модель: каждый стержень работает только на осевую силу, E×A/L. Линейная упругость, малые перемещения, идеальные узлы без эксцентриситетов. Это не полный нормативный расчёт деревянной фермы.',
   'Слева неподвижный шарнир (X,Y), справа подвижный шарнир (Y). Выбранные варианты — идеализированные триангулированные схемы. Название типа не означает сертифицированную заводскую конструкцию.',
-  'Нагрузка слоёв кровли задана на фактическую площадь ската БЕЗ древесины. Снег s×μ — на горизонтальную проекцию. Вертикальные нагрузки передаются только в узлы верхнего пояса по грузовым участкам; изгиб верхнего пояса между узлами от реальной обрешётки не проверен.',
+  'Нагрузка слоёв кровли задана на фактическую площадь ската БЕЗ древесины. Снег s×μ — на горизонтальную проекцию. Нагрузка кровли передаётся в узлы верхнего пояса по грузовым участкам; отдельная ceilingDead — в узлы нижнего пояса. Общая FEM-модель не проверяет изгиб между узлами; отдельный physical-chord screen при наличии не заменяет расчёт рамы.',
   'Собственный вес каждого стержня ρ×b×h×L×g делится поровну на его два узла и учитывается один раз. Шаг spacing задаёт грузовую ширину одной внутренней фермы; для крайней фермы её нужно задать отдельно.',
   'Знак N: плюс — растяжение, минус — сжатие. Для растяжения σ=N/A сравнивается с введённым Ft. Для сжатия показан минимум Fc×A и идеального Euler π²EImin/L² с K=1 по полной длине стержня. Euler не заменяет нормативную кривую устойчивости реальной древесины.',
   'Раскрепление из плоскости не засчитывается автоматически. Даже при малых осевых напряжениях требуется отдельная проверка пространственной устойчивости, несовершенств, совместного изгиба, ползучести, влажности и качества древесины.',
   'Модель не проверяет крепёж, накладки, зубчатые пластины, врубки, смятие, опорные узлы и крепление фермы к стенам. Ветер, отрыв, заносы и несимметричный снег в данный сценарий не входят.',
-  'Длины и углы относятся к осям стержней. Запилы, нахлёсты, зазоры и совместная работа пакетов не назначены: этот чертёж нельзя использовать как карту изготовления.',
+  'Длины и углы относятся к осям стержней. В raised-heel physicalReference заданы геометрические подрезки и цельные пояса; они не подтверждают прочность врубок, накладок, зазоров и совместную работу пакетов. Для изготовления нужен проверенный рабочий узел.',
 ];
 
 /** Gaussian elimination with partial pivoting. A singular mechanism is an error. */
@@ -106,22 +107,31 @@ function topology(type,S,H){
 export function buildTruss(input={}){
   const p={...trussDefaults,...input};
   const result={input:p,type:p.type,name:trussTypes.find(t=>t.id===p.type)?.name??'Ферма',nodes:[],bars:[],loads:{nodal:[],totalCharacteristic:0,totalDesign:0},reactions:[],displacements:[],checks:[],errors:[],status:'fail',stable:false,assumptions:[...assumptions],sources:trussSources,totals:{volume:0,mass:0,length:0,count:0}};
-  const bounds={span:[.3,60],rise:[.01,30],crestRatio:[.01,.99],chordB:[25,300],chordH:[50,600],webB:[25,300],webH:[50,600],spacing:[.2,3],roofDead:[0,15],snow:[0,15],mu:[0,3],gammaG:[1,2],gammaQ:[1,3],E:[1000,30000],tensionDesign:[.5,60],compressionDesign:[.5,80],timberDensity:[100,1500],deflectionLimit:[150,600],stockLength:[2,18]};
+  const bounds={span:[.3,60],rise:[.01,30],crestRatio:[.01,.99],chordB:[25,300],chordH:[50,600],webB:[25,300],webH:[50,600],spacing:[.001,3],roofDead:[0,15],snow:[0,15],mu:[0,3],gammaG:[1,2],gammaQ:[1,3],E:[1000,30000],tensionDesign:[.5,60],compressionDesign:[.5,80],timberDensity:[100,1500],deflectionLimit:[150,600],stockLength:[2,18],overhangLow:[0,2],overhangHigh:[0,2],heelHeight:[0,2],ceilingDead:[0,15]};
   for(const [key,[min,max]] of Object.entries(bounds))if(!finite(p[key])||p[key]<min||p[key]>max)result.errors.push(`${key}: требуется число от ${min} до ${max}.`);
   for(const key of ['muLeft','muRight'])if(p[key]!==undefined&&(!finite(p[key])||p[key]<0||p[key]>3))result.errors.push(`${key}: требуется число от 0 до 3.`);
+  if(p.ceilingSpacing!==null&&(!finite(p.ceilingSpacing)||p.ceilingSpacing<0||p.ceilingSpacing>3))result.errors.push('ceilingSpacing: 0..3 m or null.');
   if(!trussTypes.some(t=>t.id===p.type))result.errors.push('Неизвестный тип фермы.');
   if(p.rise>p.span*1.5)result.errors.push('Подъём превышает 1,5 пролёта: схема вне диапазона.');
   if(result.errors.length)return result;
   try{
     const {nodes,raw}=topology(p.type,p.span,p.rise);
     if(p.type!=='mono'&&Math.abs(p.crestRatio-.5)>1e-10)for(const n of nodes){const q=n.x/p.span;n.x=p.span*(q<=.5?q*2*p.crestRatio:p.crestRatio+(q-.5)*2*(1-p.crestRatio));}
+    if(p.heelHeight>0){
+      if(p.type==='mono')throw new Error('Raised heel is supported for pitched trusses only.');
+      for(const n of nodes)if(n.y>1e-9)n.y+=p.heelHeight;
+      nodes.push({id:'HA',x:0,y:p.heelHeight},{id:'HB',x:p.span,y:p.heelHeight});
+      const left=raw.find(b=>b.role==='top'&&b.nodeA==='A'),right=raw.find(b=>b.role==='top'&&b.nodeB==='B'),leftPanel=left.nodeB,rightPanel=right.nodeA;
+      left.nodeA='HA';right.nodeB='HB';raw.push({nodeA:'A',nodeB:'HA',role:'web'},{nodeA:'B',nodeB:'HB',role:'web'},{nodeA:'A',nodeB:leftPanel,role:'web'},{nodeA:'B',nodeB:rightPanel,role:'web'});
+    }
     const map=new Map(nodes.map(n=>[n.id,n]));
     const bars=raw.map((bar,i)=>{
       const a=map.get(bar.nodeA),z=map.get(bar.nodeB),length=Math.hypot(z.x-a.x,z.y-a.y),b=bar.role==='web'?p.webB:p.chordB,h=bar.role==='web'?p.webH:p.chordH,volume=b*h/1e6*length;
       return {...bar,a:bar.nodeA,end:bar.nodeB,id:`F${String(i+1).padStart(2,'0')}`,b,h,E:p.E,length,angle:Math.atan2(z.y-a.y,z.x-a.x)*180/Math.PI,volume,mass:volume*p.timberDensity};
     });
     result.nodes=nodes;result.bars=bars;
-    const nodal=new Map(nodes.map(n=>[n.id,{node:n.id,dead:0,snow:0,timber:0,roofDead:0}]));
+    if(p.heelHeight>0){const physical=physicalTrussBoards({input:p,nodes,bars}),bySource=new Map(physical.filter(b=>b.role==='web').map(b=>[b.sourceBarIds[0],b]));for(const b of bars)if(bySource.has(b.id)){const actual=bySource.get(b.id);b.referenceVolume=b.volume;b.volume=actual.volume;b.mass=actual.mass;b.physicalJointCuts=true;}result.physicalReference=physical;}
+    const nodal=new Map(nodes.map(n=>[n.id,{node:n.id,dead:0,snow:0,timber:0,roofDead:0,ceilingDead:0}]));
     for(const bar of bars){
       const a=map.get(bar.nodeA),b=map.get(bar.nodeB),self=bar.mass*g/1000/2;
       for(const id of [bar.nodeA,bar.nodeB]){nodal.get(id).dead+=self;nodal.get(id).timber+=self;}
@@ -131,9 +141,19 @@ export function buildTruss(input={}){
         for(const id of [bar.nodeA,bar.nodeB]){const n=nodal.get(id);n.dead+=dead;n.roofDead+=dead;n.snow+=snow;}
       }
     }
+    for(const bar of bars.filter(b=>b.role==='bottom')){const a=map.get(bar.nodeA),b=map.get(bar.nodeB),W=p.ceilingDead*(p.ceilingSpacing??p.spacing)*Math.abs(b.x-a.x)/2;for(const id of [bar.nodeA,bar.nodeB]){nodal.get(id).dead+=W;nodal.get(id).ceilingDead+=W;}}
+    const tails=[];
+    for(const [side,e]of [['low',p.overhangLow],['high',p.overhangHigh]])if(e>0){
+      if(p.type==='mono')throw new Error('Truss tails are supported for pitched trusses only.');
+      const supportId=side==='low'?(p.heelHeight>0?'HA':'A'):(p.heelHeight>0?'HB':'B'),support=map.get(supportId),bar=bars.find(b=>b.role==='top'&&(b.nodeA===supportId||b.nodeB===supportId)),panel=map.get(bar.nodeA===supportId?bar.nodeB:bar.nodeA),horizontal=Math.abs(panel.x-support.x),slopeLength=e*bar.length/horizontal,cos=horizontal/bar.length,localMu=side==='low'?p.muLeft??p.mu:p.muRight??p.mu,roofDead=p.roofDead*p.spacing*slopeLength,timber=p.chordB*p.chordH/1e6*slopeLength*p.timberDensity*g/1000,snow=p.snow*localMu*p.spacing*e,a=Math.abs(panel.x-support.x);
+      const apply=(field,W)=>{const pair=W*e/(2*a);nodal.get(supportId)[field]+=W+pair;nodal.get(panel.id)[field]-=pair;};
+      apply('dead',roofDead+timber);apply('roofDead',roofDead);apply('timber',timber);apply('snow',snow);
+      tails.push({side,horizontal:e,slopeLength,supportNode:supportId,panelNode:panel.id,panelDistance:a,roofDead,timber,snow,characteristic:roofDead+timber+snow,design:(roofDead+timber)*p.gammaG+snow*p.gammaQ,characteristicMoment:(roofDead+timber+snow)*e/2,designMoment:((roofDead+timber)*p.gammaG+snow*p.gammaQ)*e/2,resultantX:support.x+(side==='low'?-e/2:e/2),pairNote:'End resultant plus equal/opposite vertical nodal pair. This matches global force and moment, not a rotational frame-element stiffness.'});
+    }
+    result.tails=tails;
     const loads=[...nodal.values()].map(n=>({...n,characteristic:n.dead+n.snow,design:n.dead*p.gammaG+n.snow*p.gammaQ,fyCharacteristic:-(n.dead+n.snow),fyDesign:-(n.dead*p.gammaG+n.snow*p.gammaQ)}));
-    result.loads={nodal:loads,roofDead:sum(loads.map(n=>n.roofDead)),snow:sum(loads.map(n=>n.snow)),timber:sum(loads.map(n=>n.timber)),totalCharacteristic:sum(loads.map(n=>n.characteristic)),totalDesign:sum(loads.map(n=>n.design)),projectedArea:p.span*p.spacing,roofArea:sum(bars.filter(b=>b.role==='top').map(b=>b.length))*p.spacing};
-    result.totals={volume:sum(bars.map(b=>b.volume)),mass:sum(bars.map(b=>b.mass)),length:sum(bars.map(b=>b.length)),count:bars.length,overStock:bars.filter(b=>b.length>p.stockLength+1e-8).map(b=>b.id)};
+    result.loads={nodal:loads,roofDead:sum(loads.map(n=>n.roofDead)),ceilingDead:sum(loads.map(n=>n.ceilingDead)),ceilingArea:p.span*(p.ceilingSpacing??p.spacing),snow:sum(loads.map(n=>n.snow)),timber:sum(loads.map(n=>n.timber)),totalCharacteristic:sum(loads.map(n=>n.characteristic)),totalDesign:sum(loads.map(n=>n.design)),projectedArea:(p.span+p.overhangLow+p.overhangHigh)*p.spacing,roofArea:(sum(bars.filter(b=>b.role==='top').map(b=>b.length))+sum(tails.map(t=>t.slopeLength)))*p.spacing,tails};
+    result.totals={volume:sum(bars.map(b=>b.volume))+sum(tails.map(t=>t.timber))*1000/g/p.timberDensity,mass:sum(bars.map(b=>b.mass))+sum(tails.map(t=>t.timber))*1000/g,length:sum(bars.map(b=>b.length))+sum(tails.map(t=>t.slopeLength)),count:bars.length,overStock:bars.filter(b=>b.length>p.stockLength+1e-8).map(b=>b.id)};
     const supports=[{node:'A',x:true,y:true},{node:'B',x:false,y:true}];
     const design=solvePlanarTruss(nodes,bars,loads.map(n=>({node:n.node,fy:n.fyDesign})),supports);
     const service=solvePlanarTruss(nodes,bars,loads.map(n=>({node:n.node,fy:n.fyCharacteristic})),supports);
@@ -157,6 +177,8 @@ export function buildTruss(input={}){
       {id:'chordBending',label:'Местный изгиб верхнего пояса',status:'unverified',note:'Нагрузка идеализирована узловой. Реальная обрешётка и прогоны между узлами требуют расчёта изгиба пояса.'},
     ];
     result.analysis={method:'2D pin-jointed linear elastic stiffness EA/L',freeDofs:design.freeCount,memberCount:bars.length,nodeCount:nodes.length,staticDeterminacy:bars.length+3-2*nodes.length,residual:design.residual,balanceY,balanceX,balanceMoment,maxDeflection,deflectionAllowed,maxUtilization:Math.max(...result.bars.map(b=>b.utilization),maxDeflection/deflectionAllowed)};
+    if(tails.length)result.assumptions.push('Eave tails have real area and timber self-weight. Each uniformly loaded tail is represented by its resultant at the end node and a statically equivalent vertical force couple using the adjacent upper panel node. Separate chord bending, heel joints and out-of-plane stability remain required.');
+    if(p.heelHeight>0)result.assumptions.push('Raised heel nodes, verticals and diagonals are included in the pin-jointed topology. Physical seat offsets and gusset force transfer are not connection approval.');
     result.stable=true;
     result.status=result.checks.some(c=>c.status==='fail')?'fail':'warning';
     return result;

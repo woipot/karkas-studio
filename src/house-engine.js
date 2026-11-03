@@ -17,7 +17,7 @@ import {timberSections,sectionCatalogNote} from './catalog.js';
 import {generateHouse} from './house-generator.js';
 import {exportPlanSVG,exportBoardsCSV,exportModelOBJ} from './house-exports.js';
 import {buildFabricationGroups,fabricationPartsToCSV,fabricationStocksToCSV} from './fabrication-groups.js';
-export const ENGINE_VERSION='4.2.1';
+export const ENGINE_VERSION='4.2.2';
 const clone=x=>JSON.parse(JSON.stringify(x));
 const canonical=x=>Array.isArray(x)?x.map(canonical):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,canonical(x[k])])):x;
 export const modelHash=p=>createHash('sha256').update(JSON.stringify(canonical(p))).digest('hex');

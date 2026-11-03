@@ -1,1 +1,4 @@
 *.pdf binary
+
+# Generated downloadable CSV exports preserve their BOM and CRLF bytes.
+public/*.csv binary

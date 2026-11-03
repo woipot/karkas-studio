@@ -70,20 +70,29 @@ export function buildAuxiliaryTimber(project,result={}){
     const areaActual=finite(z.surfaceArea)&&z.surfaceArea>0?z.surfaceArea:area(polygon)/Math.hypot(d[0],d[2]);if(!(areaActual>0&&finite(areaActual))){skip('Не определена фактическая площадь ската для добавочного собственного веса.');continue;}
     const sorted=rafters.map(b=>({board:b,u:dot(b.start,ridge)})).sort((a,b)=>a.u-b.u).filter((b,i,a)=>!i||Math.abs(b.u-a[i-1].u)>EPS);
     const zoneStart=out.instances.length,level=z.levelIndex??ref.level??ref.floor??1,base={zoneId:z.id,level,floor:level},hasRidgeJoint=rafters.some(b=>b.rafterJointId)||!!z.coverHighJointId,bearingStart=ref.bearingStart??ref.start,bearingEnd=ref.bearingEnd??ref.end,bearingLength=norm(sub(bearingEnd,bearingStart)),overhangs=z.overhangs??{},hasSideOverhang=(overhangs.start??0)>EPS||(overhangs.end??0)>EPS;
+    const counterBoundaries=[];
     const along=(role,label,sec,offset)=>{for(const {board:b}of sorted){
       const inside=role==='roofServiceBatten',sourceStart=inside?(b.bearingStart??b.start):b.start,sourceEnd=inside?(b.bearingEnd??b.end):b.end;let a=move(sourceStart,normal,offset),startCut=inside&&b.overhangLow>0?square():cut(b.cutStart,sec),end=move(sourceEnd,normal,offset),endCut=cut(b.cutEnd,sec),joint={};
       if(!inside&&b.startCutPlane){const N=unit(b.startCutPlane.normal),ratio=dot(unit(cross(ridge,d)),N)/dot(d,N);a=move(a,d,-dot(sub(a,b.startCutPlane.point),N)/dot(d,N));startCut={scheme:'miter',angle:Math.abs(Math.atan(ratio)*180/Math.PI),tiltSign:-(Math.sign(ratio)||1),plane:'depth',cutWidthMM:sec.h};}
-      if(b.rafterJointId){
-        // Offset axes no longer end on the rafter's common ridge plane. A
-        // copied miter alone would leave warm-side rails crossing that plane.
+      if(b.rafterJointId||!inside&&b.endCutPlane){
+        // Every raised cold-side rail must reach its rafter's end plane,
+        // including the unshared high edge of a mono roof. Normal offset
+        // followed by a copied miter alone leaves that end short of the edge.
         const N=unit(b.endCutPlane?.normal??planD),point=b.endCutPlane?.point??b.end,denominator=dot(d,N),localDepth=unit(cross(ridge,d));
-        if(Math.abs(denominator)>EPS){const shift=-dot(sub(end,point),N)/denominator;end=move(end,d,shift);const ratio=dot(localDepth,N)/denominator;endCut={scheme:'miter',angle:Math.abs(Math.atan(ratio)*180/Math.PI),tiltSign:Math.sign(ratio)||1,plane:'depth',cutWidthMM:sec.h};joint={rafterJointId:b.rafterJointId,endCutPlane:{point:[...point],normal:N}};}
+        if(Math.abs(denominator)>EPS){const shift=-dot(sub(end,point),N)/denominator;end=move(end,d,shift);const ratio=dot(localDepth,N)/denominator;endCut={scheme:'miter',angle:Math.abs(Math.atan(ratio)*180/Math.PI),tiltSign:Math.sign(ratio)||1,plane:'depth',cutWidthMM:sec.h};joint={...(b.rafterJointId?{rafterJointId:b.rafterJointId}:{}),endCutPlane:{point:[...point],normal:N}};}
       }else if(inside&&b.bearingEnd&&b.endCutPlane){
         const N=planD,point=b.bearingEnd,ratio=dot(unit(cross(ridge,d)),N)/dot(d,N);end=move(end,d,-dot(sub(end,point),N)/dot(d,N));endCut={scheme:'miter',angle:Math.abs(Math.atan(ratio)*180/Math.PI),tiltSign:Math.sign(ratio)||1,plane:'depth',cutWidthMM:sec.h};joint={endCutPlane:{point:[...point],normal:N}};
       }
-      add(`AUX-R-${z.id}-${role}-${b.id}`,label,'roof',role,sec,a,end,{...base,...joint,crossAxis:ridge,sourceMemberIds:[b.id],roofNormal:normal,normalOffset:offset,cutStart:startCut,cutEnd:endCut});
+      const item=add(`AUX-R-${z.id}-${role}-${b.id}`,label,'roof',role,sec,a,end,{...base,...joint,crossAxis:ridge,sourceMemberIds:[b.id],roofNormal:normal,normalOffset:offset,cutStart:startCut,cutEnd:endCut});
+      if(item&&role==='roofCounterBatten')for(const [edge,point,plane,saw,sign]of [['start',a,b.startCutPlane,startCut,1],['end',end,b.endCutPlane,endCut,-1]]){
+        if(!plane)continue;
+        const N=unit(plane.normal),depth=unit(cross(ridge,d)),tan=saw.scheme==='miter'?Math.tan((saw.angle??0)*Math.PI/180)*(saw.tiltSign??1):0;
+        const deviations=[-1,1].flatMap(x=>[-1,1].map(y=>{const width=x*sec.b/2000,height=y*sec.h/2000,shift=saw.plane==='width'?width*tan:sign*height*tan;return Math.abs(dot(sub(move(move(move(point,ridge,width),depth,height),d,shift),plane.point),N));}));
+        counterBoundaries.push({memberId:item.id,edge,deviation:Math.max(...deviations)});
+      }
     }};
     along('roofCounterBatten','Контробрешётка над стропилом',sections.roofCounter,ref.h/2000+p.roofAboveRafterGap+sections.roofCounter.h/2000);
+    if(counterBoundaries.length){const failed=counterBoundaries.filter(q=>q.deviation>1e-6);out.checks.push({id:`auxiliary-${z.id}-counter-end-planes`,zoneId:z.id,label:'Торцы контробрешётки по границам стропильного ската',status:failed.length?'fail':'pass',value:Math.max(...counterBoundaries.map(q=>q.deviation)),limit:1e-6,unit:'м',checkedFaces:counterBoundaries.length,memberIds:[...new Set(failed.map(q=>q.memberId))],note:'Проверены все четыре вершины каждого торца в заданной плоскости края, включая участки без общего конька. Узлы вентиляции, крепёж и покрытие требуют отдельной деталировки.'});}
     along('roofServiceBatten','Сервисная рейка под перекрёстным утеплением кровли',sections.roofService,-ref.h/2000-sections.roofInternal.h/1000-sections.roofService.h/2000);
     const transverse=(role,label,sec,step,offset,crossAxis,alongWidth)=>{
       const internal=role==='roofInternalBatten',runLength=internal?bearingLength:length,origin=internal?bearingStart:ref.start;

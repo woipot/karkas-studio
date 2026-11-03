@@ -1,10 +1,10 @@
 import {buildAuxiliaryTimber} from './auxiliary-timber.js';
-import {buildAnnexes,validateAnnexes} from './annexes.js';
+import {buildAnnexes,validateAnnexes,sharedAnnexGrillageLines} from './annexes.js';
 import {buildSpatialLayout,validateSpatialLayoutInput} from './spatial-layout.js';
 import {buildFloorOpenings} from './floor-openings.js';
 import {prepareFloorContours} from './floor-platform-contour.js';
 import {buildFloorPlatform} from './floor-platform.js';
-import {buildGrillage} from './grillage.js';
+import {buildGrillage,validateGrillageExtensions} from './grillage.js';
 import {analyzeGrillageLoads} from './grillage-loads.js';
 import {buildWallBracing} from './wall-bracing.js';
 import {wallProfileTop} from './wall-profiles.js';
@@ -259,7 +259,7 @@ export function validateDesignerProject(input){
       for(let i=0;i<voids.length;i++)for(let j=0;j<i;j++)if(polygonsOverlap(voids[i].polygon,voids[j].polygon))error('voids','Проёмы одного перекрытия не должны накладываться.');
     }
   }
-  validateAnnexes(p,error);for(const e of validateSpatialLayoutInput(p))error(e.field,e.message);
+  for(const e of validateGrillageExtensions(p).errors)error(e.field,e.message);validateAnnexes(p,error);for(const e of validateSpatialLayoutInput(p))error(e.field,e.message);
   return {valid:errors.length===0,errors,warnings};
 }
 
@@ -546,7 +546,7 @@ function pileField(p,geometry,walls,timber,loads,grillageModel){
   const piles=analyzed.piles;
   for(const pile of piles){pile.utilization=pile.reaction/p.foundation.capacity;pile.status=pile.utilization>1?'fail':pile.utilization>.85?'warning':'pass';}
   const maxPile=piles.reduce((a,b)=>!a||b.reaction>a.reaction?b:a,null),reactionSum=sum(piles.map(x=>x.reaction)),characteristicSum=sum(piles.map(x=>x.reactionCharacteristic));
-  return {piles,foundation:{count:piles.length,maxPile,maxReaction:maxPile?.reaction??0,utilization:maxPile?.utilization??0,reactionSum,characteristicSum,balanceError:reactionSum-loads.totalDesign,status:maxPile&&maxPile.utilization>1?'fail':'unverified',method:'Перенос на ближайший пролёт ростверка и равновесие шарнирных балок; без расчёта пространственной жёсткости и грунта.',sampleCount}};
+  return {samples,piles,foundation:{count:piles.length,maxPile,maxReaction:maxPile?.reaction??0,utilization:maxPile?.utilization??0,reactionSum,characteristicSum,balanceError:reactionSum-loads.totalDesign,status:maxPile&&maxPile.utilization>1?'fail':'unverified',method:'Перенос на ближайший пролёт ростверка и равновесие шарнирных балок; без расчёта пространственной жёсткости и грунта.',sampleCount}};
 }
 
 export function calculateDesigner(input,{truss,roofModel}={}){
@@ -564,7 +564,7 @@ export function calculateDesigner(input,{truss,roofModel}={}){
   const roofRect=roofLevel&&Math.abs(roofLevel.area-roofLevel.bounds.width*roofLevel.bounds.height)<1e-5;
   const gableArea=finite(roofModel?.gableArea)?roofModel.gableArea:roofModel?0:roofLevel&&roofRect&&!['none','mono'].includes(p.roof.type)?roofLevel.bounds.height**2/2*Math.tan(p.roof.pitch*Math.PI/180):0;
   geometry.gableArea=gableArea;geometry.grossWallArea=sum(walls.filter(w=>w.kind==='exterior').map(w=>w.grossArea))+gableArea;geometry.netWallArea=geometry.grossWallArea-exteriorOpeningArea;geometry.openingArea=openingArea;geometry.exteriorOpeningArea=exteriorOpeningArea;geometry.innerWallArea=innerGross-(openingArea-exteriorOpeningArea);
-  const grillageModel=buildGrillage(p,{geometry,walls});
+  const grillageModel=buildGrillage(p,{geometry,walls,extraLines:sharedAnnexGrillageLines(p,{geometry})});
   geometry.platformContours=prepareFloorContours(p,{geometry,walls});
   geometry.platformAreaComplete=geometry.platformContours.length===geometry.levels.filter(l=>l.closed).length&&geometry.platformContours.every(c=>c.valid);
   for(const level of geometry.levels){const c=geometry.platformContours.find(c=>c.index===level.index);if(c?.valid){level.platformPolygon=c.outerPolygon;level.platformGrossArea=c.grossArea;level.platformNetArea=c.netArea;level.platformBounds=c.outerBounds;}}
@@ -624,7 +624,7 @@ export function calculateDesigner(input,{truss,roofModel}={}){
     'При наращивании halfLap/scarf геометрические части перекрываются на lapLength; из массы каждого конца вычитается половина объёма нахлёста. Накладки fishplate — отдельные доски. Закупочный объём считается по полным cutLength, не по чистой массе.',
   ];
   assumptions.push(...(spatialLayout.assumptions??[]),...(auxiliaryTimber.assumptions??[]),...(floorOpenings.assumptions??[]),...(floorPlatform.assumptions??[]),...(grillageModel.assumptions??[]),...fullHeightWalls.assumptions,...(bracingModel.assumptions??[]));
-  let loads=null,piles=[],foundation=null;
+  let loads=null,piles=[],foundation=null,foundationSamples=[];
   if(graph.closed){
     const A=graph.area,F=p.floors,mu=finite(roofModel?.snowEffectiveArea)&&roofModel.projectedArea>0?roofModel.snowEffectiveArea/roofModel.projectedArea:p.roof.snowMu??(p.roof.pitch<=30?.8:.8*(60-p.roof.pitch)/30),roofArea=p.roof.type==='none'?0:finite(roofModel?.area)?roofModel.area:(roofLevel?.area??A)/Math.cos(p.roof.pitch*Math.PI/180),projectedRoofArea=finite(roofModel?.projectedArea)?roofModel.projectedArea:roofLevel?.area??A;
     const structuralPanelWeight=(bracingModel.quantities?.panelMass??0)*G/1000;
@@ -634,13 +634,13 @@ export function calculateDesigner(input,{truss,roofModel}={}){
     const roofMassIncluded=timber.roofGeometryAvailable||p.roof.type==='none',complete=roofMassIncluded&&geometry.areaComplete&&geometry.platformAreaComplete;
     const facadeArea=axis=>Math.max(...[1,-1].map(sign=>sum(walls.filter(w=>w.kind==='exterior').map(w=>{const normal=axis==='x'?(w.b.y-w.a.y)/w.length:-(w.b.x-w.a.x)/w.length;return w.grossArea*Math.max(0,sign*normal);}))))+gableArea;
     loads={rows,roofZones:roofModel?.zones??[],rawRoofInstances:roofModel?.instances??[],structuralPanelWeight,structuralPanels:bracingModel.panels??[],dead,live,snow,mu,muBasis:roofModel?'Area-weighted snowEffectiveArea / projectedRoofArea including zone factors':p.roof.snowMu!==undefined?'Explicit roof.snowMu':'Adopted default pitch law',roofArea,projectedRoofArea,floorArea:geometry.totalFloorArea,platformArea:geometry.totalPlatformArea,roofWeight:roofLayers+timber.totals.roof.weight,wallWeight,innerWallWeight,openingWeight,gableWeight,wallLineLoads,timberWeight:timber.weight,totalCharacteristic:dead+live+snow,totalDesign:dead*p.loads.gammaG+(live+snow)*p.loads.gammaQ,windForceX:p.loads.wind*facadeArea('x'),windForceY:p.loads.wind*facadeArea('y'),complete,roofMassIncluded,missingLoads:[...(!roofMassIncluded?['Древесина кровли не сформирована.']:[]),...(!geometry.areaComplete?['Не все контуры этажей замкнуты.']:[]),...(!geometry.platformAreaComplete?['Наружный контур платформы пересекается или не подтверждён; физические площади и объёмы платформы неполны.']:[])]};
-    ({piles,foundation}=pileField(p,geometry,walls,timber,loads,grillageModel));
+    const field=pileField(p,geometry,walls,timber,loads,grillageModel);piles=field.piles;foundation=field.foundation;foundationSamples=field.samples;
     checks.push(...(grillageModel.loadChecks??[]));
     if(loads.roofSupportRoutingIssues?.length)checks.push({id:'roof-uplift-routing',label:'Передача отрыва стропильных опор',status:'unverified',zoneIds:loads.roofSupportRoutingIssues,note:'Есть отрицательная опорная реакция. Положительные нагрузки распределены условно по периметру; отрыв и удерживающие анкеры ростверком не рассчитаны.'});
     checks.push({id:'verticalBalance',label:'Баланс вертикальных сил',status:Math.abs(foundation.balanceError)<1e-6?'pass':'fail',value:Math.abs(foundation.balanceError),limit:1e-6,unit:'кН'},{id:'pileCapacity',label:'Вертикальная реакция опоры',status:foundation.utilization>1?'fail':'warning',value:foundation.maxReaction,limit:p.foundation.capacity,unit:'кН',utilization:foundation.utilization});
     geometry.roofArea=roofArea;delete loads.roofZones;delete loads.rawRoofInstances;
   }
-  const houseLoads=loads?clone(loads):null,houseTimberTotals=clone(timber.totals),houseFoundation=foundation,housePiles=piles;
+  const houseLoads=loads?clone(loads):null,houseTimberTotals=clone(timber.totals),houseFoundation=foundation?clone(foundation):null,housePiles=clone(piles);
   const annexes=buildAnnexes(p,{geometry,walls,timber,grillageModel,piles});
   if(annexes.instances.length){const extra=timberModel({...p,walls:[],openings:[],objects:[],floors:1,roof:{...p.roof,type:'none'},_extraInstances:annexes.instances},{closed:false},[],bounds,undefined,warnings,undefined);timber=mergeTimber([timber,extra],p);}
   checks.push(...annexes.checks);warnings.push(...annexes.warnings);assumptions.push(...annexes.assumptions);
@@ -648,9 +648,17 @@ export function calculateDesigner(input,{truss,roofModel}={}){
     geometry.annexArea=annexes.quantities.floorArea;geometry.compositeBounds=polygonBounds([...p.walls.flatMap(w=>[w.a,w.b]),...annexes.items.flatMap(a=>[...a.polygon,...a.roof.surfaces.flatMap(s=>s.points.map(p=>({x:p[0],y:p[2]})))]),...(roofModel?.surfaces??[]).flatMap(s=>s.points.map(p=>({x:p[0],y:p[2]})))]);
     if(loads){
       loads={...loads,rows:[...loads.rows,...annexes.loads.rows],dead:loads.dead+annexes.loads.dead,live:loads.live+annexes.loads.live,snow:loads.snow+annexes.loads.snow,timberWeight:timber.weight,totalCharacteristic:loads.totalCharacteristic+annexes.loads.totalCharacteristic,totalDesign:loads.totalDesign+annexes.loads.totalDesign,complete:loads.complete&&annexes.loads.complete,annexLoads:annexes.loads};
+      const sharedItems=annexes.items.filter(a=>a.foundation.shared);
+      if(sharedItems.length){
+        const sharedSamples=sharedItems.flatMap(a=>a.sharedLoadSamples??[]),unified=analyzeGrillageLoads(p,grillageModel,[...foundationSamples,...sharedSamples]);Object.assign(grillageModel,unified);piles=unified.piles;
+        for(const pile of piles){pile.capacity=p.foundation.capacity;pile.utilization=pile.reaction/p.foundation.capacity;pile.status=pile.utilization>1?'fail':pile.utilization>.85?'warning':'pass';}
+        const obsolete=new Set(['grillage-strength','grillage-balance','grillage-ply-connections','verticalBalance','pileCapacity']);for(let i=checks.length-1;i>=0;i--)if(obsolete.has(checks[i].id))checks.splice(i,1);checks.push(...unified.loadChecks);
+        const max=piles.reduce((a,b)=>!a||b.reaction>a.reaction?b:a,null);checks.push({id:'pileCapacity',label:'Общая рама: вертикальная реакция опоры',status:max?.utilization>1?'fail':'warning',value:max?.reaction??0,limit:p.foundation.capacity,unit:'кН',utilization:max?.utilization??0},{id:'shared-foundation-connections',label:'Общий ростверк: соединения и пространственная работа',status:'unverified',note:'Дом и пристройка имеют общие физические балки и опорныеID. Нагрузки решены в одной сети простых пролётов. Гвозди/болты, смятие, горизонтальные усилия, неразрезность и разность осадок требуют отдельного расчёта.'});
+        grillageModel.sharedAnnexIds=sharedItems.map(a=>a.id);grillageModel.loadComponents={houseSampleCount:foundationSamples.length,annexSampleCount:sharedSamples.length};
+      }
       piles=[...piles,...annexes.piles];const maxPile=piles.reduce((x,y)=>!x||y.reaction>x.reaction?y:x,null),reactionSum=sum(piles.map(p=>p.reaction)),characteristicSum=sum(piles.map(p=>p.reactionCharacteristic));
-      foundation={...foundation,count:piles.length,maxPile,maxReaction:maxPile?.reaction??0,utilization:Math.max(0,...piles.map(p=>p.utilization??0)),reactionSum,characteristicSum,balanceError:reactionSum-loads.totalDesign,status:piles.some(p=>(p.utilization??0)>1)?'fail':'unverified',components:[{id:'house',pileIds:housePiles.map(p=>p.id),reactionSum:houseFoundation?.reactionSum??0},...annexes.items.map(a=>({id:a.id,pileIds:a.foundation.piles.map(p=>p.id),reactionSum:a.loads.reactionSum}))]};
-      checks.push({id:'combined-vertical-balance',label:'Дом и независимые пристройки: общий баланс',status:Math.abs(foundation.balanceError)<1e-6?'pass':'fail',value:foundation.balanceError,limit:1e-6,unit:'кН'});
+      foundation={...foundation,sharedGrillage:sharedItems.length>0,connectedAnnexIds:sharedItems.map(a=>a.id),count:piles.length,maxPile,maxReaction:maxPile?.reaction??0,utilization:Math.max(0,...piles.map(p=>p.utilization??0)),reactionSum,characteristicSum,balanceError:reactionSum-loads.totalDesign,status:piles.some(p=>(p.utilization??0)>1)?'fail':'unverified',components:[{id:'house',pileIds:housePiles.map(p=>p.id),reactionSum:houseFoundation?.reactionSum??0},...annexes.items.map(a=>({id:a.id,pileIds:a.foundation.piles.map(p=>p.id),reactionSum:a.loads.reactionSum}))]};
+      checks.push({id:'combined-vertical-balance',label:sharedItems.length?'Общая рама дома и пристройки: баланс':'Дом и независимые пристройки: общий баланс',status:Math.abs(foundation.balanceError)<1e-6?'pass':'fail',value:foundation.balanceError,limit:1e-6,unit:'кН'});
     }
   }
   if(truss&&!roofModel){

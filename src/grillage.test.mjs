@@ -76,7 +76,7 @@ test('acute nodes that cannot fit a small cap explicitly fail their bearing geom
 });
 
 test('with a sufficiently wide cap, skew bearing lines have distinct real board volumes',()=>{
-  const f=fixture(undefined,[{id:'diagonal',kind:'bearing',level:1,a:{x:0,y:1},b:{x:12,y:7},section:'50x150'}]);f.project.foundation.grillage.capSize=1000;const r=buildGrillage(f.project,f.base);
+  const f=fixture(undefined,[{id:'diagonal',kind:'bearing',level:1,a:{x:0,y:1},b:{x:12,y:7},section:'50x150'}]);f.project.foundation.grillage.capSize=650;const r=buildGrillage(f.project,f.base);
   assert.ok(!r.checks.some(c=>c.status==='fail'));
   for(let i=0;i<r.instances.length;i++)for(let j=i+1;j<r.instances.length;j++)assert.ok(overlap(body(r.instances[i]),body(r.instances[j]))<1e-8,`${r.instances[i].id}/${r.instances[j].id}`);
 });

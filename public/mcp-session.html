@@ -1,4 +1,4 @@
-<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>НОГИНСК48 · фактический сеанс MCP</title><style>body{margin:0;background:#f5f4ec;color:#263322;font:15px/1.6 system-ui}main{max-width:1240px;margin:auto;padding:32px 24px}h1{font-size:38px;line-height:1.1;letter-spacing:-1px}h2{margin-top:32px}a{color:#416234}code,pre{font:12px/1.5 ui-monospace,monospace;overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#f0f1e7;padding:14px}table{border-collapse:collapse;width:100%;font-size:12px;background:white}td,th{padding:10px;text-align:left;border:1px solid #dbe1d1;vertical-align:top}.table{overflow:auto}aside{border-left:3px solid #b3975b;padding:16px;background:#f0eadb}.cards{display:flex;gap:12px;flex-wrap:wrap}.card{padding:18px;background:white;border:1px solid #d8dfcb}.card b{font-size:26px;display:block}summary{cursor:pointer}</style><main><p>КАРКАС ENGINE 4.4.0 · MCP STDIO · R6</p><h1>Ногинск48: дом6×8м с верандой</h1><p>Одноэтажная коробка по наружным граням каркаса8×6м. Крытая веранда4×2м и свесы снаружи. Вход на длинном фасаде, отдельный тепловой тамбур, спальня, кухня-гостиная, техническое помещение и санузел с душем1×1м и колонной стиральной/сушильной машин.</p><div class="cards"><div class="card">Основная коробка<b>48 м²</b></div><div class="card">Чистые помещения<b>40,06 м²</b></div><div class="card">Физические детали<b>753</b></div><div class="card">Заготовки6м<b>330</b></div><div class="card">Пример бюджета<b>3 465 136 ₽</b></div></div><p><a href="./">План, 3D и расчёты</a> · <a href="./structural-album.pdf">КР · 86 листов PDF</a> · <a href="./mcp-calls.jsonl" download>Полные MCP запросы и ответы</a> · <a href="./fabrication-parts.csv">Группы деталейCSV</a> · <a href="./fabrication-stocks.csv">Карты заготовокCSV</a></p><h2>Планировка</h2><table><tr><th>Помещение</th><th>Чистая площадь</th></tr><tr><td>Кухня-гостиная</td><td>20 м²</td></tr><tr><td>Тёплая прихожая</td><td>2,55 м²</td></tr><tr><td>Техпомещение</td><td>2,55 м²</td></tr><tr><td>Ванная / WC / постирочная</td><td>6,08 м²</td></tr><tr><td>Спальня</td><td>8,89 м²</td></tr></table><p>Внутренняя отделка учтена в чистых контурах. Кухня и санузел примыкают к технической зоне. Мебель и приборы — проверенные геометрические резервы, без привязки к конкретным моделям.</p><h2>Конструктив</h2><p>Стены150мм, пол и плоский потолок холодного чердака200мм. Наружные стойки75×150мм; наружные углы из двух реальных стоек, доступные утеплению. Мембраны и проклейка показаны отдельным узлом; геометрия не подтверждает герметичность. Врезные укосины, кольцевая обвязка платформы, блокинг и средняя опорная линия пола входят в древесину и раскрой. Двускатные фермы25°, цельный нижний пояс5,85м, пояса50×200мм и профилированные раскосы50×100мм. Свесы от готового фасада: спереди400мм, сзади300мм, сбоку300мм.</p><p>Веранда имеет4свои сваи и4угловые стойки; крыша10° направлена от дома. Входная створка не пересекает стойки. Введённый предел40кН на сваю — допущение. Тип, сечение, длина и реальная геонесущая способность не выбраны без изысканий.</p><h2>Подбор через реальные вызовы</h2><p>Сначала движок выявил превышения. Сравнены варианты сечений и шага опор при неизменных свойствах древесины и базовых нагрузках. Сохранён вариант с нулём провалов реализованных частных проверок.</p><table><tr><th>Вариант</th><th>Превышения</th><th>Заготовки6м</th><th>Условная смета</th></tr><tr><td>Стойки50×150 шаг400</td><td>3</td><td>321</td><td>3 040 179 ₽</td></tr><tr><td>Стойки75×150 шаг600</td><td>1</td><td>307</td><td>3 097 586 ₽</td></tr><tr><td>75×150 + усиленные фермы</td><td>1</td><td>307</td><td>3 203 274 ₽</td></tr><tr><td>75×150 + фермы + сваи1800</td><td>0</td><td>308</td><td>3 300 047 ₽</td></tr><tr><td>Стойки50×150 шаг400 + сваи1800</td><td>3</td><td>324</td><td>3 144 196 ₽</td></tr><tr><td>Стойки75×150 шаг600 + сваи1800</td><td>0</td><td>310</td><td>3 201 603 ₽</td></tr></table><h2>Раскрой и смета</h2><p>753 деталей объединены в133 групп геометрии и135 повторных схем для330 шестиметровых досок. Каждая схема показана один раз с количеством и местами применения. Неразмещённых деталей:0. Закупка13,885м³, чистая древесина12,137м³. Пригодные остатки1,456м³ учитываются отдельно от пропила и коротких обрезков. Глобальная оптимальность не доказана.</p><p>Ставки в рублях заданы как пример бюджета; это не рыночная котировка. Полный состав и исключения приведены в смете.</p><h2>Снег и тепловлажностный расчёт</h2><p>Для Ногинска предварительно принято Sg1,5кПа, μ1, gammaQ1,4. В отчёте отдельно приведены проверенные сценарии фиксированных сечений. Равномерное увеличение нагрузки не заменяет местный занос и сползание снега с дома на веранду. Для стен150мм, пола200мм и потолка200мм рассчитаны R/U и стационарные профили при+21/−26°C, включая проверку стены приRH60%. Годовое влагонакопление и полное соответствие СП50 не подтверждены.</p><aside><b>Расчётная проработка для проверки решений.</b> 0 провалов частных проверок; 67 предупреждений/неподтверждённых проверок. До рабочего проекта остаются геология и сваи, соединения, пространственная работа, ветровой отрыв, местные снеговые схемы, наружные ступени/ограждение и инженерные системы. certified=false.</aside><h2>Как нейронка использовала MCP</h2><p>Сервер karkas-engine зарегистрирован в Codex. SDK-клиент выполнил initialize/tools/list и27 tools/call. Запросы, полные ответы и цепочка SHA256 сохранены в JSONL. Сайт показывает фактический экспорт R6; это просмотрщик, не удалённая MCP-точка и не ручной редактор.</p><h2>Ревизии</h2><table><tr><th>Ревизия</th><th>Детали</th><th>Заготовки</th><th>Опоры</th><th>Превышения</th></tr><tr><td>R1</td><td>390</td><td>150</td><td>20</td><td>0</td></tr><tr><td>R2</td><td>686</td><td>305</td><td>19</td><td>1</td></tr><tr><td>R3</td><td>686</td><td>310</td><td>22</td><td>0</td></tr><tr><td>R4</td><td>753</td><td>330</td><td>26</td><td>0</td></tr><tr><td>R5</td><td>753</td><td>330</td><td>26</td><td>0</td></tr><tr><td>R6</td><td>753</td><td>330</td><td>26</td><td>0</td></tr></table><h2>Фактические вызовы</h2><div class="table"><table><tr><th>№</th><th>UTC</th><th>Инструмент</th><th>Рев.</th><th>Ответ</th><th>Запрос</th></tr><tr><td>1</td><td>2026-11-03T19:06:50.128Z</td><td><code>karkas_catalog</code></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос</summary><pre>{
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>НОГИНСК48 · фактический сеанс MCP</title><style>body{margin:0;background:#f5f4ec;color:#263322;font:15px/1.6 system-ui}main{max-width:1240px;margin:auto;padding:32px 24px}h1{font-size:38px;line-height:1.1;letter-spacing:-1px}h2{margin-top:32px}a{color:#416234}code,pre{font:12px/1.5 ui-monospace,monospace;overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#f0f1e7;padding:14px}table{border-collapse:collapse;width:100%;font-size:12px;background:white}td,th{padding:10px;text-align:left;border:1px solid #dbe1d1;vertical-align:top}.table{overflow:auto}aside{border-left:3px solid #b3975b;padding:16px;background:#f0eadb}.cards{display:flex;gap:12px;flex-wrap:wrap}.card{padding:18px;background:white;border:1px solid #d8dfcb}.card b{font-size:26px;display:block}summary{cursor:pointer}</style><main><p>КАРКАС ENGINE 4.5.0 · MCP STDIO · R8</p><h1>Ногинск48: дом6×8м с верандой</h1><p>Одноэтажная коробка по наружным граням каркаса8×6м. Крытая веранда4×2м и свесы снаружи. Вход на длинном фасаде, отдельный тепловой тамбур, спальня, кухня-гостиная, техническое помещение и санузел с душем1×1м и колонной стиральной/сушильной машин.</p><div class="cards"><div class="card">Основная коробка<b>48 м²</b></div><div class="card">Чистые помещения<b>40,06 м²</b></div><div class="card">Физические детали<b>692</b></div><div class="card">Заготовки6м<b>308</b></div><div class="card">Пример бюджета<b>3 382 730 ₽</b></div></div><p><a href="./">План, 3D и расчёты</a> · <a href="./structural-album.pdf">КР · 88 листов PDF</a> · <a href="./mcp-calls.jsonl" download>Полные MCP запросы и ответы</a> · <a href="./fabrication-parts.csv">Группы деталейCSV</a> · <a href="./fabrication-stocks.csv">Карты заготовокCSV</a></p><h2>Планировка</h2><table><tr><th>Помещение</th><th>Чистая площадь</th></tr><tr><td>Кухня-гостиная</td><td>20 м²</td></tr><tr><td>Тёплая прихожая</td><td>2,55 м²</td></tr><tr><td>Техпомещение</td><td>2,55 м²</td></tr><tr><td>Ванная / WC / постирочная</td><td>6,08 м²</td></tr><tr><td>Спальня</td><td>8,89 м²</td></tr></table><p>Внутренняя отделка учтена в чистых контурах. Кухня и санузел примыкают к технической зоне. Мебель и приборы — проверенные геометрические резервы, без привязки к конкретным моделям.</p><h2>Конструктив</h2><p>Стены150мм, пол и плоский потолок холодного чердака200мм. Наружные стойки75×150мм; наружные углы из двух реальных стоек, доступные утеплению. Мембраны и проклейка показаны отдельным узлом; геометрия не подтверждает герметичность. Врезные укосины, кольцевая обвязка платформы, блокинг, средняя опорная линия и поперечные пакеты ростверка входят в древесину и раскрой. Двускатные фермы25° с центральной подвеской и двумя подкосами; поднятые пяты триангулированы. 9 ферм вместо15, пояса 50×150мм, решётка 50×100мм; цельный нижний пояс5,85м. Утепление потолка:150мм между поясами и50мм сплошным слоем над ними. Свесы от готового фасада: спереди400мм, сзади300мм, сбоку300мм.</p><p>Веранда соединена с домом общим ростверком на одной отметке. Внутри дома добавлены4поперечные линии пакетных балок. Все балки, пролёты и опоры имеют каноническиеID; древесина основания и реакции учитываются один раз. У крыши веранды4угловые стойки, уклон10° направлен от дома. Входная створка не пересекает стойки. Введённый предел40кН на сваю — допущение. Тип, сечение, длина и реальная геонесущая способность не выбраны без изысканий.</p><h2>Облегчение крыши · R6 → R8</h2><p>СхемаFink с поясами50×200мм и15фермами заменена на схему с центральной подвеской, поясами50×150мм и9фермами. Масса комплектаферм1160,95→550,97кг (−52,5%), однойфермы77,40→61,22кг (−20,9%). Общая кровельная древесина2161,23→1 520кг. Пролёт5,85м, уклоны25°, свесы, снег и свойства древесины сохранены. Карты, смета иPDF перевыпущены из этой ревизии.</p><h2>Подбор через реальные вызовы</h2><p>Сначала движок выявил превышения. Сравнены варианты сечений и шага опор при неизменных свойствах древесины и базовых нагрузках. Сохранён вариант с нулём провалов реализованных частных проверок.</p><table><tr><th>Вариант</th><th>Превышения</th><th>Заготовки6м</th><th>Условная смета</th></tr><tr><td>Стойки50×150 шаг400</td><td>3</td><td>321</td><td>3 040 179 ₽</td></tr><tr><td>Стойки75×150 шаг600</td><td>1</td><td>307</td><td>3 097 586 ₽</td></tr><tr><td>75×150 + усиленные фермы</td><td>1</td><td>307</td><td>3 203 274 ₽</td></tr><tr><td>75×150 + фермы + сваи1800</td><td>0</td><td>308</td><td>3 300 047 ₽</td></tr><tr><td>Стойки50×150 шаг400 + сваи1800</td><td>3</td><td>324</td><td>3 144 196 ₽</td></tr><tr><td>Стойки75×150 шаг600 + сваи1800</td><td>0</td><td>310</td><td>3 201 603 ₽</td></tr><tr><td>Fink150/100 шаг600</td><td>0</td><td>331</td><td>3 406 001 ₽</td></tr><tr><td>King200/100 шаг600</td><td>0</td><td>329</td><td>3 462 723 ₽</td></tr><tr><td>King150/100 шаг600</td><td>0</td><td>332</td><td>3 407 238 ₽</td></tr><tr><td>King150/100 шаг800</td><td>0</td><td>313</td><td>3 356 201 ₽</td></tr><tr><td>Fink150/100 шаг800</td><td>0</td><td>312</td><td>3 354 812 ₽</td></tr><tr><td>King150/100 шаг1000</td><td>0</td><td>295</td><td>3 325 702 ₽</td></tr><tr><td>King100/100 шаг600</td><td>5</td><td>325</td><td>3 336 872 ₽</td></tr><tr><td>King150/50 шаг600</td><td>0</td><td>325</td><td>3 377 622 ₽</td></tr><tr><td>King45×150 шаг600</td><td>0</td><td>338</td><td>3 401 865 ₽</td></tr><tr><td>Queen150/100 шаг600</td><td>2</td><td>336</td><td>3 416 786 ₽</td></tr><tr><td>Общая рама · открытая терраса</td><td>0</td><td>296</td><td>3 272 529 ₽</td></tr><tr><td>Общая рама · крытая веранда</td><td>0</td><td>308</td><td>3 382 730 ₽</td></tr><tr><td>Общая рама · холодная остеклённая веранда</td><td>0</td><td>316</td><td>3 891 102 ₽</td></tr></table><h2>Раскрой и смета</h2><p>692 деталей объединены в134 групп геометрии и120 повторных схем для308 шестиметровых досок. Каждая схема показана один раз с количеством и местами применения. Неразмещённых деталей:0. Закупка12,88м³, чистая древесина11,492м³. Пригодные остатки1,136м³ учитываются отдельно от пропила и коротких обрезков. Глобальная оптимальность не доказана.</p><p>Ставки в рублях заданы как пример бюджета; это не рыночная котировка. Полный состав и исключения приведены в смете.</p><h2>Снег и тепловлажностный расчёт</h2><p>Для Ногинска предварительно принято Sg1,5кПа, μ1, gammaQ1,4. В отчёте отдельно приведены проверенные сценарии фиксированных сечений. Равномерное увеличение нагрузки не заменяет местный занос и сползание снега с дома на веранду. Для стен150мм, пола200мм и потолка200мм рассчитаны R/U и стационарные профили при+21/−26°C, включая проверку стены приRH60%. Годовое влагонакопление и полное соответствие СП50 не подтверждены.</p><aside><b>Расчётная проработка для проверки решений.</b> 0 провалов частных проверок; 66 предупреждений/неподтверждённых проверок. До рабочего проекта остаются геология и сваи, соединения, пространственная работа, ветровой отрыв, местные снеговые схемы, наружные ступени/ограждение и инженерные системы. certified=false.</aside><h2>Как нейронка использовала MCP</h2><p>Сервер karkas-engine зарегистрирован в Codex. SDK-клиент выполнил initialize/tools/list и46 tools/call. Запросы, полные ответы и цепочка SHA256 сохранены в JSONL. Сайт показывает фактический экспорт R8; это просмотрщик, не удалённая MCP-точка и не ручной редактор.</p><h2>Ревизии</h2><table><tr><th>Ревизия</th><th>Детали</th><th>Заготовки</th><th>Опоры</th><th>Превышения</th></tr><tr><td>R1</td><td>390</td><td>150</td><td>20</td><td>0</td></tr><tr><td>R2</td><td>686</td><td>305</td><td>19</td><td>1</td></tr><tr><td>R3</td><td>686</td><td>310</td><td>22</td><td>0</td></tr><tr><td>R4</td><td>753</td><td>330</td><td>26</td><td>0</td></tr><tr><td>R5</td><td>753</td><td>330</td><td>26</td><td>0</td></tr><tr><td>R6</td><td>753</td><td>330</td><td>26</td><td>0</td></tr><tr><td>R7</td><td>668</td><td>295</td><td>26</td><td>0</td></tr><tr><td>R8</td><td>692</td><td>308</td><td>26</td><td>0</td></tr></table><h2>Фактические вызовы</h2><div class="table"><table><tr><th>№</th><th>UTC</th><th>Инструмент</th><th>Рев.</th><th>Ответ</th><th>Запрос</th></tr><tr><td>1</td><td>2026-11-03T19:06:50.128Z</td><td><code>karkas_catalog</code></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос</summary><pre>{
   &quot;name&quot;: &quot;karkas_catalog&quot;,
   &quot;arguments&quot;: {}
 }</pre><small>Ответ и SHA256: 991c79abb2a456d864aca612dc6365f5379ad6841cd8cc45896e733b0978307d в JSONL.</small></details></td></tr><tr><td>2</td><td>2026-11-03T19:11:16.773Z</td><td><code>karkas_generate</code></td><td>1</td><td>390 деталей, 0 превышений</td><td><details><summary>Запрос</summary><pre>{
@@ -2467,4 +2467,632 @@
     &quot;status&quot;: &quot;warning&quot;,
     &quot;limit&quot;: 100
   }
-}</pre><small>Ответ и SHA256: b774e86a8909699ac125f4cf5ae5d772c9b4c82b9ee4ee5ee649154d7f94e206 в JSONL.</small></details></td></tr></table></div><p>Проектhouse-d9a5d304-7069-43e9-aeb9-4f32b8d07302 · R6<br>SHA256 входных данныхea04e1e250ec94ad0b3335ad6934ba80d1f5167a32315121e323bd1bab415ddb<br>SHA256 журналаef2ef340e681488e990766f7ac1a2fadf31a52b35da5320de281b4ce7020bcf4</p></main></html>
+}</pre><small>Ответ и SHA256: b774e86a8909699ac125f4cf5ae5d772c9b4c82b9ee4ee5ee649154d7f94e206 в JSONL.</small></details></td></tr><tr><td>28</td><td>2026-11-03T20:27:37.907Z</td><td><code>karkas_catalog</code></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_catalog&quot;,
+  &quot;arguments&quot;: {}
+}</pre><small>Ответ и SHA256: 758875eff19d26034d1d3103a3e4e9d79b8bddf264f9796025e545bb66082263 в JSONL.</small></details></td></tr><tr><td>29</td><td>2026-11-03T20:27:37.944Z</td><td><code>karkas_get_project</code></td><td>6</td><td>Расчёт / данные</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_get_project&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;
+  }
+}</pre><small>Ответ и SHA256: 289c4dfd78a82da036d6e80c254b84277fd8202d6388d57915c7543b4ea6291a в JSONL.</small></details></td></tr><tr><td>30</td><td>2026-11-03T20:28:03.118Z</td><td><code>karkas_compare_variants</code></td><td>6</td><td>Расчёт / данные</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_compare_variants&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;revision&quot;: 6,
+    &quot;variants&quot;: [
+      {
+        &quot;name&quot;: &quot;Fink150/100 шаг600&quot;,
+        &quot;operations&quot;: [
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/type&quot;,
+            &quot;value&quot;: &quot;fink&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/chordSection&quot;,
+            &quot;value&quot;: &quot;50x150&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/webSection&quot;,
+            &quot;value&quot;: &quot;50x100&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/spacing&quot;,
+            &quot;value&quot;: 0.6
+          }
+        ]
+      },
+      {
+        &quot;name&quot;: &quot;King200/100 шаг600&quot;,
+        &quot;operations&quot;: [
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/type&quot;,
+            &quot;value&quot;: &quot;king&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/chordSection&quot;,
+            &quot;value&quot;: &quot;50x200&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/webSection&quot;,
+            &quot;value&quot;: &quot;50x100&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/spacing&quot;,
+            &quot;value&quot;: 0.6
+          }
+        ]
+      },
+      {
+        &quot;name&quot;: &quot;King150/100 шаг600&quot;,
+        &quot;operations&quot;: [
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/type&quot;,
+            &quot;value&quot;: &quot;king&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/chordSection&quot;,
+            &quot;value&quot;: &quot;50x150&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/webSection&quot;,
+            &quot;value&quot;: &quot;50x100&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/spacing&quot;,
+            &quot;value&quot;: 0.6
+          }
+        ]
+      },
+      {
+        &quot;name&quot;: &quot;King150/100 шаг800&quot;,
+        &quot;operations&quot;: [
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/type&quot;,
+            &quot;value&quot;: &quot;king&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/chordSection&quot;,
+            &quot;value&quot;: &quot;50x150&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/webSection&quot;,
+            &quot;value&quot;: &quot;50x100&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/spacing&quot;,
+            &quot;value&quot;: 0.8
+          }
+        ]
+      },
+      {
+        &quot;name&quot;: &quot;Fink150/100 шаг800&quot;,
+        &quot;operations&quot;: [
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/type&quot;,
+            &quot;value&quot;: &quot;fink&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/chordSection&quot;,
+            &quot;value&quot;: &quot;50x150&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/webSection&quot;,
+            &quot;value&quot;: &quot;50x100&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/spacing&quot;,
+            &quot;value&quot;: 0.8
+          }
+        ]
+      },
+      {
+        &quot;name&quot;: &quot;King150/100 шаг1000&quot;,
+        &quot;operations&quot;: [
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/type&quot;,
+            &quot;value&quot;: &quot;king&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/chordSection&quot;,
+            &quot;value&quot;: &quot;50x150&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/webSection&quot;,
+            &quot;value&quot;: &quot;50x100&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/spacing&quot;,
+            &quot;value&quot;: 1
+          }
+        ]
+      },
+      {
+        &quot;name&quot;: &quot;King100/100 шаг600&quot;,
+        &quot;operations&quot;: [
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/type&quot;,
+            &quot;value&quot;: &quot;king&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/chordSection&quot;,
+            &quot;value&quot;: &quot;50x100&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/webSection&quot;,
+            &quot;value&quot;: &quot;50x100&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/spacing&quot;,
+            &quot;value&quot;: 0.6
+          }
+        ]
+      },
+      {
+        &quot;name&quot;: &quot;King150/50 шаг600&quot;,
+        &quot;operations&quot;: [
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/type&quot;,
+            &quot;value&quot;: &quot;king&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/chordSection&quot;,
+            &quot;value&quot;: &quot;50x150&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/webSection&quot;,
+            &quot;value&quot;: &quot;50x50&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/spacing&quot;,
+            &quot;value&quot;: 0.6
+          }
+        ]
+      },
+      {
+        &quot;name&quot;: &quot;King45×150 шаг600&quot;,
+        &quot;operations&quot;: [
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/type&quot;,
+            &quot;value&quot;: &quot;king&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/chordSection&quot;,
+            &quot;value&quot;: &quot;45x150&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/webSection&quot;,
+            &quot;value&quot;: &quot;45x100&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/spacing&quot;,
+            &quot;value&quot;: 0.6
+          }
+        ]
+      },
+      {
+        &quot;name&quot;: &quot;Queen150/100 шаг600&quot;,
+        &quot;operations&quot;: [
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/type&quot;,
+            &quot;value&quot;: &quot;queen&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/chordSection&quot;,
+            &quot;value&quot;: &quot;50x150&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/webSection&quot;,
+            &quot;value&quot;: &quot;50x100&quot;
+          },
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/roof/spacing&quot;,
+            &quot;value&quot;: 0.6
+          }
+        ]
+      }
+    ]
+  }
+}</pre><small>Ответ и SHA256: 55f8b45d9e80f57421529da8473e582b9eb44f2253097d8bde61bcc2bd2d9320 в JSONL.</small></details></td></tr><tr><td>31</td><td>2026-11-03T20:30:27.715Z</td><td><code>karkas_apply_patch</code></td><td>7</td><td>668 деталей, 0 превышений</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_apply_patch&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;expected_revision&quot;: 6,
+    &quot;operations&quot;: [
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/roof/type&quot;,
+        &quot;value&quot;: &quot;king&quot;
+      },
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/roof/chordSection&quot;,
+        &quot;value&quot;: &quot;50x150&quot;
+      },
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/roof/webSection&quot;,
+        &quot;value&quot;: &quot;50x100&quot;
+      },
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/roof/spacing&quot;,
+        &quot;value&quot;: 1
+      },
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/envelope/assemblies/1/layers&quot;,
+        &quot;value&quot;: [
+          {
+            &quot;id&quot;: &quot;gypsum&quot;,
+            &quot;name&quot;: &quot;ГКЛ12.5мм&quot;,
+            &quot;thickness&quot;: 0.0125,
+            &quot;lambda&quot;: 0.25,
+            &quot;mu&quot;: 10
+          },
+          {
+            &quot;id&quot;: &quot;service&quot;,
+            &quot;name&quot;: &quot;Сервисная полость50мм · R0.18&quot;,
+            &quot;thickness&quot;: 0.05,
+            &quot;lambda&quot;: 0.27778,
+            &quot;mu&quot;: 1
+          },
+          {
+            &quot;id&quot;: &quot;vapour&quot;,
+            &quot;name&quot;: &quot;Пароизоляция / воздушный барьер sd50м&quot;,
+            &quot;thickness&quot;: 0.0002,
+            &quot;lambda&quot;: 0.2,
+            &quot;sd&quot;: 50
+          },
+          {
+            &quot;id&quot;: &quot;main&quot;,
+            &quot;name&quot;: &quot;Минеральная вата150мм между нижними поясами&quot;,
+            &quot;thickness&quot;: 0.15,
+            &quot;lambda&quot;: 0.037,
+            &quot;mu&quot;: 1
+          },
+          {
+            &quot;id&quot;: &quot;continuous&quot;,
+            &quot;name&quot;: &quot;Минеральная вата50мм сплошным слоем над поясами&quot;,
+            &quot;thickness&quot;: 0.05,
+            &quot;lambda&quot;: 0.037,
+            &quot;mu&quot;: 1
+          }
+        ]
+      },
+      {
+        &quot;op&quot;: &quot;add&quot;,
+        &quot;path&quot;: &quot;/site/roofRevision&quot;,
+        &quot;value&quot;: {
+          &quot;baselineRevision&quot;: 6,
+          &quot;description&quot;: &quot;Облегчение без изменения пролёта, уклонов, свесов, утепления и заданных нагрузок. Сравнены10наборов параметров черезMCP.&quot;,
+          &quot;scheme&quot;: &quot;Центральная подвеска и два подкоса; поднятые пяты с отдельной триангуляцией.&quot;,
+          &quot;ceilingInsulation&quot;: &quot;150мм между поясами +50мм непрерывно над ними; суммарно200мм.&quot;,
+          &quot;scope&quot;: &quot;Частные проверки при исходных свойствах древесины и трёх снеговых сценариях. Крепёж, постоянные связи из плоскости, длительность нагрузки и нормативные сочетания не подтверждены.&quot;,
+          &quot;sources&quot;: [
+            &quot;https://www.sbcacomponents.com/roof-trusses&quot;,
+            &quot;https://www.apawood.org/applications-systems/fully-sheathed-wall-systems/raised-heel-trusses/&quot;
+          ]
+        }
+      }
+    ]
+  }
+}</pre><small>Ответ и SHA256: f19a68fcaa5ff47ade1eb45a2082bec273cf84d449632f984bf1698321230362 в JSONL.</small></details></td></tr><tr><td>32</td><td>2026-11-03T20:30:52.123Z</td><td><code>karkas_report</code></td><td>7</td><td>Расчёт / данные</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_report&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;revision&quot;: 7,
+    &quot;topic&quot;: &quot;checks&quot;,
+    &quot;status&quot;: &quot;fail&quot;,
+    &quot;limit&quot;: 100
+  }
+}</pre><small>Ответ и SHA256: c19825c842f262fc47a43414733500c9fa3b805c03394f6e16308438081d35a4 в JSONL.</small></details></td></tr><tr><td>33</td><td>2026-11-03T20:30:52.130Z</td><td><code>karkas_report</code></td><td>7</td><td>Расчёт / данные</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_report&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;revision&quot;: 7,
+    &quot;topic&quot;: &quot;checks&quot;,
+    &quot;status&quot;: &quot;unverified&quot;,
+    &quot;limit&quot;: 100
+  }
+}</pre><small>Ответ и SHA256: 0759c8e1102a396d1aa53d652b1d7af8f499e32f37d0cd7f731abfb16322ad73 в JSONL.</small></details></td></tr><tr><td>34</td><td>2026-11-03T20:30:55.420Z</td><td><code>karkas_export</code></td><td>7</td><td>report_json, project_json, plan_svg, boards_csv, cutting_csv, estimate_csv, cutting_html, model_obj, fabrication_parts_csv, fabrication_stocks_csv, structural_pdf</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_export&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;revision&quot;: 7,
+    &quot;formats&quot;: [
+      &quot;report_json&quot;,
+      &quot;project_json&quot;,
+      &quot;plan_svg&quot;,
+      &quot;boards_csv&quot;,
+      &quot;cutting_csv&quot;,
+      &quot;estimate_csv&quot;,
+      &quot;cutting_html&quot;,
+      &quot;model_obj&quot;,
+      &quot;fabrication_parts_csv&quot;,
+      &quot;fabrication_stocks_csv&quot;,
+      &quot;structural_pdf&quot;
+    ]
+  }
+}</pre><small>Ответ и SHA256: faa623a0f1c5bef604579dfe61fb1e5cc42ba86d326f8ea2cba45c6b5e622a35 в JSONL.</small></details></td></tr><tr><td>35</td><td>2026-11-03T20:31:59.589Z</td><td><code>karkas_snow_cases</code></td><td>7</td><td>Расчёт / данные</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_snow_cases&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;revision&quot;: 7
+  }
+}</pre><small>Ответ и SHA256: ddb773f45971aed22dfb73362782932e1512a79069c897efde91b85eca0816fc в JSONL.</small></details></td></tr><tr><td>36</td><td>2026-11-03T20:31:59.600Z</td><td><code>karkas_report</code></td><td>7</td><td>Расчёт / данные</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_report&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;revision&quot;: 7,
+    &quot;topic&quot;: &quot;checks&quot;,
+    &quot;status&quot;: &quot;warning&quot;,
+    &quot;limit&quot;: 100
+  }
+}</pre><small>Ответ и SHA256: d538c147cd001e87537ff57aa936fa3f1b42b5cc63d51325958aaab47076fdf7 в JSONL.</small></details></td></tr><tr><td>37</td><td>2026-11-03T20:51:27.048Z</td><td><code>karkas_catalog</code></td><td>—</td><td>Расчёт / данные</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_catalog&quot;,
+  &quot;arguments&quot;: {}
+}</pre><small>Ответ и SHA256: 716ce8cebf06322b612c04e964293baf4d11a20286bac46b2209473dd1330132 в JSONL.</small></details></td></tr><tr><td>38</td><td>2026-11-03T20:51:27.054Z</td><td><code>karkas_apply_patch</code></td><td>—</td><td>Ошибка</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_apply_patch&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;expected_revision&quot;: 7,
+    &quot;operations&quot;: [
+      {
+        &quot;op&quot;: &quot;add&quot;,
+        &quot;path&quot;: &quot;/foundation/grillage/crossTies&quot;,
+        &quot;value&quot;: {
+          &quot;spacing&quot;: 2,
+          &quot;positions&quot;: [
+            1.645,
+            3.215,
+            4.785,
+            6.355
+          ],
+          &quot;pileSpacing&quot;: 3
+        }
+      },
+      {
+        &quot;op&quot;: &quot;add&quot;,
+        &quot;path&quot;: &quot;/annexes/0/foundation/mode&quot;,
+        &quot;value&quot;: &quot;shared&quot;
+      },
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/annexes/0/foundation/edgeInset&quot;,
+        &quot;value&quot;: 0.43
+      },
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/annexes/0/foundation/pileHeadY&quot;,
+        &quot;value&quot;: 0.72
+      },
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/annexes/0/offset&quot;,
+        &quot;value&quot;: 1.14
+      },
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/annexes/0/floor/section&quot;,
+        &quot;value&quot;: &quot;50x200&quot;
+      },
+      {
+        &quot;op&quot;: &quot;add&quot;,
+        &quot;path&quot;: &quot;/site/foundationRevision&quot;,
+        &quot;value&quot;: {
+          &quot;description&quot;: &quot;Общий ростверк дома и веранды;4поперечные линии пакетов внутри коробки8×6м. Опорныеузлы имеют каноническиеID,древесина основания учтена одинраз.&quot;,
+          &quot;reference&quot;: &quot;Монтажная подача переработана по предоставленному пользователем примеру: раздельные планы ростверка/лаг, марки,местные спецификации,размерныецепи и узлы. Размеры/нагрузки чужого проекта не переносились.&quot;,
+          &quot;scope&quot;: &quot;Вертикальная сеть шарнирных пролётов; пространственная жёсткость,крепёж,горизонтальные нагрузки и совместные осадки не подтверждены.&quot;
+        }
+      },
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/site/assumptions/0&quot;,
+        &quot;value&quot;: &quot;Основная коробка8×6м по наружным граням каркаса. Веранда4×2м и кровельные свесы снаружи этого габарита; ростверк веранды соединён с общим ростверком дома. Фасад25ммвентзазор+20ммоблицовка выступает45мм.&quot;
+      }
+    ]
+  }
+}</pre><small>Ответ и SHA256: 390eadc60bbde168fe0cd75561b2b1844176b8d69df0b8ec0153f81f04691a38 в JSONL.</small></details></td></tr><tr><td>39</td><td>2026-11-03T20:51:27.055Z</td><td><code>karkas_export</code></td><td>—</td><td>Ошибка</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_export&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;revision&quot;: 8,
+    &quot;formats&quot;: [
+      &quot;report_json&quot;,
+      &quot;project_json&quot;
+    ]
+  }
+}</pre><small>Ответ и SHA256: 828fc2273bfd9ad2bc1d8b99702580e4f4b74c0dea75edeb7ce0a42ee7050cd7 в JSONL.</small></details></td></tr><tr><td>40</td><td>2026-11-03T20:51:50.928Z</td><td><code>karkas_apply_patch</code></td><td>8</td><td>692 деталей, 0 превышений</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_apply_patch&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;expected_revision&quot;: 7,
+    &quot;operations&quot;: [
+      {
+        &quot;op&quot;: &quot;add&quot;,
+        &quot;path&quot;: &quot;/foundation/grillage/crossTies&quot;,
+        &quot;value&quot;: {
+          &quot;spacing&quot;: 2,
+          &quot;positions&quot;: [
+            1.645,
+            3.215,
+            4.785,
+            6.355
+          ],
+          &quot;pileSpacing&quot;: 3
+        }
+      },
+      {
+        &quot;op&quot;: &quot;add&quot;,
+        &quot;path&quot;: &quot;/annexes/0/foundation/mode&quot;,
+        &quot;value&quot;: &quot;shared&quot;
+      },
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/annexes/0/foundation/edgeInset&quot;,
+        &quot;value&quot;: 0.43
+      },
+      {
+        &quot;op&quot;: &quot;add&quot;,
+        &quot;path&quot;: &quot;/annexes/0/foundation/pileHeadY&quot;,
+        &quot;value&quot;: 0.72
+      },
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/annexes/0/offset&quot;,
+        &quot;value&quot;: 1.14
+      },
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/annexes/0/floor/section&quot;,
+        &quot;value&quot;: &quot;50x200&quot;
+      },
+      {
+        &quot;op&quot;: &quot;add&quot;,
+        &quot;path&quot;: &quot;/site/foundationRevision&quot;,
+        &quot;value&quot;: {
+          &quot;description&quot;: &quot;Общий ростверк дома и веранды;4поперечные линии пакетов внутри коробки8×6м. Опорныеузлы имеют каноническиеID,древесина основания учтена одинраз.&quot;,
+          &quot;reference&quot;: &quot;Монтажная подача переработана по предоставленному пользователем примеру: раздельные планы ростверка/лаг, марки,местные спецификации,размерныецепи и узлы. Размеры/нагрузки чужого проекта не переносились.&quot;,
+          &quot;scope&quot;: &quot;Вертикальная сеть шарнирных пролётов; пространственная жёсткость,крепёж,горизонтальные нагрузки и совместные осадки не подтверждены.&quot;
+        }
+      },
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/site/assumptions/0&quot;,
+        &quot;value&quot;: &quot;Основная коробка8×6м по наружным граням каркаса. Веранда4×2м и кровельные свесы снаружи этого габарита; ростверк веранды соединён с общим ростверком дома. Фасад25ммвентзазор+20ммоблицовка выступает45мм.&quot;
+      }
+    ]
+  }
+}</pre><small>Ответ и SHA256: bbd83aa920e3f371b553d628f9e79bb899fff7b46179a50c944544a33f954425 в JSONL.</small></details></td></tr><tr><td>41</td><td>2026-11-03T20:51:51.007Z</td><td><code>karkas_export</code></td><td>8</td><td>report_json, project_json</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_export&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;revision&quot;: 8,
+    &quot;formats&quot;: [
+      &quot;report_json&quot;,
+      &quot;project_json&quot;
+    ]
+  }
+}</pre><small>Ответ и SHA256: ae112f5f5b1e64f340c9faddc87a144774d5d97fba95762ae62811c5d2f9cd8f в JSONL.</small></details></td></tr><tr><td>42</td><td>2026-11-03T20:52:43.929Z</td><td><code>karkas_report</code></td><td>8</td><td>Расчёт / данные</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_report&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;revision&quot;: 8,
+    &quot;topic&quot;: &quot;checks&quot;,
+    &quot;status&quot;: &quot;fail&quot;,
+    &quot;limit&quot;: 100
+  }
+}</pre><small>Ответ и SHA256: d378ffcf7f812c13ca8207030f490bd49394c9dd19b61d9ca031e46a256d97db в JSONL.</small></details></td></tr><tr><td>43</td><td>2026-11-03T20:52:43.932Z</td><td><code>karkas_report</code></td><td>8</td><td>Расчёт / данные</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_report&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;revision&quot;: 8,
+    &quot;topic&quot;: &quot;checks&quot;,
+    &quot;status&quot;: &quot;unverified&quot;,
+    &quot;limit&quot;: 100
+  }
+}</pre><small>Ответ и SHA256: f692ec6b56803793766f30a847c72870e1f44997b230a2232643bcce1136eb02 в JSONL.</small></details></td></tr><tr><td>44</td><td>2026-11-03T20:55:14.082Z</td><td><code>karkas_snow_cases</code></td><td>8</td><td>Расчёт / данные</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_snow_cases&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;revision&quot;: 8
+  }
+}</pre><small>Ответ и SHA256: 1ab90047c87f20bf884e2442a4c501b58cb7a9b027674cd10f9690b9bc71be48 в JSONL.</small></details></td></tr><tr><td>45</td><td>2026-11-03T20:57:42.762Z</td><td><code>karkas_compare_variants</code></td><td>8</td><td>Расчёт / данные</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_compare_variants&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;revision&quot;: 8,
+    &quot;variants&quot;: [
+      {
+        &quot;name&quot;: &quot;Общая рама · открытая терраса&quot;,
+        &quot;operations&quot;: [
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/annexes/0/kind&quot;,
+            &quot;value&quot;: &quot;openTerrace&quot;
+          }
+        ]
+      },
+      {
+        &quot;name&quot;: &quot;Общая рама · крытая веранда&quot;,
+        &quot;operations&quot;: [
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/annexes/0/kind&quot;,
+            &quot;value&quot;: &quot;coveredTerrace&quot;
+          }
+        ]
+      },
+      {
+        &quot;name&quot;: &quot;Общая рама · холодная остеклённая веранда&quot;,
+        &quot;operations&quot;: [
+          {
+            &quot;op&quot;: &quot;replace&quot;,
+            &quot;path&quot;: &quot;/annexes/0/kind&quot;,
+            &quot;value&quot;: &quot;glazedVeranda&quot;
+          }
+        ]
+      }
+    ]
+  }
+}</pre><small>Ответ и SHA256: 378911bec23196e50094ed0d1c4365ea5e1087d4a0e03cbea2373d3a60433600 в JSONL.</small></details></td></tr><tr><td>46</td><td>2026-11-03T21:00:04.935Z</td><td><code>karkas_export</code></td><td>8</td><td>report_json, project_json, plan_svg, boards_csv, cutting_csv, estimate_csv, cutting_html, model_obj, fabrication_parts_csv, fabrication_stocks_csv, structural_pdf</td><td><details><summary>Запрос</summary><pre>{
+  &quot;name&quot;: &quot;karkas_export&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;revision&quot;: 8,
+    &quot;formats&quot;: [
+      &quot;report_json&quot;,
+      &quot;project_json&quot;,
+      &quot;plan_svg&quot;,
+      &quot;boards_csv&quot;,
+      &quot;cutting_csv&quot;,
+      &quot;estimate_csv&quot;,
+      &quot;cutting_html&quot;,
+      &quot;model_obj&quot;,
+      &quot;fabrication_parts_csv&quot;,
+      &quot;fabrication_stocks_csv&quot;,
+      &quot;structural_pdf&quot;
+    ]
+  }
+}</pre><small>Ответ и SHA256: e9a90adf65f57ecd698966655c4ae3660d87d9573524129f8928de4d11a6930d в JSONL.</small></details></td></tr></table></div><p>Проектhouse-d9a5d304-7069-43e9-aeb9-4f32b8d07302 · R8<br>SHA256 входных данныхc03ace5d60245473aa71e3c3e46fee0db22ef22823314f993a9e0cbf945566a3<br>SHA256 журналаe25f8b3409df8d27c7f3a92308b0ff35da4725da71f528f245ea8a92d8166a89</p></main></html>

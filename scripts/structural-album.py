@@ -292,6 +292,8 @@ class Album:
         self.wall_map = {str(w.get('id')): w for w in self.p.get('walls', [])}
         self.wall_names = {str(w.get('id')): f'Стена {i + 1:02d}' for i, w in enumerate(self.p.get('walls', []))}
         self.levels = self.g.get('levels') or []
+        self.foundation_shared = bool(self.gr.get('sharedAnnexIds') or (self.r.get('foundation') or {}).get('sharedGrillage'))
+        self.support_nodes = self.select_support_nodes()
         self.pages = []
         self.currency = self.estimate.get('currency') or (self.p.get('prices') or {}).get('currency') or 'RUB'
         self.unit_money = {'EUR': 'EUR', 'RUB': 'RUB', 'USD': 'USD'}.get(self.currency, clean(self.currency))
@@ -355,7 +357,9 @@ class Album:
         if self.planning.get('rooms'):
             self.table_pages('Помещения · экспликация', [('ID', .16, 'mono'), ('Этаж', .07), ('Наименование', .33), ('Площадь, м²', .15), ('Чистые габариты, м', .29)], [[room.get('id'), room.get('level', room.get('floor')), room.get('name'), number(room.get('area'), 3), self.room_dimensions(room)] for room in self.planning['rooms']], 'Площади из отчёта; чистые габариты - между гранями полигонов помещений. Расстановка мебели не добавляет расчётную массу.', 8)
         self.add('Свайное поле', 'piles', subtitle='Положение и расчётные реакции по модели. Несущая способность грунта не подтверждена геологией.')
-        self.add('Ростверк · общий план и уровни', 'grillage')
+        self.add('Ростверк · монтажный план общей рамы' if self.foundation_shared else 'Ростверк · монтажный план', 'grillage', subtitle='Фактические доски пакетов, опоры и поперечные связи. Размеры между опорными осями в мм; отметки в м.')
+        if self.support_nodes:
+            self.add('Ростверк · опорные сопряжения общей рамы', 'supportnodes', self.support_nodes, 'У-марки привязаны к узлам монтажного плана. Показаны фактические тела и отметки; крепёж и передача усилий через узел не рассчитаны.')
         alignment_nodes = self.platform_alignment_nodes()
         if alignment_nodes:
             self.add('Платформа, каркас и ростверк · наружные грани', 'platformdetails', alignment_nodes[:2], 'Размеры по фактической геометрии отчёта. Совпадение граней и полоса опирания не подтверждают расчёт соединений.')
@@ -370,7 +374,7 @@ class Album:
         piles = self.gr.get('piles') or self.r.get('piles') or []
         self.table_pages('Ведомость свай и реакций', [('Свая', .13, 'mono'), ('X, м', .1), ('Y, м', .1), ('Fd, кН', .13), ('Fk, кН', .13), ('η', .1), ('Оголовок, мм', .12), ('Статус модели', .19)], [[p.get('id'), number(p.get('x'), 3), number(p.get('y'), 3), number(p.get('reaction'), 3), number(p.get('reactionCharacteristic'), 3), number(p.get('utilization'), 3), number(p.get('capSize'), 0), STATUSES.get(p.get('status'), p.get('status', '-'))] for p in piles], 'Реакция сваи не является подтверждением её геотехнической несущей способности.')
         for level in self.levels:
-            self.add(f'Перекрытие этажа {level.get("index", 1)}', 'floorframing', level, 'Фактические доски, обрамление проёмов и опоры. Узлы передачи усилий требуют проектирования.')
+            self.add(f'Перекрытие этажа {level.get("index", 1)} · монтажный план лаг', 'floorframing', level, 'Фактические лаги, обвязка, распорки и опорные линии. Марки FG связывают план с ведомостью и полной картой 6 м.')
         floor_openings = self.r.get('floorOpenings')
         if isinstance(floor_openings, dict):
             rows, remarks = [], []
@@ -1163,11 +1167,103 @@ class Album:
             text(c, str(stair.get('risers')) + ' подъёмов\nh=' + number(finite(stair.get('riser')) * 1000, 1) + ' мм · b=' + number(finite(stair.get('tread')) * 1000, 0) + ' мм', x, y - 25, 8.3, color=BLUE, width=245)
         self.note(c, 'О - окно; Д - дверь. Размеры между осями стен; платформа по наружным граням. Отметки относительно единого нуля модели. Лестница требует отдельного расчёта.', y=103)
 
+    def select_support_nodes(self):
+        beams = {b.get('id'): b for b in self.gr.get('beams') or []}
+        candidates = [j for j in self.gr.get('joints') or [] if j.get('type') == 'node' and j.get('point') and len(j.get('beamIds') or []) > 1]
+        selected = []
+        for wanted, title in [('shared', 'Общая рама дома и веранды'), ('cross', 'Поперечная связь на опоре')]:
+            for joint in candidates:
+                kinds = [set(beams.get(bid, {}).get('kinds') or [beams.get(bid, {}).get('kind')]) for bid in joint.get('beamIds') or []]
+                is_shared = any('annexConnector' in k for k in kinds) and any('perimeter' in k or 'floorSupport' in k for k in kinds)
+                is_cross = any('transverseTie' in k for k in kinds) and any('floorSupport' in k for k in kinds) and not any('annexConnector' in k for k in kinds) and not joint.get('annexIds')
+                if (wanted == 'shared' and is_shared or wanted == 'cross' and is_cross) and not any(v.get('id') == joint.get('id') for v in selected):
+                    selected.append({**joint, 'mark': 'У' + str(len(selected) + 1), 'title': title}); break
+        return selected
+
+    def technical_base(self, c, box, level=None, pile_grid=False):
+        level = level or (self.levels[0] if self.levels else {})
+        polygons = [self.platform_polygon(level)]
+        if int(level.get('index', 1)) == 1:
+            polygons += [[xy(p) for p in a.get('polygon') or []] for a in self.annexes]
+        piles = self.r.get('piles') or []
+        points = [p for poly in polygons for p in poly]
+        if pile_grid: points += [xy(p) for p in piles]
+        fn, scale = transform(points, box, 69)
+        for poly in polygons:
+            c.setDash([4, 3]); polygon(c, [fn(p) for p in poly], None, LINE, .65); c.setDash([])
+        for void in self.p.get('voids') or []:
+            if int(void.get('level', 2)) == int(level.get('index', 1)):
+                polygon(c, [fn(xy(p)) for p in void.get('polygon') or []], colors.white, ORANGE, .6)
+        axes = self.level_polygon(level)
+        if pile_grid and piles:
+            xs = sorted(set(round(xy(p)[0], 6) for p in piles)); ys = sorted(set(round(xy(p)[1], 6) for p in piles))
+        else:
+            xs = sorted(set(round(p[0], 6) for p in axes)); ys = sorted(set(round(p[1], 6) for p in axes))
+        if xs and ys:
+            a, b, d, e = xs[0], ys[0], xs[-1], ys[-1]
+            for i, x in enumerate(xs):
+                aa, zz = fn((x, b)), fn((x, e)); line(c, (aa[0], aa[1] - 17), (zz[0], zz[1] + 16), LINE, .4, [5, 4])
+                c.setFillColor(colors.white); c.setStrokeColor(MUTED); c.circle(aa[0], aa[1] - 22, 7, fill=1, stroke=1); text(c, str(i + 1), aa[0] - 2.5, aa[1] - 24, 6.5)
+            for i, y in enumerate(ys):
+                aa, zz = fn((a, y)), fn((d, y)); line(c, (aa[0] - 17, aa[1]), (zz[0] + 16, zz[1]), LINE, .4, [5, 4])
+                c.setFillColor(colors.white); c.setStrokeColor(MUTED); c.circle(aa[0] - 22, aa[1], 7, fill=1, stroke=1); text(c, chr(65 + i), aa[0] - 24.5, aa[1] - 2, 6.5)
+            lower_offset = -39 if pile_grid else -39 - max(0, b - min(p[1] for p in points)) * scale
+            if len(xs) > 2:
+                for lo, hi in zip(xs, xs[1:]): dimension(c, fn((lo, b)), fn((hi, b)), lower_offset, number((hi - lo) * 1000, 0))
+            for lo, hi in zip(ys, ys[1:]): dimension(c, fn((a, lo)), fn((a, hi)), 39, number((hi - lo) * 1000, 0))
+            dimension(c, fn((a, b)), fn((d, b)), lower_offset - (23 if len(xs) > 2 else 0), number((d - a) * 1000, 0) + ' · по осям')
+            dimension(c, fn((a, b)), fn((a, e)), 63, number((e - b) * 1000, 0))
+        return fn, scale
+
+    def technical_schedule(self, c, members, x, y, width, title):
+        text(c, title, x, y, 10, 'Bold', GREEN); y -= 24
+        columns = [('Марка', .17), ('b × h', .23), ('Lзаг, мм', .24), ('Шт.', .12), ('V, м³', .24)]
+        c.setFillColor(INK); c.rect(x, y - 22, width, 22, fill=1, stroke=0)
+        left = x
+        for label, share in columns:
+            text(c, label, left + 4, y - 14, 7, 'Bold', colors.white); left += width * share
+        y -= 22
+        groups = collections.OrderedDict()
+        for member in members:
+            mark = self.marks.get(str(member.get('id')), clean(member.get('id')))
+            key = (mark, member.get('b'), member.get('h'), round(finite(member.get('cutLength', member.get('length'))), 6))
+            row = groups.setdefault(key, {'count': 0, 'volume': 0})
+            row['count'] += 1; row['volume'] += finite(member.get('volume'))
+        for i, ((mark, b, h, length), totals) in enumerate(sorted(groups.items(), key=lambda item: item[0][0])):
+            if i >= 18:
+                y = text(c, f'Ещё {len(groups) - 18} марок: полная ведомость FG и CSV.', x, y - 13, 7, color=ORANGE, width=width); break
+            c.setFillColor(PAPER if i % 2 == 0 else colors.white); c.rect(x, y - 20, width, 20, fill=1, stroke=0)
+            values = [mark, f'{b} × {h}', number(length * 1000, 0), totals['count'], number(totals['volume'], 3)]
+            left = x
+            for value, (_, share) in zip(values, columns):
+                text(c, value, left + 4, y - 13, 7, 'Mono' if left == x else 'Body'); left += width * share
+            line(c, (x, y - 20), (x + width, y - 20), LINE, .35); y -= 20
+        y -= 17
+        text(c, f'{len(members)} физических досок · {number(sum(finite(m.get("volume")) for m in members), 3)} м³', x, y, 8, 'Bold')
+        return y - 23
+
+    def technical_callout(self, c, label, anchor, occupied, color=INK, size=6.6):
+        width = pdfmetrics.stringWidth(clean(label), 'Mono', size)
+        offsets = [(13, 12), (-width - 13, 12), (13, -17), (-width - 13, -17), (25, 26), (-width - 25, -29), (13, 39)]
+        for dx, dy in offsets:
+            x, y = anchor[0] + dx, anchor[1] + dy
+            rect = (x - 2, y - 3, x + width + 2, y + size + 2)
+            if any(rect[0] < old[2] + 2 and rect[2] > old[0] - 2 and rect[1] < old[3] + 2 and rect[3] > old[1] - 2 for old in occupied): continue
+            occupied.append(rect)
+            elbow = (x - 3 if dx > 0 else x + width + 3, y - 2)
+            line(c, anchor, elbow, color, .45); line(c, elbow, (x + width, y - 2) if dx > 0 else (x, y - 2), color, .45)
+            text(c, label, x, y, size, 'Mono', color); return
+
+    def node_mark(self, c, node, fn):
+        anchor = fn(xy(node['point'])); center = (anchor[0] + 25, anchor[1] + 26)
+        line(c, anchor, center, ORANGE, .8); c.setFillColor(colors.white); c.setStrokeColor(ORANGE); c.circle(*center, 9, fill=1, stroke=1)
+        text(c, node['mark'], center[0] - 6, center[1] - 2.5, 7.5, 'Bold', ORANGE)
+
     def draw_piles(self, c, data, index):
         level = self.levels[0] if self.levels else {}
-        fn, scale = self.draw_plan_base(c, level, (40, 135, 850, H - 245), rooms=False, openings=False)
+        fn, scale = self.technical_base(c, (40, 135, 850, H - 245), level, pile_grid=True)
         for beam in self.gr.get('beams') or []:
-            line(c, fn(xy(beam['a'])), fn(xy(beam['b'])), WOOD_DARK, 2)
+            line(c, fn(xy(beam['a'])), fn(xy(beam['b'])), BLUE, .65, [5, 3])
         piles = self.gr.get('piles') or self.r.get('piles') or []
         for p in piles:
             xx, yy = fn(xy(p))
@@ -1184,32 +1280,99 @@ class Album:
         text(c, 'Реакции рассчитаны по ростверку. Принятая способность сваи требует геологии, проверки выбранной системы и погружения.', x, y - 8, 8.5, color=ORANGE, width=205)
 
     def draw_grillage(self, c, data, index):
-        level = self.levels[0] if self.levels else {}
-        fn, scale = self.draw_plan_base(c, level, (40, 135, 770, H - 250), rooms=False, openings=False)
-        for beam in self.gr.get('beams') or []:
-            line(c, fn(xy(beam['a'])), fn(xy(beam['b'])), WOOD, max(3, finite(beam.get('width'), .15) * scale))
-            aa, bb = fn(xy(beam['a'])), fn(xy(beam['b']))
-            text(c, beam.get('id'), (aa[0] + bb[0]) / 2 + 4, (aa[1] + bb[1]) / 2 + 7, 7.5, 'Mono', WOOD_DARK)
-        for p in self.gr.get('piles') or []:
-            xx, yy = fn(xy(p)); c.setFillColor(INK); c.circle(xx, yy, 3, fill=1, stroke=0)
-        x, y = 865, H - 145
-        text(c, 'ПАКЕТ НА РЕБРО', x, y, 12, 'Bold', GREEN)
-        y -= 28
-        text(c, f'{self.gr.get("plies", "-")} × {self.gr.get("section", "-")}', x, y, 16, 'Bold')
-        section = (self.p.get('foundation') or {}).get('grillage') or {}
-        b, h = self.section_size(section.get('section', '50x200'))
-        plies = int(finite(self.gr.get('plies'), 3))
-        scale2 = .65
-        base = 370
-        for j in range(plies):
-            c.setFillColor(WOOD); c.setStrokeColor(WOOD_DARK); c.rect(x + j * b * scale2, base, b * scale2, h * scale2, fill=1, stroke=1)
-        line(c, (x - 18, base - 10), (x + plies * b * scale2 + 18, base - 10), INK, 4)
-        text(c, 'Оголовок', x - 10, base - 30, 8)
-        dimension(c, (x, base), (x + plies * b * scale2, base), -48, f'{plies} × {number(b, 0)} = {number(plies * b, 0)} мм')
-        text(c, 'УРОВНИ', x, 270, 9, 'Bold', GREEN)
-        text(c, 'Оголовок / низ пакета  +' + number(self.gr.get('pileHeadY'), 3), x, 247, 9)
-        text(c, 'Верх ростверка             +' + number(self.gr.get('topY'), 3), x, 228, 9)
-        text(c, 'Совместная работа слоёв и закрепление на оголовке не подтверждены.', x, 190, 8.5, color=ORANGE, width=245)
+        fn, scale = self.technical_base(c, (40, 145, 775, H - 265), pile_grid=True)
+        members = self.gr.get('instances') or [m for m in self.members if m.get('category') == 'foundation']
+        beams = {b.get('id'): b for b in self.gr.get('beams') or []}
+        occupied = []
+        for pile in self.r.get('piles') or []:
+            point = xy(pile); cap = finite(pile.get('capSize'), finite(self.gr.get('capSize'), 250)) / 2000
+            polygon(c, [fn((point[0] - cap, point[1] - cap)), fn((point[0] + cap, point[1] - cap)), fn((point[0] + cap, point[1] + cap)), fn((point[0] - cap, point[1] + cap))], None, BLUE, .6)
+        for member in members:
+            beam = beams.get(member.get('beamId'), {}); kinds = beam.get('kinds') or []
+            color = BLUE if 'transverseTie' in kinds or 'annexConnector' in kinds else INK
+            fill = colors.HexColor('#eef3f5') if color == BLUE else colors.HexColor('#f2eee5')
+            polygon(c, [fn(p) for p in self.projected_member(member, lambda q: (q[0], q[2]))], fill, color, .65)
+        for pile in self.r.get('piles') or []:
+            xx, yy = fn(xy(pile)); c.setFillColor(BLUE); c.circle(xx, yy, 1.8, fill=1, stroke=0)
+            label = clean(pile.get('id')); tw = pdfmetrics.stringWidth(label, 'Mono', 5.4)
+            text(c, label, xx + 5, yy - 10, 5.4, 'Mono', BLUE); occupied.append((xx + 3, yy - 12, xx + tw + 7, yy - 3))
+        for beam in beams.values():
+            a, b = xy(beam.get('a')), xy(beam.get('b')); length = math.dist(a, b)
+            if length < 1e-8: continue
+            anchor = fn((a[0] + (b[0] - a[0]) * .37, a[1] + (b[1] - a[1]) * .37))
+            color = BLUE if 'transverseTie' in (beam.get('kinds') or []) else INK
+            self.technical_callout(c, beam.get('id'), anchor, occupied, color, 7)
+        marked = set()
+        for member in members:
+            mark = self.marks.get(str(member.get('id')))
+            if not mark or mark in marked: continue
+            marked.add(mark); a, b = xy(member.get('start')), xy(member.get('end'))
+            self.technical_callout(c, mark, fn(((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)), occupied, WOOD_DARK, 6.4)
+        for node in self.support_nodes: self.node_mark(c, node, fn)
+        x, y = 850, H - 144
+        y = self.technical_schedule(c, members, x, y, 292, 'ДОСКИ ОБЩЕГО РОСТВЕРКА' if self.foundation_shared else 'ДОСКИ РОСТВЕРКА')
+        ties = [b for b in beams.values() if 'transverseTie' in (b.get('kinds') or [])]
+        text(c, 'СХЕМА И МАРКИ', x, y, 9, 'Bold', GREEN); y -= 22
+        for label, color in [('Пакеты продольных балок', INK), ('Поперечные связи / продолжения к веранде', BLUE), ('Оголовки и общие IDs свай', BLUE), ('FG - геометрия отдельной доски', WOOD_DARK)]:
+            line(c, (x, y + 3), (x + 17, y + 3), color, 1.5); y = text(c, label, x + 24, y, 7.4, color=color, width=267) - 12
+        y = text(c, f'{len(beams)} балок · {len(ties)} поперечных связей · {len(self.r.get("piles") or [])} опор.\nОбщий габарит дома по наружным граням каркаса - по архитектурному плану; на этом листе размеры между опорными осями.', x, y - 5, 7.5, width=292) - 20
+        y = text(c, 'Низ пакета / оголовки +' + number(self.gr.get('pileHeadY'), 3) + ' м\nВерх общего ростверка +' + number(self.gr.get('topY'), 3) + ' м', x, y, 8, 'Bold', width=292) - 18
+        text(c, 'У1 / У2 - фактические опорные сопряжения на следующем листе. Сборка пакетов, крепёж, анкеры и смятие в узлах требуют расчёта.', x, y, 7.6, color=ORANGE, width=292)
+        self.note(c, 'Каждая линия доски - фактический физический элемент. Стыки показаны торцами досок; их подробная раскладка по слоям - далее. Одна общая рама и один реестр опор дома и присоединённой веранды.' if self.foundation_shared else 'Каждая линия доски - фактический физический элемент. Стыки показаны торцами досок; подробная раскладка по слоям - далее.', y=103)
+
+    def draw_supportnodes(self, c, nodes, index):
+        beams = {b.get('id'): b for b in self.gr.get('beams') or []}; piles = {p.get('id'): p for p in self.r.get('piles') or []}
+        def segment_distance(point, a, b):
+            d = (b[0] - a[0], b[1] - a[1]); length2 = d[0] ** 2 + d[1] ** 2
+            t = max(0, min(1, ((point[0] - a[0]) * d[0] + (point[1] - a[1]) * d[1]) / max(1e-12, length2)))
+            return math.dist(point, (a[0] + t * d[0], a[1] + t * d[1]))
+        for i, node in enumerate(nodes or []):
+            x, y, w, h = 43 + i * 567, 155, 535, 545
+            c.setStrokeColor(LINE); c.rect(x, y, w, h, fill=0, stroke=1)
+            text(c, node['mark'] + ' · ' + node['title'], x + 13, y + h - 24, 11, 'Bold', GREEN, width=w - 26)
+            text(c, clean(node.get('id')) + ' · ' + clean(node.get('pileId')) + ' · ' + ' / '.join(node.get('beamIds') or []), x + 13, y + h - 45, 7, 'Mono', MUTED, width=w - 26)
+            point = xy(node['point']); radius = .44
+            members = [m for m in self.gr.get('instances') or [] if m.get('beamId') in (node.get('beamIds') or []) and segment_distance(point, xy(m.get('start')), xy(m.get('end'))) < radius]
+            pile = piles.get(node.get('pileId'), {}); cap = finite(pile.get('capSize'), finite(self.gr.get('capSize'), 250)) / 1000
+            text(c, 'ПЛАН · ФАКТИЧЕСКИЕ ГРАНИ ДОСОК', x + 14, y + h - 72, 7.8, 'Bold')
+            pf, _ = transform([(point[0] - radius, point[1] - radius), (point[0] + radius, point[1] + radius)], (x + 13, y + 220, 245, 240), 20)
+            c.saveState(); clip = c.beginPath(); clip.rect(x + 13, y + 220, 245, 240); c.clipPath(clip, stroke=0)
+            polygon(c, [pf((point[0] - cap / 2, point[1] - cap / 2)), pf((point[0] + cap / 2, point[1] - cap / 2)), pf((point[0] + cap / 2, point[1] + cap / 2)), pf((point[0] - cap / 2, point[1] + cap / 2))], None, BLUE, 1.3)
+            for m in members:
+                color = BLUE if m.get('beamId') != node.get('primaryBeamId') else INK
+                polygon(c, [pf(p) for p in self.projected_member(m, lambda q: (q[0], q[2]))], colors.HexColor('#f0e8d9'), color, .85)
+            center = pf(point); line(c, (center[0] - 8, center[1]), (center[0] + 8, center[1]), BLUE, .7); line(c, (center[0], center[1] - 8), (center[0], center[1] + 8), BLUE, .7)
+            c.restoreState()
+            dimension(c, pf((point[0] - cap / 2, point[1] - cap / 2)), pf((point[0] + cap / 2, point[1] - cap / 2)), -18, number(cap * 1000, 0) + ' · оголовок')
+            primary = beams.get(node.get('primaryBeamId'), {}); aa, bb = xy(primary.get('a')), xy(primary.get('b')); L = max(1e-9, math.dist(aa, bb)); u = ((bb[0] - aa[0]) / L, (bb[1] - aa[1]) / L)
+            project = lambda q: ((q[0] - point[0]) * u[0] + (q[2] - point[1]) * u[1], q[1])
+            bottom, top = finite(self.gr.get('pileHeadY')), finite(self.gr.get('topY'))
+            sf, ss = transform([(-.45, bottom - .12), (.45, top + .3)], (x + 280, y + 220, 240, 240), 20)
+            text(c, 'ПРОЕКЦИЯ ВДОЛЬ ГЛАВНОЙ БАЛКИ', x + 280, y + h - 72, 7.4, 'Bold')
+            c.saveState(); clip = c.beginPath(); clip.rect(x + 280, y + 220, 240, 240); c.clipPath(clip, stroke=0)
+            for m in members:
+                polygon(c, [sf(p) for p in self.projected_member(m, project)], colors.HexColor('#e9d6b6'), INK, .8)
+            for m in self.members:
+                if m.get('category') == 'floor' and segment_distance(point, xy(m.get('start')), xy(m.get('end'))) < .22:
+                    polygon(c, [sf(p) for p in self.projected_member(m, project)], colors.HexColor('#e4ead9'), GREEN, .6)
+            c.restoreState()
+            line(c, sf((-cap / 2, bottom)), sf((cap / 2, bottom)), BLUE, 2.2)
+            center = sf((0, bottom)); polygon(c, [(center[0] - 5, center[1] - 12), (center[0] + 5, center[1] - 12), (center[0], center[1] - 3)], None, BLUE, .8)
+            for elevation, label in [(bottom, 'Оголовок'), (top, 'Верх пакета')]:
+                ax, ay = sf((-.43, elevation)); text(c, label + ' +' + number(elevation, 3), ax, ay + 6, 6.9, color=BLUE)
+            text(c, 'Плоскость оголовка показана по отметке;\nтолщина металла и анкер не назначены.', x + 282, y + 214, 6.8, color=MUTED, width=236)
+            marks = list(dict.fromkeys(self.marks.get(str(m.get('id'))) for m in members if self.marks.get(str(m.get('id')))))
+            text(c, 'Доски на узле: ' + ', '.join(marks) + '. Точные IDs / слои / торцы - CSV и раскладка пакетов.', x + 15, y + 165, 8, width=w - 30)
+            sy = y + 127
+            for bid in node.get('beamIds') or []:
+                beam = beams.get(bid, {}); sec = beam.get('section') or {}
+                text(c, bid + ': ' + str(beam.get('plies', sec.get('plies', '-'))) + ' × ' + str(beam.get('bMM', sec.get('b', '-'))) + ' × ' + str(beam.get('hMM', sec.get('h', '-'))) + ' мм', x + 15, sy, 8, 'Bold'); sy -= 18
+            if node.get('annexIds'):
+                for annex in self.annexes:
+                    if annex.get('id') in node['annexIds']:
+                        main = finite((self.levels[0] if self.levels else {}).get('wallBaseY')); deck = finite(annex.get('deckTopY'))
+                        text(c, 'Настил дома +' + number(main, 3) + ' / веранды +' + number(deck, 3) + ' м · разница ' + number((main - deck) * 1000, 0) + ' мм.', x + 15, sy - 2, 7.5, color=GREEN, width=w - 30)
+            text(c, 'СХЕМА ГЕОМЕТРИИ. Крепёж пакета, смятие, анкеры, влагозащита и фактическая передача усилий через сопряжение не подтверждены.', x + 15, y + 34, 7.4, color=ORANGE, width=w - 30)
 
     def draw_platformdetails(self, c, nodes, index):
         for i, node in enumerate(nodes or []):
@@ -1308,101 +1471,70 @@ class Album:
             text(c, f'Фактические стыки: {len(joints)}; опоры и станции показаны пунктиром. Полные ID досок - во внешнем CSV/JSON.', x + 14, y + 39, 7, color=MUTED)
 
     def draw_floorframing(self, c, level, index):
-        fn, scale = self.draw_plan_base(c, level, (40, 135, 870, H - 245), rooms=False, openings=False, stair_note=False)
-        platform = self.r.get('floorPlatform') or {}
-        bearing_lines = [support for support in (platform.get('supports') or []) if int(support.get('level', 1)) == int(level.get('index', 1))]
-        spans = [span for span in (platform.get('spans') or []) if int(span.get('level', 1)) == int(level.get('index', 1))]
+        fn, scale = self.technical_base(c, (40, 145, 775, H - 265), level)
+        platform = self.r.get('floorPlatform') or {}; li = int(level.get('index', 1))
+        bearing_lines = [v for v in platform.get('supports') or [] if int(v.get('level', 1)) == li]
+        spans = [v for v in platform.get('spans') or [] if int(v.get('level', 1)) == li]
+        members = [m for m in self.members if m.get('category') == 'floor' and int(m.get('floor', m.get('level', 1))) == li]
+        occupied = []
         for support in bearing_lines:
             if support.get('a') is not None and support.get('b') is not None:
-                line(c, fn(xy(support['a'])), fn(xy(support['b'])), SUPPORT, 2, [6, 3])
-        members = [m for m in self.members if m.get('category') == 'floor' and int(m.get('floor', m.get('level', 1))) == int(level.get('index', 1))]
-        labelled_groups = set()
-        group_label_boxes = []
-        for j, m in enumerate(members):
-            if not m.get('start') or not m.get('end'):
-                continue
-            a, b = fn(xy(m['start'])), fn(xy(m['end']))
-            is_opening = bool(m.get('voidId')) or clean(m.get('role')).startswith('opening')
-            color = ORANGE if is_opening or 'void' in clean(m.get('role')).lower() or 'header' in clean(m.get('role')).lower() else WOOD_DARK
-            if m.get('role') == 'rimJoist':
-                color = GREEN
-            elif m.get('role') == 'floorBlocking':
-                color = BLUE
-            line(c, a, b, color, max(1.2, min(5, finite(m.get('b'), 50) / 1000 * scale)))
-            group_id = self.marks.get(str(m.get('id')), str(m.get('id')))
-            label_key = (group_id, m.get('role'))
-            if label_key not in labelled_groups:
-                labelled_groups.add(label_key)
-                xx, yy = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
-                label_x, label_y = xx + 3, yy + 3
-                if is_opening:
-                    void = next((v for v in self.p.get('voids', []) if v.get('id') == m.get('voidId')), {})
-                    poly = [xy(p) for p in void.get('polygon', [])]
-                    if poly:
-                        low_x, low_y, high_x, high_y = bounds(poly)
-                        center = fn(((low_x + high_x) / 2, (low_y + high_y) / 2))
-                        if abs(b[1] - a[1]) >= abs(b[0] - a[0]):
-                            label_x = xx - pdfmetrics.stringWidth(group_id, 'Mono', 6) - 5 if xx <= center[0] else xx + 5
-                        else:
-                            label_y = yy - 11 if yy <= center[1] else yy + 7
-                label_width = pdfmetrics.stringWidth(group_id, 'Mono', 6)
-                if abs(b[1] - a[1]) >= abs(b[0] - a[0]):
-                    candidates = [(label_x, label_y + delta) for delta in (0, 11, -11, 22, -22)]
-                else:
-                    candidates = [(label_x + delta, label_y) for delta in (0, 25, -25, 50, -50)]
-                for cx, cy in candidates:
-                    rect = (cx - 1, cy - 2, cx + label_width + 1, cy + 7)
-                    if not any(rect[0] < old[2] + 2 and rect[2] + 2 > old[0] and rect[1] < old[3] + 2 and rect[3] + 2 > old[1] for old in group_label_boxes):
-                        label_x, label_y = cx, cy
-                        group_label_boxes.append(rect)
-                        break
-                text(c, group_id, label_x, label_y, 6, 'Mono', color)
+                line(c, fn(xy(support['a'])), fn(xy(support['b'])), SUPPORT, 1.15, [5, 3])
+        def member_color(m):
+            role = str(m.get('role', ''))
+            if m.get('voidId') or any(t in role.lower() for t in ('header', 'trimmer', 'void')): return ORANGE
+            if role in ('rimJoist', 'annexRim'): return GREEN
+            if role in ('floorBlocking', 'annexBlocking', 'annexPostBearingBlock'): return BLUE
+            return INK
+        for m in members:
+            if m.get('start') and m.get('end'):
+                color = member_color(m)
+                polygon(c, [fn(p) for p in self.projected_member(m, lambda q: (q[0], q[2]))], colors.HexColor('#f3eee2'), color, .6)
+        marked_supports = set()
         for span in spans:
             for endpoint in ('supportStart', 'supportEnd'):
                 support = span.get(endpoint) or {}
                 if support.get('point') is not None:
-                    xx, yy = fn(xy(support['point']))
-                    c.setFillColor(SUPPORT); c.circle(xx, yy, 1.8, fill=1, stroke=0)
-        marked = set()
-        labelled_support_sources = set()
-        for member in (self.r.get('floorOpenings') or {}).get('instances', []):
-            if int(member.get('floor', member.get('level', 1))) != int(level.get('index', 1)):
-                continue
-            for support in member.get('supports') or []:
-                position = support.get('position') or support.get('point')
-                if position is None:
-                    continue
-                point = xy(position)
-                key = (round(point[0], 5), round(point[1], 5), support.get('wallId') or support.get('memberId'))
-                if key in marked:
-                    continue
-                marked.add(key)
-                xx, yy = fn(point)
-                c.setFillColor(colors.white); c.setStrokeColor(BLUE); c.circle(xx, yy, 3.5, fill=1, stroke=1)
-                label = self.wall_names.get(str(support.get('wallId'))) or self.marks.get(str(support.get('memberId')), '')
-                source = support.get('sourceId') or support.get('wallId') or support.get('memberId')
-                already_marked_group = label.startswith('FG') and any(key[0] == label for key in labelled_groups)
-                if source not in labelled_support_sources and not already_marked_group:
-                    labelled_support_sources.add(source)
-                    text(c, label, xx + 5, yy - 9, 5.8, color=BLUE)
-        x, y = 950, H - 145
-        text(c, 'ПЕРЕКРЫТИЕ', x, y, 11, 'Bold', GREEN); y -= 30
-        grouped = collections.Counter((m.get('b'), m.get('h'), m.get('role')) for m in members)
-        for (b, h, role), count in grouped.items():
-            y = text(c, f'{ROLE.get(role, role)}\n{b} × {h} мм · {count} шт.', x, y, 8.5, width=190) - 18
-        stair = next(iter(self.spatial.get('staircases') or []), None) or self.p.get('staircase') or {}
-        if stair and int(level.get('index', 1)) in (int(stair.get('levelFrom', 1)), int(stair.get('levelTo', 2))):
-            y = text(c, f'Лестница: {clean(stair.get("risers", "-"))} подъёмов; h={number(finite(stair.get("riser")) * 1000, 1)} мм; проступь {number(finite(stair.get("tread")) * 1000, 0)} мм.', x, y - 5, 7.5, color=BLUE, width=190) - 18
-        y = min(y - 10, 280)
-        for label, color in [('Обвязка перекрытия', GREEN), ('Поперечные распорки', BLUE), ('Лаги', WOOD_DARK), ('Обрамление проёмов', ORANGE)]:
-            line(c, (x, y + 3), (x + 18, y + 3), color, 3)
-            text(c, label, x + 25, y, 7.5, color=color); y -= 20
-        if platform:
-            line(c, (x, y + 3), (x + 18, y + 3), SUPPORT, 2, [4, 2])
-            text(c, 'Несущие линии: ' + str(len(bearing_lines)), x + 25, y, 7.5, color=SUPPORT); y -= 20
-            text(c, 'Пролёты по модели: ' + str(len(spans)) + '. Опоры обрамления: ' + str(len(marked)) + ' мест. Показана геометрия опор; соединения и передача усилий подтверждаются отдельно.', x, y - 8, 7.5, color=MUTED, width=190)
-        else:
-            text(c, 'Опорная модель платформы не передана. Опоры обрамления: ' + str(len(marked)) + ' мест; соединения требуют подтверждения.', x, y - 8, 7.5, color=MUTED, width=190)
+                    point = fn(xy(support['point'])); c.setFillColor(SUPPORT); c.circle(*point, 1.6, fill=1, stroke=0)
+        for support in bearing_lines:
+            source = support.get('id') or support.get('sourceId')
+            if source in marked_supports or support.get('a') is None or support.get('b') is None: continue
+            marked_supports.add(source); a, b = xy(support['a']), xy(support['b'])
+            self.technical_callout(c, self.wall_names.get(str(source), source), fn((a[0] + .2 * (b[0] - a[0]), a[1] + .2 * (b[1] - a[1]))), occupied, SUPPORT, 6.3)
+        labelled_groups = set()
+        for m in members:
+            mark = self.marks.get(str(m.get('id'))); key = (mark, m.get('role'))
+            if not mark or key in labelled_groups: continue
+            labelled_groups.add(key); a, b = xy(m.get('start')), xy(m.get('end'))
+            self.technical_callout(c, mark, fn(((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)), occupied, member_color(m), 6.5)
+        # Chain actual main-house joist axes; annex and blocking stations are not nominal joist spacing.
+        joists = [m for m in members if m.get('role') == 'joist' and not m.get('annexId')]
+        if joists:
+            a, b = xy(joists[0]['start']), xy(joists[0]['end']); along_y = abs(b[1] - a[1]) >= abs(b[0] - a[0])
+            positions = sorted(set(round(xy(m['start'])[0 if along_y else 1], 6) for m in joists))
+            lo_x, lo_y, hi_x, hi_y = bounds(self.platform_polygon(level))
+            for lo, hi in zip(positions, positions[1:]):
+                if along_y: dimension(c, fn((lo, hi_y)), fn((hi, hi_y)), 25, number((hi - lo) * 1000, 0))
+                else: dimension(c, fn((hi_x, lo)), fn((hi_x, hi)), -25, number((hi - lo) * 1000, 0))
+            if spans:
+                representative = next((v for v in spans if v.get('memberId') == joists[0].get('id')), spans[0])
+                aa, bb = representative.get('start'), representative.get('end')
+                if aa is not None and bb is not None:
+                    span_a, span_b = xy(aa), xy(bb)
+                    offset = -(hi_x - span_a[0]) * scale - 36 if along_y else (hi_y - span_a[1]) * scale + 49
+                    dimension(c, fn(span_a), fn(span_b), offset, number(finite(representative.get('analyticalSpan')) * 1000, 0) + ' · опорные оси')
+        x, y = 850, H - 144
+        y = self.technical_schedule(c, members, x, y, 292, 'ДОСКИ ПЛАТФОРМЫ И НАСТИЛА')
+        text(c, 'МОНТАЖНЫЕ ОБОЗНАЧЕНИЯ', x, y, 9, 'Bold', GREEN); y -= 22
+        for label, color, dash in [('Лаги', INK, None), ('Обвязка по наружному контуру', GREEN, None), ('Распорки / вкладыши', BLUE, None), ('Обрамление проёмов', ORANGE, None), ('Нижележащие опорные балки', SUPPORT, [5, 3])]:
+            line(c, (x, y + 3), (x + 18, y + 3), color, 1.4, dash); text(c, label, x + 25, y, 7.4, color=color); y -= 19
+        model_level = next((v for v in platform.get('levels') or [] if int(v.get('index', v.get('level', 1))) == li), {})
+        facts = 'Лаг дома: ' + str(len(joists)) + '; опорных линий: ' + str(len(bearing_lines)) + '. '
+        if model_level.get('actualSpacing') is not None: facts += 'Фактический шаг: ' + number(finite(model_level.get('actualSpacing')) * 1000, 1) + ' мм. '
+        if spans: facts += 'Наибольший пролёт по опорным осям: ' + number(max(finite(v.get('analyticalSpan')) for v in spans), 3) + ' м.'
+        y = text(c, facts, x, y - 5, 7.5, width=292) - 17
+        text(c, 'Точки на балках - расчётные опорные станции. Контакт досок, передача через поперечный узел и крепёж подтверждаются отдельно. Распорка не считается вертикальной опорой лаги.', x, y, 7.4, color=ORANGE, width=292)
+        self.note(c, 'Показаны физические грани каждой доски; FG подписаны один раз на группу и роль. Размеры шага - по фактическим осям лаг, общий габарит - между осями наружных стен. Полная привязка каждой детали, опор и торцов - CSV.', y=103)
 
     def wall_members(self, wall):
         wid = str(wall.get('id'))
@@ -1542,7 +1674,7 @@ class Album:
                 upper = [p for p in points if abs(p[1] - high) < 1e-6]; lower = [p for p in points if abs(p[1] - low) < 1e-6]
                 a = (sum(p[0] for p in upper) / len(upper), sum(p[2] for p in upper) / len(upper)); b = (sum(p[0] for p in lower) / len(lower), sum(p[2] for p in lower) / len(lower))
                 arrow(c, fn((a[0] * .45 + b[0] * .55, a[1] * .45 + b[1] * .55)), fn((a[0] * .1 + b[0] * .9, a[1] * .1 + b[1] * .9)), BLUE, 1)
-            y = text(c, 'В' + str(j + 1) + ' · ' + clean(annex.get('name', annex.get('id'))) + '\nКровля независимой пристройки; подробный план и опоры - на её листе.', x, y, 8, 'Bold', BLUE, width=240) - 16
+            y = text(c, 'В' + str(j + 1) + ' · ' + clean(annex.get('name', annex.get('id'))) + ('\nКровля пристройки; основание и опоры - на общем монтажном плане.' if (annex.get('foundation') or {}).get('shared') else '\nКровля самостоятельной пристройки; подробный план и опоры - на её листе.'), x, y, 8, 'Bold', BLUE, width=240) - 16
         self.note(c, 'Пунктир - оси опорного контура; зелёный - покрытие дома; голубой - кровля веранды. Стрелки - сток; оранжевый - ендовы; красный - примыкания. Размерные линии свесов: от опорных осей, по горизонтали.', y=105)
 
     def draw_roofsections(self, c, zones, index):
@@ -1667,7 +1799,7 @@ class Album:
         self.note(c, 'Ступени, косоуры с пильным профилем и ограждения взяты из физических досок. Проекция показывает оба марша; это не новый расчёт лестницы. Крепёж, поручни, анкеры и нагрузки ограждений не подтверждены.', y=103)
 
     def draw_annexcatalog(self, c, data, index):
-        variants = [('openTerrace', '01 · Открытая терраса', 'Настил на независимом свайном основании. Кровля и остекление отсутствуют.'), ('coveredTerrace', '02 · Крытая открытая веранда', 'Настил, стойки и односкатная кровля на собственных опорах. Сток направлен от дома.'), ('glazedVeranda', '03 · Холодная остеклённая веранда', 'Независимый каркас и кровля; остекление неотапливаемого объёма. Тепловой контур дома сохраняется.')]
+        variants = [('openTerrace', '01 · Открытая терраса', 'Открытый настил. Основание задаётся проектом: общее с домом либо самостоятельное. Кровля и остекление отсутствуют.'), ('coveredTerrace', '02 · Крытая открытая веранда', 'Настил, стойки и односкатная кровля. Ростверк может быть общим с домом. Сток направлен от дома.'), ('glazedVeranda', '03 · Холодная остеклённая веранда', 'Неотапливаемое остекление, каркас и кровля. Режим основания задаётся проектом. Тепловой контур дома сохраняется.')]
         for i, (kind, title, description) in enumerate(variants):
             x, y, width = 47 + i * 367, H - 164, 348
             c.setFillColor(PAPER); c.setStrokeColor(LINE); c.roundRect(x, 390, width, 270, 9, fill=1, stroke=1)
@@ -1685,18 +1817,31 @@ class Album:
         y = 312
         for item in data:
             members = [m for m in self.members if m.get('annexId') == item.get('id')]
-            piles = [p for p in self.r.get('piles') or [] if p.get('annexId') == item.get('id')]
-            row = clean(item.get('name', item.get('id'))) + ': ' + number(item.get('area'), 2) + ' м²; ' + str(len(piles)) + ' свай; ' + str(len(members)) + ' физических досок; ' + str(len(item.get('glazing') or [])) + ' панелей остекления.'
+            piles = (item.get('foundation') or {}).get('piles') or [p for p in self.r.get('piles') or [] if p.get('annexId') == item.get('id')]
+            row = clean(item.get('name', item.get('id'))) + ': ' + number(item.get('area'), 2) + ' м²; ' + ('опоры общей рамы: ' if (item.get('foundation') or {}).get('shared') else 'сваи: ') + str(len(piles)) + '; физических досок: ' + str(len(members)) + '; панелей остекления: ' + str(len(item.get('glazing') or [])) + '.'
             y = text(c, row, 47, y, 10, width=W - 100) - 21
         self.note(c, 'Количество и стоимость берутся только из заданной геометрии текущего проекта. Варианты без геометрии не получают вымышленные размеры, материалы или цену. Общие планы дома и отапливаемая площадь сохраняют самостоятельные границы.', y=157)
 
     def draw_annex(self, c, annex, index):
         aid = annex.get('id'); members = [m for m in self.members if m.get('annexId') == aid]
-        piles = [p for p in self.r.get('piles') or [] if p.get('annexId') == aid]
+        shared = bool((annex.get('foundation') or {}).get('shared'))
+        pile_refs = (annex.get('foundation') or {}).get('piles') or [p for p in self.r.get('piles') or [] if p.get('annexId') == aid]
+        canonical_piles = {p.get('id'): p for p in self.r.get('piles') or []}
+        piles = [canonical_piles.get(p.get('id'), p) for p in pile_refs]
+        foundation_ids = {b.get('id') for b in (annex.get('foundation') or {}).get('beams') or []}
+        foundation_members = [m for m in self.gr.get('instances') or [] if m.get('beamId') in foundation_ids] if shared else []
+        drawing_members = members + foundation_members
         poly = [xy(p) for p in annex.get('polygon') or []]
-        text(c, 'ПЛАН · НАСТИЛ, НЕЗАВИСИМОЕ ОСНОВАНИЕ И КРОВЛЯ', 48, H - 135, 9, 'Bold', GREEN)
+        text(c, 'ПЛАН · НАСТИЛ, ОБЩИЙ РОСТВЕРК И КРОВЛЯ' if shared else 'ПЛАН · НАСТИЛ, САМОСТОЯТЕЛЬНОЕ ОСНОВАНИЕ И КРОВЛЯ', 48, H - 135, 9, 'Bold', GREEN)
         fn, scale = transform(poly + [(p.get('x', 0), p.get('y', 0)) for p in piles], (48, 345, 495, 309), 35)
         polygon(c, [fn(p) for p in poly], PAPER, GREEN, 1)
+        if foundation_members and poly:
+            c.saveState(); clip = c.beginPath(); clip.moveTo(*fn(poly[0]))
+            for point in poly[1:]: clip.lineTo(*fn(point))
+            clip.close(); c.clipPath(clip, stroke=0)
+            for member in foundation_members:
+                polygon(c, [fn(point) for point in self.projected_member(member, lambda q: (q[0], q[2]))], colors.HexColor('#e9d6b6'), BLUE, .55)
+            c.restoreState()
         marks = set()
         occupied = [(fn(xy(p))[0] - 5, fn(xy(p))[1] - 5, fn(xy(p))[0] + 25, fn(xy(p))[1] + 16) for p in piles]
         for m in members:
@@ -1724,17 +1869,28 @@ class Album:
         text(c, 'ПРОЕКЦИЯ ПО НАПРАВЛЕНИЮ ОТ СТЕНЫ ДОМА', 600, H - 135, 9, 'Bold', GREEN)
         frame = annex.get('frame') or {}; origin = xy(frame.get('origin')); normal = xy(frame.get('outward') or {'x': 0, 'y': 1})
         project = lambda p: ((p[0] - origin[0]) * normal[0] + (p[2] - origin[1]) * normal[1], p[1])
-        profiles = [(m, self.projected_member(m, project)) for m in members]
+        profiles = [(m, self.projected_member(m, project)) for m in drawing_members]
         surfaces = [(s, [project(xyz(p)) for p in s.get('points') or []]) for s in (annex.get('roof') or {}).get('surfaces') or []]
         glazing = [(s, [project(xyz(p)) for p in s.get('polygon') or []]) for s in annex.get('glazing') or []]
-        points = [p for _, shape in profiles + surfaces + glazing for p in shape]
+        points = [p for m, shape in profiles if m not in foundation_members for p in shape] + [p for _, shape in surfaces + glazing for p in shape]
         points += [project((finite(p.get('x')), -.12, finite(p.get('y')))) for p in piles]
         sf, _ = transform(points or [(0, 0), (1, 1)], (600, 345, W - 650, 310), 35)
         for p in piles:
             low = project((finite(p.get('x')), -.12, finite(p.get('y')))); top = project((finite(p.get('x')), finite(p.get('capTopY', p.get('headY')), .72), finite(p.get('y'))))
             line(c, sf(low), sf(top), GREEN, 3)
+        c.saveState(); clip = c.beginPath()
+        if shared and poly:
+            depth = [(point[0] - origin[0]) * normal[0] + (point[1] - origin[1]) * normal[1] for point in poly]
+            left = max(600, sf((min(depth) - .05, 0))[0]); right = min(W - 50, sf((max(depth) + .4, 0))[0])
+            clip.rect(left, 345, max(0, right - left), 310)
+        else:
+            clip.rect(600, 345, W - 650, 310)
+        c.clipPath(clip, stroke=0)
         for m, shape in profiles:
             polygon(c, [sf(p) for p in shape], WOOD, WOOD_DARK, .5)
+        c.restoreState()
+        if shared:
+            text(c, 'Общая рама продолжается в дом; целиком - на монтажном плане.', 600, 325, 7, color=BLUE, width=W - 650)
         for _, shape in surfaces:
             polygon(c, [sf(p) for p in shape], None, BLUE, 1)
             if shape:
@@ -1751,7 +1907,7 @@ class Album:
         text(c, 'ФАКТИЧЕСКИЕ МАТЕРИАЛЫ И ОПОРЫ', 48, 287, 10, 'Bold', GREEN)
         q = annex.get('quantities') or {}; y = 259
         sections = collections.Counter((m.get('b'), m.get('h')) for m in members)
-        facts = [('ID / тип', clean(aid) + ' / ' + clean(annex.get('kind'))), ('Площадь настила / отметка', number(annex.get('area'), 2) + ' м² / +' + number(annex.get('deckTopY'), 3) + ' м'), ('Доски / объём физических деталей', str(len(members)) + ' / ' + number(sum(finite(m.get('grossVolume', m.get('volume'))) for m in members), 4) + ' м³'), ('Сечения', '; '.join(f'{b} × {h}: {count} шт.' for (b, h), count in sections.items())), ('Сваи / реакции Fd', str(len(piles)) + ' / ' + '; '.join('A' + str(i + 1) + '=' + number(p.get('reaction'), 2) for i, p in enumerate(piles)) + ' кН')]
+        facts = [('ID / тип', clean(aid) + ' / ' + clean(annex.get('kind'))), ('Площадь настила / отметка', number(annex.get('area'), 2) + ' м² / +' + number(annex.get('deckTopY'), 3) + ' м'), ('Доски / объём физических деталей', str(len(members)) + ' / ' + number(sum(finite(m.get('grossVolume', m.get('volume'))) for m in members), 4) + ' м³'), ('Сечения', '; '.join(f'{b} × {h}: {count} шт.' for (b, h), count in sections.items())), ('Общие опоры / глобальные Fd' if shared else 'Сваи / реакции Fd', str(len(piles)) + ' / ' + '; '.join('A' + str(i + 1) + '=' + number(p.get('reaction'), 2) for i, p in enumerate(piles)) + ' кН')]
         for name, value in facts:
             text(c, name, 48, y, 7.5, color=MUTED); y = text(c, value, 222, y, 7.5, width=330) - 13
         x, y = 600, 287
@@ -1760,7 +1916,7 @@ class Album:
         items = ['Кровля: ' + ('есть' if roof.get('surfaces') else 'не задана') + '; остекление: ' + str(len(annex.get('glazing') or [])) + ' панелей.', thermal_note, 'Опоры, примыкание и отвод воды показаны по отчёту. Грунт, крепёж, анкеры, устойчивость и узлы влагоотвода требуют проектирования.']
         for item in items:
             y = text(c, item, x, y, 8.3, width=525) - 15
-        self.note(c, 'План и проекция построены только по фактическим деталям и поверхностям. Цифры A1… связывают сваи на этом листе; полные IDs, FG и FP доступны в CSV / JSON. Сваи под домом не заменяются пристройкой.', y=99)
+        self.note(c, 'Показан компонент общей рамы. Реакции Fd взяты из канонического общего реестра свай. Смешанные балки ростверка учтены один раз в общей спецификации; здесь не добавляются к количеству досок пристройки.' if shared else 'План и проекция построены только по фактическим деталям и поверхностям. Цифры A1… связывают сваи на этом листе; полные IDs, FG и FP доступны в CSV / JSON.', y=99)
 
     def draw_section(self, c, data, index):
         voids = [v for v in self.p.get('voids', []) if v.get('kind') == 'doubleHeight']

@@ -1,67 +1,148 @@
-<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>КАРКАС · фактический выпуск R11</title><style>body{font:16px/1.6 system-ui;margin:0;background:#f4f5ed;color:#263324}main{max-width:1060px;margin:auto;padding:40px 24px}a{color:#326839}table{border-collapse:collapse;width:100%;background:white}td,th{padding:10px;text-align:left;border:1px solid #d7decd}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:white;padding:16px}details{border-bottom:1px solid #cbd7c3;padding:10px}summary{cursor:pointer}aside{padding:18px;background:#fff3d9}</style><main><p>КАРКАС ENGINE 4.8.0 · MCP · R11</p><h1>Ногинск48 · дом6×8м и веранда4×2м</h1><p><a href="/">План,3D,расчёты</a> · <a href="/structural-album.pdf">Альбом КР · 104 листов</a> · <a href="/mcp-calls.jsonl" download>Полный журнал MCP</a> · <a href="/fabrication-parts.csv">Группы деталей</a> · <a href="/fabrication-stocks.csv">Схемы заготовок</a></p><h2>Физические узлы</h2><p>Обвязки прямоугольных углов собираются в торец. Проходная доска доходит до наружной грани соседней стены, примыкающая — до её внутренней грани. Второй верхний слой перекрывает стык первого. Геометрия и детали каждого угла приведены в альбоме. 24 торцов имеют привязку к углам.</p><p>Кровля: tiedRafters; ферм9; пояса75x200мм; пролёт5.85м; уклоны25°/25°. Фактическая схема опирания: опорные запилы стропил, нижняя затяжка и внутренние стойки; без наружных коротких стоек. Все физические пояса и решётка включены в массу, раскрой и смету. Свесы спереди400мм, сзади300мм от готового фасада.</p><p>Коробка6×8м,1этаж;5помещений; стены150мм, пол и потолок200мм. Общий ростверк дома и веранды,4внутренние поперечные связи,26свай. Наружные стены3,1м, ненесущие перегородки2,75м; верх потолочной обрешётки сохранён на прежней отметке. Плоский потолок подвешен на300мм ниже затяжек, без уменьшения200мм утепления. Планировка, нагрузки и свойства древесины сохранены.</p><table><tr><th>Показатель</th><th>Фактический экспорт</th></tr><tr><td>Детали</td><td>879</td></tr><tr><td>Группы деталей</td><td>134</td></tr><tr><td>Схемы раскроя</td><td>138</td></tr><tr><td>Заготовки6м</td><td>321</td></tr><tr><td>Неразмещённые детали</td><td>0</td></tr><tr><td>Древесина,кг</td><td>5868.92</td></tr><tr><td>Пример бюджета,₽</td><td>3498603.36</td></tr><tr><td>Провалы частных проверок</td><td>0</td></tr><tr><td>Предупреждения/неподтверждённые</td><td>57</td></tr></table><p>Нагрузки: снег1.5кПа,μ1,γG1.1,γQ1.4; плотность450кг/м³. Снеговые сценарии и тепловлажностная оценка находятся в отчёте и альбоме.</p><aside>Это расчётная проработка: certified=false. Геология и реальная несущая способность свай, соединения и крепёж, пространственная устойчивость, ветровой отрыв и местный занос/сползание снега на веранду требуют проектирования. Геометрия угла не доказывает воздухонепроницаемость. Цены условные; глобальная оптимальность раскроя не доказана.</aside><h2>Опирание стен на платформу</h2><p>Под стенами вдоль лаг добавлены пакеты отдельных досок; поперёк — полноразмерные опорные вставки. Каждая полоса стены имеет проверку геометрического покрытия физической древесиной. Условный настил35мм сохранён. Вес перегородок теперь проходит через лаги; крепёж и несущая способность настила не подтверждены. Режим3D «Опоры стен» показывает усиления зелёным, стены — нижними обвязками.</p><h2>Накладной ригель · соединение требует расчёта</h2><p>Ригель50×100мм установлен сбоку к широким граням стропил75×200мм, высотой100мм. Прямые торцы; фактическая длина и площадь контакта находятся вКР. Односторонний нахлёст смещает оси на62,5мм. Геометрия и масса пересчитаны; число и тип гвоздей не назначены, боковой изгиб и раскалывание не подтверждены. Частная плоская проверка досок не подтверждает этот узел.</p><h2>Реальные вызовы MCP</h2><p>SDK-клиент подключён к зарегистрированному stdio-серверу. На сайте опубликованы точные файлы экспорта, проверенные по SHA256 ответов MCP. Запросы и ответы доступны в журнале; интерфейс служит просмотрщиком.</p><details><summary>1. karkas_catalog · R—</summary><pre>{
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>КАРКАС · фактический выпуск R12</title><style>body{font:16px/1.6 system-ui;margin:0;background:#f4f5ed;color:#263324}main{max-width:1060px;margin:auto;padding:40px 24px}a{color:#326839}table{border-collapse:collapse;width:100%;background:white}td,th{padding:10px;text-align:left;border:1px solid #d7decd}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:white;padding:16px}details{border-bottom:1px solid #cbd7c3;padding:10px}summary{cursor:pointer}aside{padding:18px;background:#fff3d9}</style><main><p>КАРКАС ENGINE 4.9.0 · MCP · R12</p><h1>Ногинск48 · дом6×8м и веранда4×2м</h1><p><a href="/">План,3D,расчёты</a> · <a href="/structural-album.pdf">Альбом КР · 109 листов</a> · <a href="/mcp-calls.jsonl" download>Полный журнал MCP</a> · <a href="/fabrication-parts.csv">Группы деталей</a> · <a href="/fabrication-stocks.csv">Схемы заготовок</a></p><h2>Физические узлы</h2><p>Обвязки прямоугольных углов собираются в торец. Проходная доска доходит до наружной грани соседней стены, примыкающая — до её внутренней грани. Второй верхний слой перекрывает стык первого. Геометрия и детали каждого угла приведены в альбоме. 24 торцов имеют привязку к углам.</p><p>Кровля: tiedRafters; ферм9; пояса75x200мм; пролёт5.85м; уклоны25°/25°. Фактическая схема опирания: опорные запилы стропил, нижняя затяжка и внутренние стойки; без наружных коротких стоек. Все физические пояса и решётка включены в массу, раскрой и смету. Свесы спереди400мм, сзади300мм от готового фасада.</p><p>Коробка6×8м,1этаж;5помещений; стены150мм, пол и потолок200мм. Общий ростверк дома и веранды,4внутренние поперечные связи,26свай. Наружные стены3,1м, ненесущие перегородки3,08м с принятым20мм зазором до нижних затяжек; верх потолочной обрешётки сохранён на прежней отметке. Плоский потолок подвешен на300мм ниже затяжек, без уменьшения200мм утепления. Планировка, нагрузки и свойства древесины сохранены.</p><table><tr><th>Показатель</th><th>Фактический экспорт</th></tr><tr><td>Детали</td><td>960</td></tr><tr><td>Группы деталей</td><td>143</td></tr><tr><td>Схемы раскроя</td><td>148</td></tr><tr><td>Заготовки6м</td><td>322</td></tr><tr><td>Неразмещённые детали</td><td>0</td></tr><tr><td>Древесина,кг</td><td>5958.66</td></tr><tr><td>Пример бюджета,₽</td><td>3501573.05</td></tr><tr><td>Провалы частных проверок</td><td>0</td></tr><tr><td>Предупреждения/неподтверждённые</td><td>76</td></tr></table><p>Нагрузки: снег1.5кПа,μ1,γG1.1,γQ1.4; плотность450кг/м³. Снеговые сценарии и тепловлажностная оценка находятся в отчёте и альбоме.</p><aside>Это расчётная проработка: certified=false. Геология и реальная несущая способность свай, соединения и крепёж, пространственная устойчивость, ветровой отрыв и местный занос/сползание снега на веранду требуют проектирования. Геометрия угла не доказывает воздухонепроницаемость. Цены условные; глобальная оптимальность раскроя не доказана.</aside><h2>Верх перегородок и потолок</h2><p>Все шесть перегородок имеют автоматическую привязку к реальной нижней грани затяжек: высота3,08м, принятый зазор20мм. Потолок и200мм утепления сохранены на прежних отметках. Потолочные рейки разорваны у стен и подвешены через реальные затяжки/межбалочные поперечины. Перегородки остаются ненесущими; зазор, скользящий крепёж и новые соединения не подтверждены. Подвесы, рейки и поперечины имеют один слой «Потолочный каркас», без изолированной гребёнки.</p><h2>Опирание стен на платформу</h2><p>Под стенами вдоль лаг добавлены пакеты отдельных досок; поперёк — полноразмерные опорные вставки. Каждая полоса стены имеет проверку геометрического покрытия физической древесиной. Условный настил35мм сохранён. Вес перегородок теперь проходит через лаги; крепёж и несущая способность настила не подтверждены. Режим3D «Опоры стен» показывает усиления зелёным, стены — нижними обвязками.</p><h2>Накладной ригель · соединение требует расчёта</h2><p>Ригель50×100мм установлен сбоку к широким граням стропил75×200мм, высотой100мм. Прямые торцы; фактическая длина и площадь контакта находятся вКР. Односторонний нахлёст смещает оси на62,5мм. Геометрия и масса пересчитаны; число и тип гвоздей не назначены, боковой изгиб и раскалывание не подтверждены. Частная плоская проверка досок не подтверждает этот узел.</p><h2>Реальные вызовы MCP</h2><p>SDK-клиент подключён к зарегистрированному stdio-серверу. На сайте опубликованы точные файлы экспорта, проверенные по SHA256 ответов MCP. Запросы и ответы доступны в журнале; интерфейс служит просмотрщиком.</p><details><summary>1. karkas_catalog · R—</summary><pre>{
   &quot;name&quot;: &quot;karkas_catalog&quot;,
   &quot;arguments&quot;: {}
-}</pre><p>Цепочка SHA256: 8502abae72348edec753329cca74b162de1a7669a9a46499d3ab380e30430d98</p></details><details><summary>2. karkas_get_project · R10</summary><pre>{
+}</pre><p>Цепочка SHA256: 153e229c0eac58fb16ae3c1d26a33de8a3cec37cafe98d9290fabbde58379a5c</p></details><details><summary>2. karkas_get_project · R11</summary><pre>{
   &quot;name&quot;: &quot;karkas_get_project&quot;,
   &quot;arguments&quot;: {
     &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;
   }
-}</pre><p>Цепочка SHA256: 1f4f6e7b58bc2b03ad54223d88f5506554930cdd96ba17444a6b4bf1101d8728</p></details><details><summary>3. karkas_catalog · R—</summary><pre>{
-  &quot;name&quot;: &quot;karkas_catalog&quot;,
-  &quot;arguments&quot;: {}
-}</pre><p>Цепочка SHA256: 6a6791aaceac41123fe732b328f169259587e875d4ab4c8364af42aee392cdb5</p></details><details><summary>4. karkas_get_project · R10</summary><pre>{
-  &quot;name&quot;: &quot;karkas_get_project&quot;,
-  &quot;arguments&quot;: {
-    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;
-  }
-}</pre><p>Цепочка SHA256: 88dd89a26bbd62ce8601e60dc7543434ac849ec401a6dce93d99b0ec66b56e76</p></details><details><summary>5. karkas_apply_patch · R11</summary><pre>{
+}</pre><p>Цепочка SHA256: 40264d0413a0ba609e9380dc6a8e1bebb7ce2fa0e8d7ba8dd862d86b79a83d34</p></details><details><summary>3. karkas_apply_patch · R12</summary><pre>{
   &quot;name&quot;: &quot;karkas_apply_patch&quot;,
   &quot;arguments&quot;: {
     &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
-    &quot;expected_revision&quot;: 10,
+    &quot;expected_revision&quot;: 11,
     &quot;operations&quot;: [
       {
-        &quot;op&quot;: &quot;add&quot;,
-        &quot;path&quot;: &quot;/floor/wallSupportFraming&quot;,
-        &quot;value&quot;: true
+        &quot;op&quot;: &quot;remove&quot;,
+        &quot;path&quot;: &quot;/walls/4/height&quot;
       },
       {
         &quot;op&quot;: &quot;add&quot;,
-        &quot;path&quot;: &quot;/site/floorSupportRevision&quot;,
+        &quot;path&quot;: &quot;/walls/4/topAttachment&quot;,
         &quot;value&quot;: {
-          &quot;baselineRevision&quot;: 10,
-          &quot;description&quot;: &quot;Под стенами вдоль лаг — отдельные продольные доски до реальных опор, поперёк — полноразмерные поперечные вставки. Все наружные и внутренние полосы стен проверены на геометрическое покрытие древесиной.&quot;,
-          &quot;deck&quot;: &quot;Существующая отметка условного настила35мм сохранена; материал и несущая способность настила не заданы.&quot;,
-          &quot;reference&quot;: &quot;П1.06 и схема опоры перегородки на перемычки из предоставленного эталонногоКР; размеры и крепёж эталона не копируются.&quot;,
-          &quot;scope&quot;: &quot;Собственный вес ненесущих перегородок передаётся на лаги и затем на опоры. Соединения, распределение через настил, совместная работа пакетов и нагрузки несущих стен от верхних конструкций требуют отдельного расчёта.&quot;,
-          &quot;source&quot;: &quot;https://www.pkb-titan.ru/upload/library/SP/SP%2031-105-2002.pdf&quot;
+          &quot;target&quot;: &quot;roofTieUnderside&quot;,
+          &quot;gap&quot;: 0.02,
+          &quot;mode&quot;: &quot;sliding&quot;
+        }
+      },
+      {
+        &quot;op&quot;: &quot;remove&quot;,
+        &quot;path&quot;: &quot;/walls/5/height&quot;
+      },
+      {
+        &quot;op&quot;: &quot;add&quot;,
+        &quot;path&quot;: &quot;/walls/5/topAttachment&quot;,
+        &quot;value&quot;: {
+          &quot;target&quot;: &quot;roofTieUnderside&quot;,
+          &quot;gap&quot;: 0.02,
+          &quot;mode&quot;: &quot;sliding&quot;
+        }
+      },
+      {
+        &quot;op&quot;: &quot;remove&quot;,
+        &quot;path&quot;: &quot;/walls/6/height&quot;
+      },
+      {
+        &quot;op&quot;: &quot;add&quot;,
+        &quot;path&quot;: &quot;/walls/6/topAttachment&quot;,
+        &quot;value&quot;: {
+          &quot;target&quot;: &quot;roofTieUnderside&quot;,
+          &quot;gap&quot;: 0.02,
+          &quot;mode&quot;: &quot;sliding&quot;
+        }
+      },
+      {
+        &quot;op&quot;: &quot;remove&quot;,
+        &quot;path&quot;: &quot;/walls/7/height&quot;
+      },
+      {
+        &quot;op&quot;: &quot;add&quot;,
+        &quot;path&quot;: &quot;/walls/7/topAttachment&quot;,
+        &quot;value&quot;: {
+          &quot;target&quot;: &quot;roofTieUnderside&quot;,
+          &quot;gap&quot;: 0.02,
+          &quot;mode&quot;: &quot;sliding&quot;
+        }
+      },
+      {
+        &quot;op&quot;: &quot;remove&quot;,
+        &quot;path&quot;: &quot;/walls/8/height&quot;
+      },
+      {
+        &quot;op&quot;: &quot;add&quot;,
+        &quot;path&quot;: &quot;/walls/8/topAttachment&quot;,
+        &quot;value&quot;: {
+          &quot;target&quot;: &quot;roofTieUnderside&quot;,
+          &quot;gap&quot;: 0.02,
+          &quot;mode&quot;: &quot;sliding&quot;
+        }
+      },
+      {
+        &quot;op&quot;: &quot;remove&quot;,
+        &quot;path&quot;: &quot;/walls/9/height&quot;
+      },
+      {
+        &quot;op&quot;: &quot;add&quot;,
+        &quot;path&quot;: &quot;/walls/9/topAttachment&quot;,
+        &quot;value&quot;: {
+          &quot;target&quot;: &quot;roofTieUnderside&quot;,
+          &quot;gap&quot;: 0.02,
+          &quot;mode&quot;: &quot;sliding&quot;
+        }
+      },
+      {
+        &quot;op&quot;: &quot;replace&quot;,
+        &quot;path&quot;: &quot;/site/roofRevision/partitionHeight&quot;,
+        &quot;value&quot;: 3.08
+      },
+      {
+        &quot;op&quot;: &quot;add&quot;,
+        &quot;path&quot;: &quot;/site/partitionHeadRevision&quot;,
+        &quot;value&quot;: {
+          &quot;baselineRevision&quot;: 11,
+          &quot;userChoice&quot;: &quot;Поднять перегородки, потолок оставить&quot;,
+          &quot;description&quot;: &quot;Шесть ненесущих перегородок привязаны к реальной нижней грани затяжек с принятым20мм зазором. Для текущей геометрии высота3.08м.&quot;,
+          &quot;ceiling&quot;: &quot;Отметки потолка и200мм утепления сохранены. Подвесы, рейки и поперечины показываются целым отдельным слоем.&quot;,
+          &quot;coordination&quot;: &quot;Рейки вырезаны по полным полосам стен; их концы подвешены к реальным затяжкам или поперечинам между затяжками. Перегородки не поддерживают крышу и потолок по вертикали.&quot;,
+          &quot;scope&quot;: &quot;Зазор20мм не является нормативной рекомендацией. Скользящие узлы, торцевые подвесы, локальные сосредоточенные реакции и поперечины, ползучесть, утепление/пароизоляция требуют расчёта.&quot;,
+          &quot;sources&quot;: [
+            &quot;https://www.woodworks.org/resources/detailing-non-bearing-wood-partition-walls-below-floor-or-roof-framing/&quot;,
+            &quot;https://www.strongtie.com/resources/product-installers-guide/dtc-installation&quot;
+          ]
         }
       }
     ]
   }
-}</pre><p>Цепочка SHA256: f39e19c09d8675caa02d3f73e2e6ee2d4858b16222a5f53c0ea05a40220d44ad</p></details><details><summary>6. karkas_report · R11</summary><pre>{
+}</pre><p>Цепочка SHA256: 67dcb0768e1dd164a64fa9355df509bcaca7665ea69b58591d2d4f825c5b6c27</p></details><details><summary>4. karkas_report · R12</summary><pre>{
   &quot;name&quot;: &quot;karkas_report&quot;,
   &quot;arguments&quot;: {
     &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
-    &quot;revision&quot;: 11,
+    &quot;revision&quot;: 12,
     &quot;topic&quot;: &quot;checks&quot;,
     &quot;status&quot;: &quot;fail&quot;,
     &quot;limit&quot;: 100
   }
-}</pre><p>Цепочка SHA256: b2cd31b1863857d819f26f6bb53163cc1629b60f18a06c593c24a00e32b74f7f</p></details><details><summary>7. karkas_report · R11</summary><pre>{
+}</pre><p>Цепочка SHA256: fde1ec3e924d5f2c638eba8a2719665f609a832d0cd5bca4f7039fe8f77c0b72</p></details><details><summary>5. karkas_report · R12</summary><pre>{
   &quot;name&quot;: &quot;karkas_report&quot;,
   &quot;arguments&quot;: {
     &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
-    &quot;revision&quot;: 11,
+    &quot;revision&quot;: 12,
     &quot;topic&quot;: &quot;checks&quot;,
     &quot;status&quot;: &quot;unverified&quot;,
     &quot;limit&quot;: 100
   }
-}</pre><p>Цепочка SHA256: 2339c78359141f43cb3b8db5a1cccf5b442061c180e4e0a31b8aead1cca08dfb</p></details><details><summary>8. karkas_export · R11</summary><pre>{
+}</pre><p>Цепочка SHA256: 52fb7723e3dd345dcf03a1b05b2821ff2344224ed8de1ab6fa723368fc19bf69</p></details><details><summary>6. karkas_report · R12</summary><pre>{
+  &quot;name&quot;: &quot;karkas_report&quot;,
+  &quot;arguments&quot;: {
+    &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
+    &quot;revision&quot;: 12,
+    &quot;topic&quot;: &quot;partition_heads&quot;
+  }
+}</pre><p>Цепочка SHA256: 0a6b1c82c86521fad4d8e5d25e85a515908bc8de6907fdc9cc062a3062c759f7</p></details><details><summary>7. karkas_export · R12</summary><pre>{
   &quot;name&quot;: &quot;karkas_export&quot;,
   &quot;arguments&quot;: {
     &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
-    &quot;revision&quot;: 11,
+    &quot;revision&quot;: 12,
     &quot;formats&quot;: [
       &quot;report_json&quot;,
       &quot;project_json&quot;,
@@ -75,20 +156,25 @@
       &quot;fabrication_stocks_csv&quot;
     ]
   }
-}</pre><p>Цепочка SHA256: 47fe2d1760bba84644a2a013bc21ff1718e9c01275a16657a9f339c7fde33623</p></details><details><summary>9. karkas_export · R11</summary><pre>{
+}</pre><p>Цепочка SHA256: d8d240f1beaf699b6917bf218b8411eb421147e1006e927437cf90690f38eb59</p></details><details><summary>8. karkas_export · R12</summary><pre>{
   &quot;name&quot;: &quot;karkas_export&quot;,
   &quot;arguments&quot;: {
     &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
-    &quot;revision&quot;: 11,
+    &quot;revision&quot;: 12,
     &quot;formats&quot;: [
       &quot;structural_pdf&quot;
     ]
   }
-}</pre><p>Цепочка SHA256: 6324c8f54a183e8631c6c971d42212ebb80414eaa17bba21e96e9f563276cbbd</p></details><details><summary>10. karkas_report · R11</summary><pre>{
-  &quot;name&quot;: &quot;karkas_report&quot;,
+}</pre><p>Цепочка SHA256: 64e26b9533c91d61c2ba69c9ca251bc611b2095fb5731125c1e3d305ea923d41</p></details><details><summary>9. karkas_catalog · R—</summary><pre>{
+  &quot;name&quot;: &quot;karkas_catalog&quot;,
+  &quot;arguments&quot;: {}
+}</pre><p>Цепочка SHA256: de3832249d828dc745cca96ff636e3f4b991faa1a63c24640259a14d3ba3c02d</p></details><details><summary>10. karkas_export · R12</summary><pre>{
+  &quot;name&quot;: &quot;karkas_export&quot;,
   &quot;arguments&quot;: {
     &quot;project_id&quot;: &quot;house-d9a5d304-7069-43e9-aeb9-4f32b8d07302&quot;,
-    &quot;revision&quot;: 11,
-    &quot;topic&quot;: &quot;floor_platform&quot;
+    &quot;revision&quot;: 12,
+    &quot;formats&quot;: [
+      &quot;structural_pdf&quot;
+    ]
   }
-}</pre><p>Цепочка SHA256: f8913d0b592d3d3c0d8638fa6814b2a87c50cc8773e3e5d5ef9384c035cbf5a5</p></details><p>Проектhouse-d9a5d304-7069-43e9-aeb9-4f32b8d07302 · R11<br>SHA256 исходных данных21f75d03232fbd6da0dcea9cc3f8b5a5f8715d3cf5ec2051eafaab1e60f06645<br>SHA256 журнала068c5bba1e24e7e3779a5a164d1274e189c4142f8156b3b1851f88a0769ed535</p></main></html>
+}</pre><p>Цепочка SHA256: 2d2e32e61574f48fa968319a122c3f0056e011cc5124d45c1a70615ac02c85bc</p></details><p>Проектhouse-d9a5d304-7069-43e9-aeb9-4f32b8d07302 · R12<br>SHA256 исходных данных70dc162aca933bcadda57096f24fa20c67af99ef24bf063c3975f5a5c691b444<br>SHA256 журналаb6d0ed0fa6d0fc918d2fbb2aeff9de7e7454c6e346f08347406e46b1bf7c0cd9</p></main></html>

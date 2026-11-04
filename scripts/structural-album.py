@@ -446,6 +446,9 @@ class Album:
         # Two walls per sheet keeps IDs, openings and high/raked profiles readable.
         for i in range(0, len(walls), 2):
             self.add('Фасады каркаса стен', 'wallframes', walls[i:i + 2], 'Вид со стороны локальной оси стены A → B; размеры в мм, отметки в м.')
+        partition_heads = self.partition_head_details()
+        for i in range(0, len(partition_heads), 6):
+            self.add('Перегородки · верхнее примыкание и холодный чердак', 'partitionheads', partition_heads[i:i + 6], 'Фактические доски, целевые отметки и принятый зазор. Скользящее крепление, боковое удержание и герметизация не рассчитаны.')
         plate_corners = self.plate_corner_details()
         for i in range(0, len(plate_corners), 2):
             self.add('Углы стен · фактические слои обвязки', 'platecorners', plate_corners[i:i + 2], 'Планы физических досок: нижняя обвязка, два верхних слоя. Фрагменты по месту; марки FG связывают детали с раскроем и CSV.')
@@ -1957,25 +1960,153 @@ class Album:
         wid = str(wall.get('id'))
         return [m for m in self.members if str(m.get('wallId')) == wid or wid in [str(x) for x in m.get('wallIds', [])]]
 
+    def partition_head_details(self):
+        """Resolve explicit head metadata and canonical timber; no guessed bearing."""
+        model = self.r.get('partitionHeads') or {}
+        if not isinstance(model, dict): return []
+        members = {str(member.get('id')): member for member in self.members}
+        details = []
+        for record in model.get('items') or []:
+            wall = self.wall_map.get(str(record.get('wallId')))
+            if not wall: continue
+            wall_members = self.wall_members(wall)
+            targets = [members[str(mid)] for mid in record.get('targetMemberIds') or [] if str(mid) in members]
+            target, top = optional_number(record.get('targetY')), optional_number(record.get('topY'))
+            vertices = [p for member in wall_members for p in self.projected_member(member, lambda q: (q[0], q[1]))]
+            ceiling_zone_ids = {member.get('zoneId') for member in targets if member.get('zoneId') is not None}
+            zones = [zone for zone in (getattr(self, 'roof', {}) or {}).get('zones') or [] if zone.get('id') in ceiling_zone_ids]
+            # A zone-level reference is only accepted when the engine provides it.
+            if not zones and record.get('zoneId') is not None:
+                zones = [zone for zone in (getattr(self, 'roof', {}) or {}).get('zones') or [] if zone.get('id') == record.get('zoneId')]
+            ceiling_members = [member for member in self.members if member.get('zoneId') in {zone.get('id') for zone in zones} and str(member.get('role', '')).startswith('ceiling')]
+            details.append({'record': record, 'wall': wall, 'members': wall_members, 'targets': targets, 'zones': zones, 'ceilingMembers': ceiling_members,
+                            'gap': target - top if target is not None and top is not None else None,
+                            'physicalTopY': max((p[1] for p in vertices), default=None)})
+        return details
+
+    def partition_head_row(self, detail):
+        record = detail['record']; target_marks = list(dict.fromkeys(self.marks.get(str(member.get('id'))) for member in detail['targets'] if self.marks.get(str(member.get('id')))))
+        def elevation(value): return ('+' if finite(value) >= 0 else '') + number(value, 3) if optional_number(value) is not None else '-'
+        return [self.wall_names.get(str(record.get('wallId')), clean(record.get('wallId'))), number(record.get('effectiveHeight'), 3),
+                elevation(record.get('topY')), elevation(record.get('targetY')),
+                number(detail.get('gap') * 1000 if detail.get('gap') is not None else None, 1), ', '.join(target_marks) or 'Не сопоставлены']
+
+    def draw_partitionheads(self, c, details, index):
+        if not details: return
+        detail = next((entry for entry in details if entry['members'] and entry['targets']), details[0])
+        wall, rec = detail['wall'], detail['record']; a, b = xy(wall.get('a')), xy(wall.get('b')); length = math.dist(a, b)
+        if length < 1e-9: return
+        ux, uz = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+        def local(q): return (q[0] - a[0]) * ux + (q[2] - a[1]) * uz, q[1]
+        wall_shapes = [(member, self.projected_member(member, local)) for member in detail['members'] if member.get('start') and member.get('end')]
+        target_shapes = [(member, self.projected_member(member, local)) for member in detail['targets'] if member.get('start') and member.get('end')]
+        ceiling_shapes = [(member, self.projected_member(member, local)) for member in detail['ceilingMembers'] if member.get('start') and member.get('end')]
+        pts = [p for _, poly in wall_shapes for p in poly]
+        if not pts:
+            text(c, 'Физические доски выбранной перегородки не переданы.', 48, H - 160, 9, color=ORANGE); return
+        base = min(p[1] for p in pts); actual_top = max(p[1] for p in pts); target = optional_number(rec.get('targetY')); top = optional_number(rec.get('topY'))
+        high = max(actual_top, target if target is not None else actual_top)
+        x, y, w, h = 43, 345, 670, H - 488
+        c.setStrokeColor(LINE); c.rect(x, y, w, h, fill=0, stroke=1)
+        text(c, 'СХЕМА ОТМЕТОК · ' + self.wall_names.get(str(wall.get('id')), 'Перегородка'), x + 13, y + h - 21, 10, 'Bold', GREEN)
+        text(c, 'Проекция фактических досок на ось A → B. Элементы в разных поперечных плоскостях могут совмещаться.', x + 13, y + h - 39, 6.8, color=MUTED, width=w - 26)
+        fn, scale = transform([(0, base), (length, high + .16)], (x + 32, y + 42, w - 213, h - 92), 16)
+        zones = detail['zones']; zone = zones[0] if zones else {}
+        datum, insulation = optional_number(zone.get('ceilingDatumY')), optional_number(zone.get('ceilingInsulationTopY'))
+        if datum is not None and insulation is not None and insulation >= datum:
+            polygon(c, [fn((0, datum)), fn((length, datum)), fn((length, insulation)), fn((0, insulation))], LIME, GREEN, .45)
+            text(c, 'Холодный чердак', x + w - 158, fn((0, insulation))[1] + 6, 8, 'Bold', BLUE, width=147)
+            text(c, 'Тёплое помещение', x + w - 158, fn((0, datum))[1] - 23, 8, 'Bold', GREEN, width=147)
+        c.saveState(); clip = c.beginPath(); clip.rect(x + 32, y + 42, w - 195, h - 92); c.clipPath(clip, stroke=0)
+        for member, poly in target_shapes:
+            polygon(c, [fn(p) for p in poly], colors.HexColor('#eee0c6'), WOOD_DARK, .7)
+        seen = set()
+        for member, poly in ceiling_shapes:
+            key = tuple(sorted((round(p[0], 5), round(p[1], 5)) for p in poly))
+            if key in seen: continue
+            seen.add(key); polygon(c, [fn(p) for p in poly], colors.HexColor('#e2eaf0'), BLUE, .55)
+        for member, poly in wall_shapes:
+            polygon(c, [fn(p) for p in poly], colors.HexColor('#e9d9bd'), GREEN, .65)
+        c.restoreState()
+        for elevation, label, color in [(target, 'Низ затяжки / цель', WOOD_DARK), (top, 'Верх перегородки', GREEN), (datum, 'Верх брусков потолка', BLUE), (insulation, 'Верх утепления', GREEN)]:
+            if elevation is None: continue
+            yy = fn((0, elevation))[1]; line(c, fn((0, elevation)), fn((length, elevation)), color, .5, [3, 2])
+        dimension(c, fn((0, base)), fn((0, actual_top)), 20, number((actual_top - base) * 1000, 0) + ' · каркас')
+        text(c, 'Низ перегородки +' + number(base, 3), x + 14, y + 17, 7.3, color=GREEN)
+        # A separate close-up makes the adopted gap legible without changing geometry.
+        nx, ny, nw, nh = 43, 144, 670, 181
+        c.setStrokeColor(LINE); c.rect(nx, ny, nw, nh, fill=0, stroke=1)
+        text(c, 'ФРАГМЕНТ ВЕРХА · ГЕОМЕТРИЯ ПРИМЫКАНИЯ', nx + 13, ny + nh - 21, 9, 'Bold', GREEN)
+        if target is not None and top is not None:
+            studs = [member for member in detail['members'] if member.get('role') in ('stud', 'kingStud', 'jackStud') and member.get('start')]
+            station = local(xyz(min(studs, key=lambda member: abs(local(xyz(member['start']))[0] - length / 2))['start']))[0] if studs else length / 2
+            nf, _ = transform([(station - .28, top - .1), (station + .28, target + .08)], (nx + 18, ny + 20, 280, 127), 10)
+            c.saveState(); clip = c.beginPath(); clip.rect(nx + 18, ny + 20, 280, 127); c.clipPath(clip, stroke=0)
+            for member, poly in target_shapes:
+                polygon(c, [nf(p) for p in poly], colors.HexColor('#eee0c6'), WOOD_DARK, .8)
+            for member, poly in wall_shapes:
+                polygon(c, [nf(p) for p in poly], colors.HexColor('#e9d9bd'), GREEN, .8)
+            line(c, nf((station - .28, target)), nf((station + .28, target)), WOOD_DARK, .5, [3, 2]); line(c, nf((station - .28, top)), nf((station + .28, top)), GREEN, .5, [3, 2]); c.restoreState()
+            dimension(c, nf((station + .2, top)), nf((station + .2, target)), -9, number((target - top) * 1000, 1) + ' мм')
+            text(c, 'Зазор ' + number((target - top) * 1000, 1) + ' мм принят в модели.', nx + 320, ny + 119, 9, 'Bold', ORANGE, width=334)
+        else:
+            text(c, 'Целевая отметка / верх не переданы.', nx + 20, ny + 82, 8, color=ORANGE)
+        text(c, 'Это не нормативный размер и не подтверждение допустимого перемещения. Крепёж не показан: тип скользящих клипс, ход, боковая жёсткость и фиксация требуют проектирования.', nx + 320, ny + 95, 7.5, color=ORANGE, width=334)
+        bearing = rec.get('verticalBearing')
+        bearing_note = 'Перегородка не является вертикальной опорой кровли.' if bearing is False else 'Передача вертикальной нагрузки этим примыканием не подтверждена.'
+        text(c, bearing_note, nx + 320, ny + 35, 7.5, 'Bold', GREEN, width=334)
+        # Right-hand schedule is based on the item values, not nominal project wall height.
+        tx, ty, tw = 747, H - 145, W - 790
+        columns = [('Стена', .16), ('Hэфф., м', .16), ('Верх, м', .17), ('Цель, м', .17), ('Зазор, мм', .14), ('Затяжка FG', .2)]
+        text(c, 'ПЕРЕГОРОДКИ · ПРИНЯТЫЕ ОТМЕТКИ', tx, ty, 9, 'Bold', GREEN); ty -= 17
+        c.setFillColor(INK); c.rect(tx, ty - 29, tw, 29, fill=1, stroke=0)
+        xx = tx
+        for label, fraction in columns:
+            text(c, label, xx + 4, ty - 11, 6.8, 'Bold', colors.white, width=tw * fraction - 8); xx += tw * fraction
+        ty -= 29
+        for i, item in enumerate(details):
+            row = self.partition_head_row(item); rh = max(33, max(len(wrap(value, tw * fraction - 8, 'Body', 7)) for value, (_, fraction) in zip(row, columns)) * 8.5 + 10)
+            c.setFillColor(PAPER if i % 2 == 0 else colors.white); c.rect(tx, ty - rh, tw, rh, fill=1, stroke=0); xx = tx
+            for value, (_, fraction) in zip(row, columns):
+                text(c, value, xx + 4, ty - 12, 7, width=tw * fraction - 8, leading=8.5); xx += tw * fraction
+            ty -= rh
+        ty -= 23
+        for label, elevation, color in [('Низ целевой затяжки', target, WOOD_DARK), ('Верх каркаса перегородки', top, GREEN), ('Верх брусков потолка', datum, BLUE), ('Верх утепления потолка', insulation, GREEN)]:
+            text(c, label + (': +' + number(elevation, 3) + ' м' if elevation is not None else ': не передано'), tx, ty, 8.2, 'Bold', color, width=tw); ty -= 22
+        finished = zone.get('ceilingFinishBottomY', zone.get('finishedCeilingY'))
+        if optional_number(finished) is not None:
+            text(c, 'Низ отделки потолка: +' + number(finished, 4) + ' м', tx, ty, 8.2, 'Bold', BLUE, width=tw); ty -= 25
+        text(c, 'Высота перегородки и отметка потолка - разные параметры. Поднятый каркас выходит в холодный чердак; потолочная плоскость и слой утепления берутся из отчёта кровли.', tx, ty - 4, 8, width=tw); ty -= 64
+        text(c, 'Потолочные доски на рисунке - реальные ceilingBatten / ceilingHanger / ceilingLedger из timber. Утеплённый диапазон обозначен цветом; непрерывность пароизоляции, герметизация и тепловой мост не подтверждены.', tx, ty, 7.5, color=ORANGE, width=tw)
+        self.note(c, 'Марки затяжек сопоставлены по canonical targetMemberIds. Изображение показывает отметки и проекции, не рассчитанную конструкцию скользящего узла. Фактические доски и раскрой - FG / FP / CSV.', y=107, color=MUTED)
+
+    def wall_frame_data(self, wall):
+        """Wall elevation geometry excludes floor references and uses physical faces."""
+        members = [member for member in self.wall_members(wall) if member.get('category') == 'walls']
+        a, b = xy(wall.get('a')), xy(wall.get('b')); length = math.dist(a, b)
+        ux, uz = (b[0] - a[0]) / max(length, 1e-9), (b[1] - a[1]) / max(length, 1e-9)
+        def local(point):
+            xx, yy, zz = xyz(point)
+            return (xx - a[0]) * ux + (zz - a[1]) * uz, yy
+        profiles = [(member, self.projected_member(member, local)) for member in members if member.get('start') and member.get('end')]
+        profiles = [(member, shape) for member, shape in profiles if shape]
+        points = [point for _, shape in profiles for point in shape]
+        return {'members': members, 'profiles': profiles, 'points': points, 'bounds': bounds(points) if points else None, 'axisLength': length, 'local': local}
+
     def draw_wallframes(self, c, walls, index):
         for i, wall in enumerate(walls or []):
             x, y, w, h = 43, H - 420 - i * 325, W - 86, 305
-            members = self.wall_members(wall)
-            a, b = xy(wall.get('a')), xy(wall.get('b'))
-            length = math.hypot(b[0] - a[0], b[1] - a[1])
-            ux, uy = ((b[0] - a[0]) / max(length, .001), (b[1] - a[1]) / max(length, .001))
-            def local(p):
-                xx, yy, zz = xyz(p)
-                return (xx - a[0]) * ux + (zz - a[1]) * uy, yy
-            pts = [local(m[k]) for m in members for k in ('start', 'end') if m.get(k)]
-            level = next((v for v in self.levels if int(v.get('index', 1)) == int(wall.get('level', 1))), {})
-            base = finite(level.get('wallBaseY'))
-            pts += [(0, base), (length, base)]
-            fn, scale = transform(pts, (x + 35, y + 32, w - 310, h - 62), 20)
+            data = self.wall_frame_data(wall); members, profiles, local = data['members'], data['profiles'], data['local']; length = data['axisLength']
             c.setStrokeColor(LINE); c.rect(x, y, w, h, fill=0, stroke=1)
-            title = f'{self.wall_names.get(str(wall.get("id")), "Стена")} · этаж {wall.get("level", 1)} · {number(length * 1000, 0)} мм'
+            title = f'{self.wall_names.get(str(wall.get("id")), "Стена")} · этаж {wall.get("level", 1)} · ось {number(length * 1000, 0)} мм'
             text(c, title, x + 13, y + h - 20, 11, 'Bold')
             text(c, wall.get('id'), x + w - 275, y + h - 20, 7, 'Mono', MUTED)
+            if data['bounds'] is None:
+                text(c, 'Физические доски категории walls отсутствуют в отчёте.', x + 18, y + h - 55, 8, color=ORANGE); continue
+            pts = data['points']; left, low, right, high = data['bounds']
+            level = next((v for v in self.levels if int(v.get('index', 1)) == int(wall.get('level', 1))), {})
+            base = finite(level.get('wallBaseY'), low)
+            fn, scale = transform(pts, (x + 35, y + 32, w - 310, h - 62), 20)
             for op in self.p.get('openings') or []:
                 if str(op.get('wallId')) != str(wall.get('id')):
                     continue
@@ -1983,13 +2114,10 @@ class Album:
                 polygon(c, [fn((s, base + sill)), fn((s + ow, base + sill)), fn((s + ow, base + sill + oh)), fn((s, base + sill + oh))], colors.HexColor('#edf5f7'), BLUE, .6)
                 aa, bb = fn((s, base + sill + oh / 2)), fn((s + ow, base + sill + oh / 2))
                 text(c, f'{number(ow * 1000, 0)} × {number(oh * 1000, 0)}', (aa[0] + bb[0]) / 2 - 27, aa[1], 6.5, color=BLUE)
-            for j, m in enumerate(members):
-                if not m.get('start') or not m.get('end'):
-                    continue
+            for j, (m, shape) in enumerate(profiles):
                 aa, bb = fn(local(m['start'])), fn(local(m['end']))
                 is_brace = m.get('role') == 'letInBrace'
-                thickness = finite(m.get('h') if is_brace else m.get('b'), 50) / 1000 * scale
-                line(c, aa, bb, GREEN if is_brace else WOOD_DARK, max(.8, min(7, thickness)))
+                polygon(c, [fn(point) for point in shape], LIME if is_brace else WOOD, GREEN if is_brace else WOOD_DARK, .55)
                 # Labels are spread over two bands; full detail IDs remain in registry.
                 if j % max(1, math.ceil(len(members) / 20)) == 0:
                     mx, my = (aa[0] + bb[0]) / 2, (aa[1] + bb[1]) / 2
@@ -1998,9 +2126,8 @@ class Album:
                     poly = [local(p) for p in notch.get('polygon', [])]
                     if len(poly) >= 3:
                         polygon(c, [fn(p) for p in poly], None, RED, .6)
-            low, high = bounds(pts)[1], bounds(pts)[3]
-            dimension(c, fn((0, low)), fn((length, low)), -17, number(length * 1000, 0))
-            dimension(c, fn((0, low)), fn((0, high)), 20, number((high - low) * 1000, 0))
+            dimension(c, fn((left, low)), fn((right, low)), -17, number((right - left) * 1000, 0))
+            dimension(c, fn((left, low)), fn((left, high)), 20, number((high - low) * 1000, 0))
             sx, sy = x + w - 270, y + h - 47
             text(c, f'Низ +{number(low, 3)}  /  верх +{number(high, 3)}', sx, sy, 8, 'Bold')
             sy -= 23
@@ -2011,7 +2138,7 @@ class Album:
             groups = collections.Counter((m.get('b'), m.get('h'), m.get('role')) for m in members)
             for (mb, mh, role), count in list(groups.items())[:9]:
                 sy = text(c, f'{mb} × {mh} · {ROLE.get(role, role)} · {count} шт.', sx, sy, 7.5, width=250) - 6
-            text(c, f'Всего {len(members)} физических деталей.\nКрасным - переданные геометрические выборки.\nFG - группа; точные ID и позиции - в CSV/JSON.', sx, y + 49, 7, color=MUTED, width=250)
+            text(c, f'Всего {len(members)} физических деталей.\nРазмеры / отметки - по граням древесины.\nКрасным - выборки; точные ID - в CSV/JSON.', sx, y + 49, 7, color=MUTED, width=250)
 
     def draw_roofplan(self, c, data, index):
         annex_roofs = [(annex, face) for annex in self.annexes for face in (annex.get('roof') or {}).get('surfaces') or []]

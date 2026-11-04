@@ -1,4 +1,5 @@
 import {solveUniformOverhangBeam} from './rafters.js';
+import {adaptCeilingToPartitions} from './ceiling-partitions.js';
 /** Physical service battens and mono-roof secondary timber; metres / mm / kg. */
 const EPS=1e-7,G=9.80665,finite=Number.isFinite;
 const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
@@ -12,7 +13,7 @@ const area=p=>Math.abs(p.reduce((s,a,i)=>s+a.x*p[(i+1)%p.length].y-p[(i+1)%p.len
 const square=()=>({scheme:'butt',angle:0});
 const cut=(c,sec)=>c?.scheme==='miter'?{scheme:'miter',angle:c.angle??0,tiltSign:c.tiltSign??1,plane:c.plane??'depth',cutWidthMM:c.plane==='width'?sec.b:sec.h}:square();
 const allowance=(c,h)=>c?.scheme==='miter'?(c.cutWidthMM??h)/2000*Math.tan(Math.abs(c.angle)*Math.PI/180):0;
-export const auxiliaryTimberDefaults=Object.freeze({enabled:false,wallService:'45x45',roofCounter:'50x50',roofBattens:'25x100',roofInternal:'48x148',roofService:'45x45',roofBattenStep:.35,roofInternalStep:.6,roofAboveRafterGap:0,roofInterior:true,ceilingBattens:false,ceilingSection:'45x45',ceilingStep:.4});
+export const auxiliaryTimberDefaults=Object.freeze({enabled:false,wallService:'45x45',roofCounter:'50x50',roofBattens:'25x100',roofInternal:'48x148',roofService:'45x45',roofBattenStep:.35,roofInternalStep:.6,roofAboveRafterGap:0,roofInterior:true,ceilingBattens:false,ceilingSection:'45x45',ceilingTransferSection:'50x100',ceilingStep:.4});
 export class AuxiliaryTimberInputError extends Error{constructor(field,message){super(message);this.name='AuxiliaryTimberInputError';this.code='INVALID_AUXILIARY_TIMBER';this.details={field};}}
 const invalid=(field,message)=>{throw new AuxiliaryTimberInputError(field,message);};
 
@@ -22,7 +23,7 @@ export function buildAuxiliaryTimber(project,result={}){
   for(const k of ['roofInterior','ceilingBattens'])if(typeof p[k]!=='boolean')invalid('auxiliaryTimber.'+k,k+' должен быть boolean.');
   if(typeof p.enabled!=='boolean')invalid('auxiliaryTimber.enabled','enabled должен быть boolean.');
   if(!finite(p.roofAboveRafterGap)||p.roofAboveRafterGap<0||p.roofAboveRafterGap>.3)invalid('auxiliaryTimber.roofAboveRafterGap','Надстропильный сплошной слой должен быть конечной толщиной от0 до0.3м.');if(!p.enabled)return out;
-  const sections={};for(const k of ['wallService','roofCounter','roofBattens','roofInternal','roofService','ceilingSection']){sections[k]=section(p[k]);if(!sections[k])invalid('auxiliaryTimber.'+k,'Некорректное сечение '+k);}
+  const sections={};for(const k of ['wallService','roofCounter','roofBattens','roofInternal','roofService','ceilingSection','ceilingTransferSection']){sections[k]=section(p[k]);if(!sections[k])invalid('auxiliaryTimber.'+k,'Некорректное сечение '+k);}
   for(const k of ['roofBattenStep','roofInternalStep','ceilingStep'])if(!finite(p[k])||p[k]<.05||p[k]>3)invalid('auxiliaryTimber.'+k,'Шаг должен быть от0.05 до3м.');
   const density=project.material?.density;if(!finite(density)||density<=0)invalid('material.density','Нужна конечная положительная плотность древесины.');
   const geometry=result.geometry??{},levels=geometry.levels??[],boards=result.timber?.instances??[],walls=project.walls??result.walls??[],roof=result.roofModel??{};
@@ -171,6 +172,9 @@ export function buildAuxiliaryTimber(project,result={}){
     const mass=out.instances.slice(startIndex).reduce((s,b)=>s+b.mass,0);roofMass.set(z.id,(roofMass.get(z.id)??0)+mass);if(z.bearingArea>0)out.ceilingExtraDeadByZone[z.id]=mass*G/1000/z.bearingArea;
     out.checks.push({id:'ceiling-'+z.id+'-connections',zoneId:z.id,label:'Подвес потолка и нижние пояса',status:'unverified',note:'Показаны фактические рейки под нижними гранями ферм, со стыками только на поясах. Крепёж, местный изгиб нижнего пояса, ползучесть и тип потолочной облицовки требуют рабочего расчёта.'});
   }
+  const ceilingMass=items=>{const by=new Map();for(const b of items.filter(b=>String(b.role).startsWith('ceiling')))by.set(b.zoneId,(by.get(b.zoneId)??0)+b.mass);return by;};
+  const previousCeilingMass=ceilingMass(out.instances),coordinated=adaptCeilingToPartitions(project,{...result,walls,roofModel:roof},out.instances);
+  if(coordinated.details.trimmedMemberIds.length){out.instances=coordinated.instances;out.ceilingCoordination=coordinated.details;out.checks.push(...coordinated.checks);const actual=ceilingMass(out.instances);for(const id of new Set([...previousCeilingMass.keys(),...actual.keys()])){roofMass.set(id,(roofMass.get(id)??0)+(actual.get(id)??0)-(previousCeilingMass.get(id)??0));const z=(roof.zones??[]).find(z=>z.id===id);if(z?.bearingArea>0)out.ceilingExtraDeadByZone[id]=(actual.get(id)??0)*G/1000/z.bearingArea;}}
   for(const [id,mass]of roofMass){const parent=(roof.zones??[]).find(z=>z.id===id),A=parent?.surfaceArea;if(A>0)out.roofExtraDeadByZone[id]=mass*G/1000/A;}
   for(const b of out.instances){const q=out.quantities.byRole[b.role]??{count:0,length:0,volume:0,mass:0};q.count++;q.length+=b.length;q.volume+=b.volume;q.mass+=b.mass;out.quantities.byRole[b.role]=q;out.quantities.count++;out.quantities.length+=b.length;out.quantities.volume+=b.volume;out.quantities.mass+=b.mass;}
   out.quantities.weight=out.quantities.mass*G/1000;out.quantities.roofMassByZone=Object.fromEntries(roofMass);
@@ -178,5 +182,6 @@ export function buildAuxiliaryTimber(project,result={}){
   if(tooLong.length)out.warnings.push(`${tooLong.length} детали вспомогательной древесины не помещаются в6м без нового опорного решения.`);
   if(p.roofAboveRafterGap>0){out.checks.push({id:'auxiliary-counter-through-insulation',label:'Контробрешётка над сплошным надстропильным слоем',status:'unverified',note:`Слой ${Math.round(p.roofAboveRafterGap*1000)}мм учтён в положении досок. Смятие слоя, длинные крепления, сдвиг и ветровой отрыв не проверены; непосредственное опирание на стропило не предполагается.`});out.warnings.push('Контробрешётка отделена от стропил сплошным слоем; требуется рассчитанное крепление через этот слой.');}
   out.assumptions=['roofInterior=false отключает доски внутреннего утепления по скатам. ceilingBattens=true строит плоскую обрешётку только под реальными нижними поясами ферм; её масса включена один раз.','Ведомость включает сервисные рейки наружных стен по существующим вертикальным элементам, контробрешётку, поперечную обрешётку, внутренние перекрёстные доски и сервисные рейки прямоугольных односкатных зон и скатов физических двускатных ферм.','Сервисные рейки стен находятся с тёплой стороны, за внутренней OSB при interior. Проёмы вычтены; угловые пакеты и внутренние стены не скопированы как вымышленные рейки.','Стыки поперечных досок расположены только по осям реальных стропил. Обычный торцевой стык не подтверждает передачу усилий или ветрового отрыва.','roofExtraDeadByZone — только вес добавленной кровельной древесины/фактическая площадь ската. Он нужен для частных расчётов кровли; глобально доски уже входят в общий вес, повторно прибавлять его к roofDead нельзя.'];
+  if(out.ceilingCoordination)out.assumptions.push(...coordinated.assumptions);
   out.status=out.checks.some(c=>c.status==='fail')?'fail':'unverified';return out;
 }

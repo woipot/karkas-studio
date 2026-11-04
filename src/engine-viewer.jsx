@@ -1,5 +1,6 @@
 import React,{useEffect,useMemo,useRef,useState} from 'react';
 import DesignerModel from './designer-model.jsx';
+import AppearanceView from './appearance-view.jsx';
 import Icon from './icons.jsx';
 import {parseSection} from './catalog.js';
 import {formatEndCut,cuttingToPrintHTML} from './cutting.js';
@@ -10,7 +11,7 @@ const finite=n=>typeof n==='number'&&Number.isFinite(n);
 const fmt=(n,d=1)=>finite(n)?n.toLocaleString('ru-RU',{maximumFractionDigits:d}):'—';
 const rub=n=>`${fmt(n,0)} ₽`;
 const categories={walls:'Стены',floor:'Перекрытия',roof:'Кровля',bracing:'Укосины',objects:'Отдельные элементы',foundation:'Фундамент',grillage:'Ростверк',spatial:'Лестница и ограждения'};
-const tabs=[['overview','cube','Обзор'],['checks','check','Проверки'],['materials','table','Материалы'],['cutting','ruler','Раскрой'],['estimate','weight','Смета']];
+const tabs=[['overview','cube','Обзор'],['appearance','home','Облик'],['checks','check','Проверки'],['materials','table','Материалы'],['cutting','ruler','Раскрой'],['estimate','weight','Смета']];
 const defaultLayers={auxiliary:false,ceiling:false,walls:true,floor:true,roof:true,bracing:true,objects:true,foundation:true,grillage:true,piles:true,surfaces:false,sheathing:false,drainage:false,stairs:true,guards:true,annexes:true,glass:true,space:false};
 const annexNames={openTerrace:'Открытая терраса',coveredTerrace:'Крытая открытая веранда',glazedVeranda:'Остеклённая неотапливаемая веранда',terrace:'Открытая терраса',covered:'Крытая открытая веранда',glazed:'Остеклённая неотапливаемая веранда'};
 const statusLabel=status=>status==='fail'?'Превышение':status==='pass'?'В пределах':status==='warning'?'Частная проверка':'Не подтверждено';
@@ -201,8 +202,10 @@ function readReport(data){
 }
 
 export function EngineViewer(){
-  const [report,setReport]=useState(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[revision,setRevision]=useState(0),[tab,setTab]=useState('overview');
+  const [report,setReport]=useState(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[revision,setRevision]=useState(0),[tab,setTab]=useState(()=>window.location.hash==='#appearance'?'appearance':'overview');
   const [publication,setPublication]=useState(null);
+  const [appearance,setAppearance]=useState(null);
+  useEffect(()=>{const abort=new AbortController();fetch('/appearance/chinese-v1.json',{signal:abort.signal,cache:'no-store'}).then(r=>r.ok?r.json():null).then(setAppearance).catch(()=>{});return()=>abort.abort();},[]);
   useEffect(()=>{const abort=new AbortController();fetch('/release-manifest.json',{signal:abort.signal,cache:'no-store'}).then(r=>r.ok?r.json():null).then(setPublication).catch(()=>{});return()=>abort.abort();},[]);
   useEffect(()=>{
     const abort=new AbortController();setLoading(true);setError('');
@@ -218,9 +221,9 @@ export function EngineViewer(){
     <div className="engine-readonly-notice"><span className="engine-lock-icon"><Icon name="info" size={15}/></span><strong>Модель управляется через MCP. Ручное редактирование отключено.</strong><span>Только просмотр отчёта</span></div>
     {publication&&engine.hash&&publication.hash===engine.hash&&<div className="engine-release-files"><span>ВЫПУСК КР · R{engine.revision}</span><a href={'/structural-album.pdf?revision='+engine.revision} target="_blank" rel="noreferrer">Альбом КР{publication.pdfPages?` · ${publication.pdfPages} листов`:""} · PDF ↗</a><a href="/mcp-session.html" target="_blank" rel="noreferrer">Как MCP создал этот дом ↗</a><a href="/fabrication-parts.csv" download>Применение деталей · CSV</a><small>Тот же проект и контрольная сумма, что в модели</small></div>}
     {!report?<main className="engine-start-screen">{loading?<div className="engine-loading-state" role="status"><div className="engine-loading-cube"><Icon name="cube" size={45}/></div><h1>Загружаю расчётную модель</h1><p>Геометрия, проверки, ведомость и раскрой из отчёта движка.</p><div className="engine-loading-line"/></div>:<div className="engine-error-state" role="alert"><Icon name="file" size={38}/><h1>Не удалось открыть отчёт</h1><p>{error}</p><small>Ожидается локальный файл /engine-report.json с результатом расчёта.</small><button className="engine-button" onClick={refresh}>Повторить загрузку</button></div>}</main>:<>
-      <nav className="engine-navigation" aria-label="Разделы отчёта">{tabs.map(([id,icon,label])=><button key={id} className={tab===id?'active':''} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}><Icon name={icon} size={18}/>{label}{id==='checks'&&failed>0&&<small>{failed}</small>}</button>)}<div className="engine-report-state"><i/>{loading?'Обновляю данные':'Снимок расчётного движка'}</div></nav>
-      <main className="engine-main">{error&&<div className="engine-alert" role="status">Не удалось обновить отчёт: {error} Показаны ранее загруженные данные.</div>}<div className="engine-top-counters"><Counter label="Площадь по осям" value={fmt(r.geometry.totalFloorArea,2)} unit="м²" note={finite(report.summary?.platformArea??r.geometry.totalPlatformArea)?`Настил по граням каркаса: ${fmt(report.summary?.platformArea??r.geometry.totalPlatformArea,2)} м²`:undefined}/><Counter label="Этажность" value={p.floors} unit={p.floors===1?'этаж':'этажа'}/><Counter label="Физические доски" value={r.timber.instances.length} unit="шт."/><Counter label="Масса древесины" value={fmt(r.timber.mass,0)} unit="кг"/><Counter label="Вертикальная нагрузка · расч." value={fmt(r.loads?.totalDesign)} unit="кН"/><Counter label="Заготовки по 6 м" value={report.cutting?.summary?.boards??'—'} unit="шт."/></div>
-      {tab==='overview'?<Overview key={engine.hash??engine.revision??revision} report={report}/>:tab==='checks'?<ChecksView report={report}/>:tab==='materials'?<MaterialsView report={report}/>:tab==='cutting'?<CuttingView report={report}/>:<EstimateView report={report}/>}</main>
+      <nav className="engine-navigation" aria-label="Разделы отчёта">{tabs.map(([id,icon,label])=><button key={id} className={tab===id?'active':''} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}><Icon name={icon} size={18}/>{label}{id==='checks'&&failed>0&&<small>{failed}</small>}</button>)}<div className="engine-report-state"><i/>{tab==='appearance'?'Архитектурный эскиз':loading?'Обновляю данные':'Снимок расчётного движка'}</div></nav>
+      <main className="engine-main">{error&&<div className="engine-alert" role="status">Не удалось обновить отчёт: {error} Показаны ранее загруженные данные.</div>}{tab!=='appearance'&&<div className="engine-top-counters"><Counter label="Площадь по осям" value={fmt(r.geometry.totalFloorArea,2)} unit="м²" note={finite(report.summary?.platformArea??r.geometry.totalPlatformArea)?`Настил по граням каркаса: ${fmt(report.summary?.platformArea??r.geometry.totalPlatformArea,2)} м²`:undefined}/><Counter label="Этажность" value={p.floors} unit={p.floors===1?'этаж':'этажа'}/><Counter label="Физические доски" value={r.timber.instances.length} unit="шт."/><Counter label="Масса древесины" value={fmt(r.timber.mass,0)} unit="кг"/><Counter label="Вертикальная нагрузка · расч." value={fmt(r.loads?.totalDesign)} unit="кН"/><Counter label="Заготовки по 6 м" value={report.cutting?.summary?.boards??'—'} unit="шт."/></div>}
+      {tab==='overview'?<Overview key={engine.hash??engine.revision??revision} report={report}/>:tab==='appearance'?<AppearanceView report={report} design={appearance}/>:tab==='checks'?<ChecksView report={report}/>:tab==='materials'?<MaterialsView report={report}/>:tab==='cutting'?<CuttingView report={report}/>:<EstimateView report={report}/>}</main>
       <footer className="engine-footer"><span>КАРКАС ENGINE {engine.version??'4.0'} <i/> Просмотр результатов MCP</span><span>м · кН · МПа · кг</span><details><summary>Данные отчёта</summary><div><p>Версия схемы: {engine.schemaVersion??'—'}</p><p>Проект: {engine.projectId??'—'}</p><p>Ревизия: {engine.revision??'—'}</p>{engine.hash&&<p className="engine-hash">Контрольная сумма: {engine.hash}</p>}</div></details></footer>
     </>}
   </div>;

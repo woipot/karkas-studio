@@ -1674,16 +1674,30 @@ class Album:
             a, b = xy(joists[0]['start']), xy(joists[0]['end']); along_y = abs(b[1] - a[1]) >= abs(b[0] - a[0])
             positions = sorted(set(round(xy(m['start'])[0 if along_y else 1], 6) for m in joists))
             lo_x, lo_y, hi_x, hi_y = bounds(self.platform_polygon(level))
+            screen_y_down = ((self.p.get('site') or {}).get('planView') or {}).get('yAxis') == 'down'
+            paper_bounds = bounds([fn(point) for point in self.platform_polygon(level)])
+            def paper_offset(a, b, axis, target):
+                dx, dy = b[0] - a[0], b[1] - a[1]; length = math.hypot(dx, dy)
+                normal = (-dy / length, dx / length) if length > 1e-9 else (0, 0)
+                return (target - a[axis]) / normal[axis] if abs(normal[axis]) > 1e-9 else 0
             for lo, hi in zip(positions, positions[1:]):
                 if (hi - lo) * scale < 18: continue
-                if along_y: dimension(c, fn((lo, hi_y)), fn((hi, hi_y)), 25, number((hi - lo) * 1000, 0))
-                else: dimension(c, fn((hi_x, lo)), fn((hi_x, hi)), -25, number((hi - lo) * 1000, 0))
+                if along_y:
+                    anchor_y = lo_y if screen_y_down else hi_y
+                    aa, bb = fn((lo, anchor_y)), fn((hi, anchor_y))
+                    offset = paper_offset(aa, bb, 1, paper_bounds[3] + 25) if screen_y_down else 25
+                else:
+                    aa, bb = fn((hi_x, lo)), fn((hi_x, hi))
+                    offset = paper_offset(aa, bb, 0, paper_bounds[2] + 25) if screen_y_down else -25
+                dimension(c, aa, bb, offset, number((hi - lo) * 1000, 0))
             if spans:
                 representative = next((v for v in spans if v.get('memberId') == joists[0].get('id')), spans[0])
                 aa, bb = representative.get('start'), representative.get('end')
                 if aa is not None and bb is not None:
                     span_a, span_b = xy(aa), xy(bb)
                     offset = -(hi_x - span_a[0]) * scale - 36 if along_y else (hi_y - span_a[1]) * scale + 49
+                    if screen_y_down:
+                        offset = paper_offset(fn(span_a), fn(span_b), 0, paper_bounds[2] + 36) if along_y else paper_offset(fn(span_a), fn(span_b), 1, paper_bounds[3] + 49)
                     dimension(c, fn(span_a), fn(span_b), offset, number(finite(representative.get('analyticalSpan')) * 1000, 0) + ' · опорные оси')
         x, y = 850, H - 144
         y = self.technical_schedule(c, members, x, y, 292, 'ДОСКИ ПЛАТФОРМЫ И НАСТИЛА', max_rows=12)

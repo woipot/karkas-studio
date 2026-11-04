@@ -268,6 +268,8 @@ def dimension(c, a, b, offset=15, label=None):
 ROLE = {'stud': 'Стойка', 'plate': 'Обвязка', 'corner': 'Угол', 'joist': 'Лага', 'rim': 'Бортовая доска', 'rimJoist': 'Обвязка перекрытия', 'floorBlocking': 'Поперечные распорки', 'voidHeader': 'Ригель проёма', 'voidTrimmer': 'Обрамление проёма', 'openingHeader': 'Поперечная балка проёма', 'openingTrimmer': 'Продольная балка проёма', 'rafter': 'Стропило', 'truss': 'Ферма', 'letInBrace': 'Врезная укосина', 'blocking': 'Распорка', 'grillage': 'Ростверк', 'beam': 'Балка', 'header': 'Перемычка', 'kingStud': 'Стойка проёма', 'jackStud': 'Опорная стойка', 'sill': 'Подоконная доска', 'annexRim': 'Обвязка настила пристройки', 'annexJoist': 'Лага пристройки', 'annexBlocking': 'Распорки пристройки', 'annexPostBearingBlock': 'Опорные вкладыши стоек', 'stairTread': 'Доска ступени', 'stairRiser': 'Подступенок', 'stairStringer': 'Пильный косоур', 'stairHandrail': 'Поручень марша', 'stairBaluster': 'Заполнение марша', 'guardPost': 'Стойка ограждения', 'guardRail': 'Пояс ограждения', 'guardBaluster': 'Заполнение ограждения'}
 STATUSES = {'pass': 'Частная проверка выполнена', 'fail': 'Не выполнено', 'warning': 'Требует уточнения', 'unverified': 'Не проверено', 'blocked': 'Заблокировано', 'complete': 'Сформировано'}
 ROLE.update({'topChord': 'Стропило / верхний пояс', 'bottomChord': 'Нижняя затяжка', 'collarTie': 'Верхний ригель', 'kneePost': 'Внутренний подкос', 'ceilingHanger': 'Подвес потолка', 'ceilingLedger': 'Пристенная опора потолка', 'ceilingBatten': 'Брусок потолка'})
+ROLE['wallTransferBlocking'] = 'Поперечная вставка под стеной'
+WALL_REINFORCEMENT = colors.HexColor('#963b70')
 
 
 class Album:
@@ -376,6 +378,24 @@ class Album:
         self.table_pages('Ведомость свай и реакций', [('Свая', .13, 'mono'), ('X, м', .1), ('Y, м', .1), ('Fd, кН', .13), ('Fk, кН', .13), ('η', .1), ('Оголовок, мм', .12), ('Статус модели', .19)], [[p.get('id'), number(p.get('x'), 3), number(p.get('y'), 3), number(p.get('reaction'), 3), number(p.get('reactionCharacteristic'), 3), number(p.get('utilization'), 3), number(p.get('capSize'), 0), STATUSES.get(p.get('status'), p.get('status', '-'))] for p in piles], 'Реакция сваи не является подтверждением её геотехнической несущей способности.')
         for level in self.levels:
             self.add(f'Перекрытие этажа {level.get("index", 1)} · монтажный план лаг', 'floorframing', level, 'Фактические лаги, обвязка, распорки и опорные линии. Марки FG связывают план с ведомостью и полной картой 6 м.')
+            supports = self.wall_support_records(level)
+            if supports:
+                for j, table_supports in enumerate(self.wall_support_chunks(supports)):
+                    self.add(f'Опирание стен на платформу · этаж {level.get("index", 1)}' + (' · продолжение' if j else ''), 'wallsupportplan', {'level': level, 'supports': supports, 'tableSupports': table_supports}, 'Оси и основания стен поверх фактических лаг и вставок. Геометрическое покрытие не подтверждает несущую способность и соединения.')
+                nodes = self.wall_support_nodes(supports)
+                if nodes:
+                    self.add('Стены и платформа · фактические узлы опирания', 'wallsupportnodes', nodes, 'Вдоль и поперёк лаг. Условный настил 35 мм сохраняется между каркасом пола и нижней обвязкой стены; его материал и несущая способность не заданы.')
+        wall_transfers = (self.r.get('floorPlatform') or {}).get('wallLoadTransfers') or {}
+        if isinstance(wall_transfers, dict):
+            load_rows = self.wall_load_rows(wall_transfers)
+            if load_rows:
+                self.table_pages('Перегородки · собственный вес и путь нагрузки', [('Стена', .13), ('Ориентация', .12), ('Древесина / слои, кН', .17), ('Исходная / переданная сила, кН', .2), ('Невязка силы, кН', .14), ('Передача', .24)], load_rows, 'Только собственный вес ненесущих перегородок первого этажа. Это не проверка передачи несущих стен, кровли или снега. Крепёж и распределение через условный настил не подтверждены.', 8)
+                control = self.floor_joist_control()
+                if control:
+                    page = self.pages[-1]; page['kind'] = 'wallloads'; page['data'] = {'table': page['data'], 'control': control}
+            transfer_rows = self.wall_transfer_rows(wall_transfers)
+            if transfer_rows:
+                self.table_pages('Вставки под стенами · частные проверки по FG', [('FG / число', .1), ('Стены', .14), ('Контроль по η · ID', .18, 'mono'), ('max |M|, кН·м', .1), ('max |V|, кН', .1), ('f / flim, мм', .13), ('max η', .1), ('Результат доски', .15)], transfer_rows, 'Огибающие по фактическим вставкам каждой FG: max M, V и f/flim могут относиться к разным доскам. В контрольном ID указан максимум η. Секции работают отдельно; торцевой крепёж и эксцентричная передача на лаги не рассчитаны.', 7.8)
         floor_openings = self.r.get('floorOpenings')
         if isinstance(floor_openings, dict):
             rows, remarks = [], []
@@ -1333,7 +1353,7 @@ class Album:
             dimension(c, fn((a, b)), fn((a, e)), 63, number((e - b) * 1000, 0))
         return fn, scale
 
-    def technical_schedule(self, c, members, x, y, width, title):
+    def technical_schedule(self, c, members, x, y, width, title, max_rows=18):
         text(c, title, x, y, 10, 'Bold', GREEN); y -= 24
         columns = [('Марка', .17), ('b × h', .23), ('Lзаг, мм', .24), ('Шт.', .12), ('V, м³', .24)]
         c.setFillColor(INK); c.rect(x, y - 22, width, 22, fill=1, stroke=0)
@@ -1348,8 +1368,8 @@ class Album:
             row = groups.setdefault(key, {'count': 0, 'volume': 0})
             row['count'] += 1; row['volume'] += finite(member.get('volume'))
         for i, ((mark, b, h, length), totals) in enumerate(sorted(groups.items(), key=lambda item: item[0][0])):
-            if i >= 18:
-                y = text(c, f'Ещё {len(groups) - 18} марок: полная ведомость FG и CSV.', x, y - 13, 7, color=ORANGE, width=width); break
+            if i >= max_rows:
+                y = text(c, f'Ещё {len(groups) - max_rows} марок: полная ведомость FG и CSV.', x, y - 13, 7, color=ORANGE, width=width); break
             c.setFillColor(PAPER if i % 2 == 0 else colors.white); c.rect(x, y - 20, width, 20, fill=1, stroke=0)
             values = [mark, f'{b} × {h}', number(length * 1000, 0), totals['count'], number(totals['volume'], 3)]
             left = x
@@ -1601,6 +1621,8 @@ class Album:
         def member_color(m):
             role = str(m.get('role', ''))
             if m.get('voidId') or any(t in role.lower() for t in ('header', 'trimmer', 'void')): return ORANGE
+            if role == 'wallTransferBlocking': return ORANGE
+            if role == 'joist' and m.get('wallSupportWallIds'): return WALL_REINFORCEMENT
             if role in ('rimJoist', 'annexRim'): return GREEN
             if role in ('floorBlocking', 'annexBlocking', 'annexPostBearingBlock'): return BLUE
             return INK
@@ -1632,6 +1654,7 @@ class Album:
             positions = sorted(set(round(xy(m['start'])[0 if along_y else 1], 6) for m in joists))
             lo_x, lo_y, hi_x, hi_y = bounds(self.platform_polygon(level))
             for lo, hi in zip(positions, positions[1:]):
+                if (hi - lo) * scale < 18: continue
                 if along_y: dimension(c, fn((lo, hi_y)), fn((hi, hi_y)), 25, number((hi - lo) * 1000, 0))
                 else: dimension(c, fn((hi_x, lo)), fn((hi_x, hi)), -25, number((hi - lo) * 1000, 0))
             if spans:
@@ -1642,17 +1665,293 @@ class Album:
                     offset = -(hi_x - span_a[0]) * scale - 36 if along_y else (hi_y - span_a[1]) * scale + 49
                     dimension(c, fn(span_a), fn(span_b), offset, number(finite(representative.get('analyticalSpan')) * 1000, 0) + ' · опорные оси')
         x, y = 850, H - 144
-        y = self.technical_schedule(c, members, x, y, 292, 'ДОСКИ ПЛАТФОРМЫ И НАСТИЛА')
+        y = self.technical_schedule(c, members, x, y, 292, 'ДОСКИ ПЛАТФОРМЫ И НАСТИЛА', max_rows=12)
         text(c, 'МОНТАЖНЫЕ ОБОЗНАЧЕНИЯ', x, y, 9, 'Bold', GREEN); y -= 22
-        for label, color, dash in [('Лаги', INK, None), ('Обвязка по наружному контуру', GREEN, None), ('Распорки / вкладыши', BLUE, None), ('Обрамление проёмов', ORANGE, None), ('Нижележащие опорные балки', SUPPORT, [5, 3])]:
+        for label, color, dash in [('Рядовые лаги', INK, None), ('Лаги под основаниями стен', WALL_REINFORCEMENT, None), ('Вставки под стенами', ORANGE, None), ('Обвязка по наружному контуру', GREEN, None), ('Распорки / вкладыши', BLUE, None), ('Обрамление проёмов', ORANGE, None), ('Нижележащие опорные балки', SUPPORT, [5, 3])]:
             line(c, (x, y + 3), (x + 18, y + 3), color, 1.4, dash); text(c, label, x + 25, y, 7.4, color=color); y -= 19
         model_level = next((v for v in platform.get('levels') or [] if int(v.get('index', v.get('level', 1))) == li), {})
         facts = 'Лаг дома: ' + str(len(joists)) + '; опорных линий: ' + str(len(bearing_lines)) + '. '
-        if model_level.get('actualSpacing') is not None: facts += 'Фактический шаг: ' + number(finite(model_level.get('actualSpacing')) * 1000, 1) + ' мм. '
+        if model_level.get('actualSpacing') is not None: facts += ('Базовый шаг сетки: ' if model_level.get('nonUniformSpacing') else 'Фактический шаг: ') + number(finite(model_level.get('actualSpacing')) * 1000, 1) + ' мм. '
         if spans: facts += 'Наибольший пролёт по опорным осям: ' + number(max(finite(v.get('analyticalSpan')) for v in spans), 3) + ' м.'
         y = text(c, facts, x, y - 5, 7.5, width=292) - 17
         text(c, 'Точки на балках - расчётные опорные станции. Контакт досок, передача через поперечный узел и крепёж подтверждаются отдельно. Распорка не считается вертикальной опорой лаги.', x, y, 7.4, color=ORANGE, width=292)
-        self.note(c, 'Показаны физические грани каждой доски; FG подписаны один раз на группу и роль. Размеры шага - по фактическим осям лаг, общий габарит - между осями наружных стен. Полная привязка каждой детали, опор и торцов - CSV.', y=103)
+        self.note(c, 'Показаны физические грани досок; FG подписаны по группам и ролям. Размеры - по осям лаг; мелкие интервалы внутри пакетов вынесены в узлы. Общий габарит - по осям наружных стен. Точная привязка деталей, опор и торцов - CSV.', y=103)
+
+    def wall_support_records(self, level):
+        return [record for record in (self.r.get('floorPlatform') or {}).get('wallSupports') or [] if int(record.get('level', 1)) == int(level.get('index', 1))]
+
+    def wall_support_members(self, record):
+        ids = set(str(value) for value in record.get('boardIds') or [])
+        return [member for member in getattr(self, 'members', []) if str(member.get('id')) in ids]
+
+    def wall_support_row(self, record):
+        members = self.wall_support_members(record)
+        marks = collections.Counter(getattr(self, 'marks', {}).get(str(member.get('id')), '-') for member in members)
+        groups = ', '.join(mark + (' ×' + str(count) if count > 1 else '') for mark, count in sorted(marks.items()))
+        kind = {'exterior': 'Наружная', 'partition': 'Перегородка', 'interior': 'Внутренняя', 'bearing': 'Несущая'}.get(record.get('kind'), clean(record.get('kind')))
+        orientation = {'parallel': 'Вдоль лаг', 'perpendicular': 'Поперёк лаг', 'oblique': 'Косая'}.get(record.get('orientation'), clean(record.get('orientation')))
+        name = self.wall_names.get(str(record.get('wallId')), clean(record.get('wallId')))
+        ids = set(str(value) for value in record.get('boardIds') or [])
+        found = {str(member.get('id')) for member in members}
+        if ids - found: groups += '\nНе сопоставлено IDs: ' + str(len(ids - found))
+        counts = 'Лаг: ' + str(len(record.get('joistIds') or [])) + '; вставок: ' + str(len(record.get('transferBoardIds') or []))
+        coverage = number(finite(record.get('coverageRatio')) * 100, 1) + '%\n' + ('Геом. полно' if record.get('geometryComplete') is True else 'Есть пробелы' if record.get('geometryComplete') is False else 'Не задано')
+        return [name + '\n' + kind, orientation, counts + '\n' + groups, coverage]
+
+    def wall_support_chunks(self, supports):
+        widths = [292 * fraction for fraction in (.21, .18, .43, .18)]
+        pages, current, used = [], [], 0
+        for record in supports:
+            row = self.wall_support_row(record)
+            height = max(37, max(len(wrap(value, width - 8, 'Body', 6.7)) for value, width in zip(row, widths)) * 8.1 + 11)
+            if current and used + height > 430:
+                pages.append(current); current, used = [], 0
+            current.append(record); used += height
+        if current: pages.append(current)
+        return pages
+
+    def wall_support_nodes(self, supports):
+        nodes = []
+        for orientation in ('parallel', 'perpendicular'):
+            candidates = [record for record in supports if record.get('orientation') == orientation and str(record.get('wallId')) in self.wall_map and record.get('boardIds')]
+            candidates.sort(key=lambda record: (record.get('kind') == 'exterior', not record.get('geometryComplete'), self.wall_names.get(str(record.get('wallId')), '')))
+            for record in candidates:
+                wall = self.wall_map[str(record['wallId'])]; floor = self.wall_support_members(record)
+                wall_members = self.wall_members(wall)
+                plates = [member for member in wall_members if member.get('role') == 'plate' and member.get('platePosition') == 'bottom' and member.get('start') and member.get('end')]
+                a, b = xy(wall.get('a')), xy(wall.get('b'))
+                point = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+                if plates:
+                    plate = max(plates, key=lambda member: finite(member.get('length')))
+                    pa, pb = xy(plate['start']), xy(plate['end']); point = ((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2)
+                if orientation == 'parallel':
+                    studs = [member for member in wall_members if member.get('role') in ('stud', 'kingStud', 'jackStud') and member.get('start')]
+                    if studs: point = xy(min(studs, key=lambda member: math.dist(xy(member['start']), point))['start'])
+                else:
+                    blocks = [member for member in floor if member.get('role') == 'wallTransferBlocking' and member.get('start') and member.get('end')]
+                    if not blocks: continue
+                    typical = [member for member in blocks if finite(member.get('length')) >= .2] or blocks
+                    block = min(typical, key=lambda member: math.dist(((xy(member['start'])[0] + xy(member['end'])[0]) / 2, (xy(member['start'])[1] + xy(member['end'])[1]) / 2), point))
+                    pa, pb = xy(block['start']), xy(block['end']); point = ((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2)
+                nodes.append({'support': record, 'wall': wall, 'point': point, 'members': floor, 'wallMembers': wall_members, 'mark': 'С' + str(len(nodes) + 1)})
+                break
+        return nodes
+
+    def draw_wallsupportplan(self, c, data, index):
+        level, supports = data['level'], data['supports']; li = int(level.get('index', 1))
+        fn, scale = self.technical_base(c, (40, 145, 775, H - 265), level)
+        floor = [member for member in self.members if member.get('category') == 'floor' and int(member.get('floor', member.get('level', 1))) == li]
+        for source in (self.r.get('floorPlatform') or {}).get('supports') or []:
+            if int(source.get('level', 1)) == li and source.get('a') is not None and source.get('b') is not None:
+                line(c, fn(xy(source['a'])), fn(xy(source['b'])), BLUE, .7, [5, 3])
+        for member in floor:
+            reinforced = member.get('role') == 'joist' and bool(member.get('wallSupportWallIds'))
+            transfer = member.get('role') == 'wallTransferBlocking'
+            color = ORANGE if transfer else WALL_REINFORCEMENT if reinforced else LINE
+            fill = colors.HexColor('#f6dfc5') if transfer else colors.HexColor('#efdae8') if reinforced else None
+            polygon(c, [fn(point) for point in self.projected_member(member, lambda q: (q[0], q[2]))], fill, color, .75 if reinforced or transfer else .35)
+        occupied = []
+        for record in supports:
+            footprint = [xy(point) for point in record.get('footprint') or []]
+            if footprint: polygon(c, [fn(point) for point in footprint], None, GREEN, .8)
+            wall = self.wall_map.get(str(record.get('wallId')), {})
+            if wall.get('a') is not None and wall.get('b') is not None:
+                a, b = xy(wall['a']), xy(wall['b']); line(c, fn(a), fn(b), GREEN, .8, [3, 2])
+                self.technical_callout(c, self.wall_names.get(str(record.get('wallId')), clean(record.get('wallId'))), fn((a[0] + .23 * (b[0] - a[0]), a[1] + .23 * (b[1] - a[1]))), occupied, GREEN, 6.5)
+        marked = set()
+        for member in floor:
+            if member.get('role') != 'wallTransferBlocking' and not member.get('wallSupportWallIds'): continue
+            mark = self.marks.get(str(member.get('id'))); key = (mark, member.get('role'))
+            if not mark or key in marked: continue
+            marked.add(key); a, b = xy(member.get('start')), xy(member.get('end'))
+            self.technical_callout(c, mark, fn(((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)), occupied, ORANGE if member.get('role') == 'wallTransferBlocking' else WALL_REINFORCEMENT, 6.2)
+        for node in self.wall_support_nodes(supports):
+            point = fn(node['point']); marker = (point[0] + 19, point[1] + 25)
+            line(c, point, marker, ORANGE, .7); c.setFillColor(colors.white); c.setStrokeColor(ORANGE); c.circle(*marker, 9, fill=1, stroke=1); text(c, node['mark'], marker[0] - 6, marker[1] - 2.5, 7, 'Bold', ORANGE)
+        x, y, width = 850, H - 144, 292
+        text(c, 'ОСНОВАНИЯ СТЕН · ПО ГЕОМЕТРИИ', x, y, 9, 'Bold', GREEN); y -= 24
+        columns = [('Стена / тип', .21), ('Направление', .18), ('Детали / группы FG', .43), ('Покрытие', .18)]
+        c.setFillColor(INK); c.rect(x, y - 25, width, 25, fill=1, stroke=0)
+        left = x
+        for label, fraction in columns:
+            text(c, label, left + 4, y - 11, 6.4, 'Bold', colors.white, width=width * fraction - 8); left += width * fraction
+        y -= 25
+        for i, record in enumerate(data.get('tableSupports', supports)):
+            row = self.wall_support_row(record)
+            height = max(37, max(len(wrap(value, width * fraction - 8, 'Body', 6.7)) for value, (_, fraction) in zip(row, columns)) * 8.1 + 11)
+            c.setFillColor(PAPER if i % 2 == 0 else colors.white); c.rect(x, y - height, width, height, fill=1, stroke=0)
+            left = x
+            for value, (_, fraction) in zip(row, columns):
+                text(c, value, left + 4, y - 12, 6.7, width=width * fraction - 8, leading=8.1); left += width * fraction
+            y -= height
+        y -= 18
+        for label, color, dash in [('Лаги под стенами', WALL_REINFORCEMENT, None), ('Вставки под стенами', ORANGE, None), ('Основание / ось стены', GREEN, [3, 2]), ('Нижняя опорная линия', BLUE, [5, 3])]:
+            line(c, (x, y + 2), (x + 17, y + 2), color, 1.2, dash); text(c, label, x + 23, y, 7, color=color); y -= 16
+        self.note(c, 'Покрытие - доля полосы основания стены над древесиной каркаса. Условный настил 35 мм остаётся между обвязкой стены и лагами: материал и несущая способность не заданы. Вставки не являются дополнительными опорами лаг; сечения и узлы требуют проверки.', y=103, color=ORANGE)
+
+    def wall_load_rows(self, transfers):
+        rows = []
+        for record in transfers.get('walls') or []:
+            expected, actual, balance = record.get('expected') or {}, record.get('actual') or {}, record.get('balance') or {}
+            orientation = {'parallel': 'Вдоль лаг', 'perpendicular': 'Поперёк лаг'}.get(record.get('orientation'), clean(record.get('orientation')))
+            state = {'routed': 'Прослежен собственный вес', 'unverified': 'Путь не подтверждён'}.get(record.get('status'), clean(record.get('status')))
+            rows.append([self.wall_names.get(str(record.get('wallId')), clean(record.get('wallId'))), orientation,
+                         number(record.get('woodWeight'), 4) + ' / ' + number(record.get('layerWeight'), 4),
+                         number(expected.get('force'), 4) + ' / ' + number(actual.get('force'), 4), number(balance.get('force'), 6), state])
+        return rows
+
+    def wall_transfer_rows(self, transfers):
+        groups = collections.defaultdict(list)
+        for record in transfers.get('transferMembers') or []:
+            groups[getattr(self, 'marks', {}).get(str(record.get('boardId')), clean(record.get('boardId')))].append(record)
+        rows = []
+        for mark, records in sorted(groups.items()):
+            def greatest(field):
+                values = [optional_number(record.get(field)) for record in records]
+                return max((abs(value) for value in values if value is not None), default=None)
+            worst = max(records, key=lambda record: optional_number(record.get('utilization')) if optional_number(record.get('utilization')) is not None else -1)
+            known_deflections = [record for record in records if optional_number(record.get('deflection')) is not None and optional_number(record.get('deflectionLimit')) is not None and finite(record.get('deflectionLimit')) > 0]
+            flex = max(known_deflections, key=lambda record: finite(record.get('deflection')) / finite(record.get('deflectionLimit'))) if known_deflections else {}
+            walls = sorted({self.wall_names.get(str(wid), clean(wid)) for record in records for wid in record.get('wallIds') or []})
+            states = [record.get('status') for record in records]
+            status = 'fail' if 'fail' in states else 'unverified' if 'unverified' in states or any(state is None for state in states) else 'pass'
+            rows.append([mark + ' ×' + str(len(records)), ', '.join(walls), worst.get('boardId'), number(greatest('moment'), 4), number(greatest('shear'), 4),
+                         number(flex.get('deflection'), 4) + ' / ' + number(flex.get('deflectionLimit'), 4), number(greatest('utilization'), 4), STATUSES.get(status, status)])
+        return rows
+
+    def floor_joist_control(self):
+        checks = (self.r.get('floorPlatform') or {}).get('joistChecks') or []
+        known = [record for record in checks if record.get('numericChecksApplicable') is not False and optional_number(record.get('utilization')) is not None]
+        if not known: return None
+        record = max(known, key=lambda item: finite(item.get('utilization')))
+        marks = list(dict.fromkeys(self.marks.get(str(mid)) for mid in record.get('partIds') or [] if self.marks.get(str(mid))))
+        return {'record': record, 'marks': marks, 'numericCount': len(known), 'unknownCount': len(checks) - len(known)}
+
+    def draw_wallloads(self, c, data, index):
+        self.draw_table(c, data['table'], index)
+        columns, rows, size = data['table']; bottom = H - 153 - sum(height for _, height in rows)
+        control = data['control']; record = control['record']
+        y = max(147, min(360, bottom - 155))
+        c.setFillColor(PAPER); c.setStrokeColor(LINE); c.roundRect(42, y, W - 84, 130, 4, fill=1, stroke=1)
+        text(c, 'КОНТРОЛЬНАЯ ЛАГА · НАИБОЛЬШЕЕ η ПО ОТЧЁТУ', 56, y + 110, 9.5, 'Bold', GREEN)
+        label = ', '.join(control['marks']) + ' · ' + clean(record.get('id'))
+        text(c, label, 56, y + 88, 8.2, 'Mono', width=W - 115)
+        values = [('Сечение / L', number(record.get('b'), 0) + ' × ' + number(record.get('h'), 0) + ' мм / ' + number(record.get('span'), 3) + ' м'),
+                  ('M / V', number(record.get('moment'), 4) + ' кН·м / ' + number(record.get('shear'), 4) + ' кН'),
+                  ('Прогиб / предел', number(record.get('deflection'), 3) + ' / ' + number(record.get('deflectionAllowed'), 3) + ' мм'),
+                  ('η / частный результат', number(record.get('utilization'), 4) + ' / ' + clean(STATUSES.get(record.get('status'), record.get('status'))))]
+        for i, (name, value) in enumerate(values):
+            xx = 56 + i * (W - 112) / 4
+            text(c, name, xx, y + 65, 7, 'Bold', MUTED); text(c, value, xx, y + 47, 8, width=(W - 112) / 4 - 12)
+        text(c, 'Численно проверено лаг: ' + str(control['numericCount']) + '; без полной численной проверки: ' + str(control['unknownCount']) + '. Нагрузки пола и прослеженный собственный вес перегородок; несущие стены и кровля исключены.', 56, y + 18, 7.4, color=ORANGE, width=W - 112)
+
+    def wall_support_section(self, node):
+        """Actual physical boards intersected by the selected vertical section plane."""
+        a, b = xy(node['wall'].get('a')), xy(node['wall'].get('b'))
+        length = math.dist(a, b)
+        if length < 1e-9: return None
+        along = ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
+        direction = (-along[1], along[0]) if node['support'].get('orientation') == 'parallel' else along
+        normal = (-direction[1], direction[0]); point = node['point']
+        def plan_local(q):
+            q = xy(q); delta = (q[0] - point[0], q[1] - point[1])
+            return sum(delta[i] * direction[i] for i in range(2)), sum(delta[i] * normal[i] for i in range(2))
+        def project(q):
+            return (q[0] - point[0]) * direction[0] + (q[2] - point[1]) * direction[1], q[1]
+        records, seen = [], set()
+        for member in node.get('members', []) + node.get('wallMembers', []):
+            if str(member.get('id')) in seen: continue
+            seen.add(str(member.get('id')))
+            plan = self.projected_member(member, lambda q: plan_local((q[0], q[2])))
+            if not plan or min(p[1] for p in plan) > 1e-7 or max(p[1] for p in plan) < -1e-7: continue
+            polygon_ = self.projected_member(member, project)
+            if polygon_: records.append({'member': member, 'polygon': polygon_})
+        rec = node['support']; level = next((v for v in getattr(self, 'levels', []) if int(v.get('index', 1)) == int(rec.get('level', 1))), {})
+        deck_intervals = scan_intervals([plan_local(q) for q in self.platform_polygon(level)], 0)
+        for void in level.get('voids') or []:
+            deck_intervals = subtract_intervals(deck_intervals, scan_intervals([plan_local(q) for q in void.get('polygon') or []], 0))
+        return {'records': records, 'direction': direction, 'normal': normal, 'deckIntervals': deck_intervals,
+                'framingTopY': optional_number(rec.get('framingTopY')), 'wallBaseY': optional_number(rec.get('wallBaseY')),
+                'layerBasis': rec.get('layerBasis') or {}, 'deckThickness': optional_number((rec.get('layerBasis') or {}).get('thickness', rec.get('deckThickness')))}
+
+    def draw_wallsupportnodes(self, c, nodes, index):
+        for i, node in enumerate(nodes or []):
+            x, y, w, h = 43 + i * 567, 155, 535, 545
+            rec, wall, point = node['support'], node['wall'], node['point']
+            section = self.wall_support_section(node)
+            if not section: continue
+            parallel = rec.get('orientation') == 'parallel'
+            c.setStrokeColor(LINE); c.rect(x, y, w, h, fill=0, stroke=1)
+            text(c, node['mark'] + ' · ' + ('Стена вдоль лаг' if parallel else 'Стена поперёк лаг'), x + 14, y + h - 24, 12, 'Bold', GREEN)
+            text(c, self.wall_names.get(str(wall.get('id')), clean(wall.get('id'))) + ' · этаж ' + str(rec.get('level', 1)) + ' · основание ' + number(rec.get('wallDepth'), 0) + ' мм', x + 14, y + h - 44, 7.8, color=MUTED)
+            text(c, 'ПЛАН · ФАКТИЧЕСКИЙ ФРАГМЕНТ', x + 14, y + h - 69, 7.5, 'Bold')
+            text(c, 'СЕЧЕНИЕ ' + ('ПОПЕРЁК СТЕНЫ' if parallel else 'ВДОЛЬ СТЕНЫ'), x + 280, y + h - 69, 7.5, 'Bold')
+            radius = .36 if parallel else .43
+            plan_box = (x + 14, y + 220, 245, 240)
+            pf, _ = transform([(point[0] - radius, point[1] - radius), (point[0] + radius, point[1] + radius)], plan_box, 19)
+            ids = {str(member.get('id')) for member in node.get('members', [])}
+            c.saveState(); clip = c.beginPath(); clip.rect(*plan_box); c.clipPath(clip, stroke=0)
+            for member in self.members:
+                if member.get('category') != 'floor' or int(member.get('floor', member.get('level', 1))) != int(rec.get('level', 1)): continue
+                poly = self.projected_member(member, lambda q: (q[0], q[2]))
+                if not poly: continue
+                bx0, by0, bx1, by1 = bounds(poly)
+                if bx1 < point[0] - radius or bx0 > point[0] + radius or by1 < point[1] - radius or by0 > point[1] + radius: continue
+                highlighted = str(member.get('id')) in ids
+                transfer = member.get('role') == 'wallTransferBlocking'
+                color = ORANGE if highlighted and transfer else WALL_REINFORCEMENT if highlighted else LINE
+                fill = colors.HexColor('#f6dfc5') if highlighted and transfer else colors.HexColor('#efdae8') if highlighted else PAPER
+                polygon(c, [pf(q) for q in poly], fill, color, .9 if highlighted else .4)
+            footprint = [xy(q) for q in rec.get('footprint') or []]
+            if footprint: polygon(c, [pf(q) for q in footprint], None, GREEN, 1)
+            a, b = xy(wall.get('a')), xy(wall.get('b')); line(c, pf(a), pf(b), GREEN, .8, [4, 3])
+            direction = section['direction']
+            qa = pf((point[0] - radius * direction[0], point[1] - radius * direction[1])); qb = pf((point[0] + radius * direction[0], point[1] + radius * direction[1]))
+            line(c, qa, qb, INK, .8, [7, 3, 1, 3])
+            c.restoreState()
+            text(c, 'Штрихпунктир - выбранная плоскость сечения.', x + 15, y + 207, 6.8, color=MUTED, width=244)
+            floor = [row for row in section['records'] if row['member'].get('category') == 'floor']
+            top, base = section['framingTopY'], section['wallBaseY']
+            if top is None or base is None:
+                text(c, 'Отметки слоёв не заданы в отчёте.', x + 282, y + 330, 8, color=ORANGE, width=235)
+                continue
+            floor_bottom = min([p[1] for row in floor for p in row['polygon']] or [top])
+            sf, _ = transform([(-radius, floor_bottom - .04), (radius, base + .29)], (x + 280, y + 220, 240, 240), 24)
+            section_box = (x + 280, y + 220, 240, 240)
+            c.saveState(); clip = c.beginPath(); clip.rect(*section_box); c.clipPath(clip, stroke=0)
+            # The legacy deck is only a geometric layer, never an extra timber instance.
+            for lo, hi in section['deckIntervals']:
+                lo, hi = max(lo, -radius), min(hi, radius)
+                if hi > lo:
+                    polygon(c, [sf((lo, top)), sf((hi, top)), sf((hi, base)), sf((lo, base))], colors.HexColor('#dfe4e8'), BLUE, .65)
+            for row in section['records']:
+                member = row['member']; is_floor = member.get('category') == 'floor'
+                transfer = member.get('role') == 'wallTransferBlocking'
+                color = ORANGE if transfer else WALL_REINFORCEMENT if is_floor else GREEN
+                fill = colors.HexColor('#f6dfc5') if transfer else colors.HexColor('#efdae8') if is_floor else colors.HexColor('#e4ead8')
+                polygon(c, [sf(q) for q in row['polygon']], fill, color, .85)
+            line(c, sf((-radius, top)), sf((radius, top)), BLUE, .5, [3, 2])
+            line(c, sf((-radius, base)), sf((radius, base)), GREEN, .5, [3, 2])
+            c.restoreState()
+            dx = .25 if parallel else radius - .035
+            dimension(c, sf((dx, floor_bottom)), sf((dx, top)), -9, number((top - floor_bottom) * 1000, 0) + ' мм')
+            # The 35 mm gap is called out separately to avoid an illegible dimension chain.
+            text(c, 'Верх лаг +' + number(top, 3), x + 282, y + 208, 7, color=WALL_REINFORCEMENT)
+            text(c, 'Низ стены +' + number(base, 3), x + 282, y + 194, 7, color=GREEN)
+            local_marks = collections.Counter(self.marks.get(str(row['member'].get('id')), '-') for row in floor if max(p[0] for p in row['polygon']) >= -radius and min(p[0] for p in row['polygon']) <= radius)
+            marks = ', '.join(mark + (' ×' + str(count) if count > 1 else '') for mark, count in sorted(local_marks.items()))
+            text(c, 'На сечении: ' + marks + '. Точная привязка физических IDs - CSV.', x + 15, y + 174, 7.4, width=w - 30)
+            if parallel:
+                # Read the section/count from actual boards intersecting the section, not a prescribed package.
+                near = [row['member'] for row in floor if max(p[0] for p in row['polygon']) >= -finite(rec.get('wallDepth')) / 2000 and min(p[0] for p in row['polygon']) <= finite(rec.get('wallDepth')) / 2000]
+                sizes = collections.Counter((finite(m.get('b')), finite(m.get('h'))) for m in near)
+                label = '; '.join(str(count) + ' × ' + number(b, 0) + ' × ' + number(hh, 0) + ' мм' for (b, hh), count in sorted(sizes.items()))
+                text(c, 'Под стеной: ' + (label or 'нет сопоставленных досок') + '. Каждая лага - отдельная доска; совместная работа пакета не подтверждена.', x + 15, y + 143, 8, 'Bold', width=w - 30)
+            else:
+                text(c, 'Полноразмерные вставки передают нагрузку стены на соседние лаги. Торцевые соединения и эксцентриситет передачи требуют проверки; вставка не укорачивает пролёт лаги.', x + 15, y + 143, 8, 'Bold', width=w - 30)
+            gap = (base - top) * 1000
+            text(c, 'Условный настил ' + number(gap, 0) + ' мм: материал/несущая способность не заданы. Собственная масса учтена в floorDead; дополнительная масса не добавлена.', x + 15, y + 88, 7.5, color=ORANGE, width=w - 30)
+            text(c, 'ГЕОМЕТРИЯ, НЕ ПОДТВЕРЖДЁННЫЙ УЗЕЛ. Крепёж, смятие, распределение нагрузки через настил и передача несущих стен / кровли здесь не проверены.', x + 15, y + 41, 7.4, color=ORANGE, width=w - 30)
 
     def wall_members(self, wall):
         wid = str(wall.get('id'))

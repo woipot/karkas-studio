@@ -273,6 +273,17 @@ WALL_REINFORCEMENT = colors.HexColor('#963b70')
 
 
 class Album:
+    def plan_transform(self, points, box, padding=24, uniform=True):
+        """Match a project's screen-plan Y direction without reflecting text or elevations."""
+        fn, scale = transform(points, box, padding, uniform)
+        if ((self.p.get('site') or {}).get('planView') or {}).get('yAxis') != 'down':
+            return fn, scale
+        mirror_y = 2 * box[1] + box[3]
+        def mapped(point):
+            x, y = fn(point)
+            return x, mirror_y - y
+        return mapped, scale
+
     def __init__(self, report):
         self.report = report
         self.p = report.get('project') or {}
@@ -892,7 +903,8 @@ class Album:
         axispts = pts + [xy(w[k]) for w in walls for k in ('a', 'b')]
         annexes = [a for a in self.annexes if int(a.get('level', 1)) == int(level_index)]
         allpts = axispts + platform_pts + [xy(p) for a in annexes for p in a.get('polygon') or []]
-        fn, scale = transform(allpts, box, 54)
+        fn, scale = self.plan_transform(allpts, box, 54)
+        screen_y_down = ((self.p.get('site') or {}).get('planView') or {}).get('yAxis') == 'down'
         polygon(c, [fn(p) for p in platform_pts], PAPER, GREEN, .9)
         for annex in annexes:
             ap = [xy(p) for p in annex.get('polygon') or []]
@@ -913,8 +925,9 @@ class Album:
             xs = sorted(set(round(p[0], 4) for p in pts))
             ys = sorted(set(round(p[1], 4) for p in pts))
             a, b, d, e = bounds(axispts)
+            bottom_y, top_y = (e, b) if screen_y_down else (b, e)
             for n, xx in enumerate(xs):
-                aa, bb = fn((xx, b)), fn((xx, e))
+                aa, bb = fn((xx, bottom_y)), fn((xx, top_y))
                 line(c, (aa[0], aa[1] - 22), (bb[0], bb[1] + 22), LINE, .5, [5, 3])
                 c.setFillColor(colors.white); c.setStrokeColor(MUTED); c.circle(aa[0], aa[1] - 30, 9, fill=1, stroke=1)
                 text(c, str(n + 1), aa[0] - 2, aa[1] - 33, 7)
@@ -924,13 +937,15 @@ class Album:
                 c.setFillColor(colors.white); c.setStrokeColor(MUTED); c.circle(aa[0] - 30, aa[1], 9, fill=1, stroke=1)
                 text(c, chr(65 + n), aa[0] - 33, aa[1] - 2, 7)
             for x1, x2 in zip(xs, xs[1:]):
-                dimension(c, fn((x1, b)), fn((x2, b)), -49, number((x2 - x1) * 1000, 0))
+                lower_offset = -49 - (max(0, fn((a, bottom_y))[1] - min(fn(p)[1] for p in allpts)) if screen_y_down else 0)
+                dimension(c, fn((x1, bottom_y)), fn((x2, bottom_y)), lower_offset, number((x2 - x1) * 1000, 0))
             for y1, y2 in zip(ys, ys[1:]):
-                dimension(c, fn((a, y1)), fn((a, y2)), 49, number((y2 - y1) * 1000, 0))
-            dimension(c, fn((a, e)), fn((d, e)), 28, number((d - a) * 1000, 0))
+                dimension(c, fn((a, y1)), fn((a, y2)), -49 if screen_y_down else 49, number((y2 - y1) * 1000, 0))
+            dimension(c, fn((a, top_y)), fn((d, top_y)), 28, number((d - a) * 1000, 0))
             if wall_faces and platform_pts:
                 pa, pb, pc, pd = bounds(platform_pts)
-                dimension(c, fn((pa, pd)), fn((pc, pd)), 55, number((pc - pa) * 1000, 0) + ' · наружные грани каркаса')
+                edge_y = pb if screen_y_down else pd
+                dimension(c, fn((pa, edge_y)), fn((pc, edge_y)), 55, number((pc - pa) * 1000, 0) + ' · наружные грани каркаса')
         if rooms:
             for i, room in enumerate(self.planning.get('rooms') or []):
                 if int(room.get('level', room.get('floor', 1))) != int(level_index):
@@ -1238,7 +1253,7 @@ class Album:
                 xx = x + 12 + column * 231
                 text(c, title, xx, y + h - 62, 8, 'Bold')
                 card = (xx, y + 53, 215, 161)
-                fn, scale = transform([(point[0] - radius, point[1] - radius), (point[0] + radius, point[1] + radius)], card, 12)
+                fn, scale = self.plan_transform([(point[0] - radius, point[1] - radius), (point[0] + radius, point[1] + radius)], card, 12)
                 current = [r for r in records if r['position'] == position and (position == 'bottom' or r['layer'] == layer)]
                 c.saveState(); clip = c.beginPath(); clip.rect(*card); c.clipPath(clip, stroke=0)
                 for wid in wall_ids:
@@ -1329,7 +1344,8 @@ class Album:
         piles = self.r.get('piles') or []
         points = [p for poly in polygons for p in poly]
         if pile_grid: points += [xy(p) for p in piles]
-        fn, scale = transform(points, box, 69)
+        fn, scale = self.plan_transform(points, box, 69)
+        screen_y_down = ((self.p.get('site') or {}).get('planView') or {}).get('yAxis') == 'down'
         for poly in polygons:
             c.setDash([4, 3]); polygon(c, [fn(p) for p in poly], None, LINE, .65); c.setDash([])
         for void in self.p.get('voids') or []:
@@ -1342,18 +1358,20 @@ class Album:
             xs = sorted(set(round(p[0], 6) for p in axes)); ys = sorted(set(round(p[1], 6) for p in axes))
         if xs and ys:
             a, b, d, e = xs[0], ys[0], xs[-1], ys[-1]
+            bottom_y, top_y = (e, b) if screen_y_down else (b, e)
             for i, x in enumerate(xs):
-                aa, zz = fn((x, b)), fn((x, e)); line(c, (aa[0], aa[1] - 17), (zz[0], zz[1] + 16), LINE, .4, [5, 4])
+                aa, zz = fn((x, bottom_y)), fn((x, top_y)); line(c, (aa[0], aa[1] - 17), (zz[0], zz[1] + 16), LINE, .4, [5, 4])
                 c.setFillColor(colors.white); c.setStrokeColor(MUTED); c.circle(aa[0], aa[1] - 22, 7, fill=1, stroke=1); text(c, str(i + 1), aa[0] - 2.5, aa[1] - 24, 6.5)
             for i, y in enumerate(ys):
                 aa, zz = fn((a, y)), fn((d, y)); line(c, (aa[0] - 17, aa[1]), (zz[0] + 16, zz[1]), LINE, .4, [5, 4])
                 c.setFillColor(colors.white); c.setStrokeColor(MUTED); c.circle(aa[0] - 22, aa[1], 7, fill=1, stroke=1); text(c, chr(65 + i), aa[0] - 24.5, aa[1] - 2, 6.5)
-            lower_offset = -39 if pile_grid else -39 - max(0, b - min(p[1] for p in points)) * scale
+            extra_below = max(0, max(p[1] for p in points) - e) if screen_y_down else max(0, b - min(p[1] for p in points))
+            lower_offset = -39 if pile_grid else -39 - extra_below * scale
             if len(xs) > 2:
-                for lo, hi in zip(xs, xs[1:]): dimension(c, fn((lo, b)), fn((hi, b)), lower_offset, number((hi - lo) * 1000, 0))
-            for lo, hi in zip(ys, ys[1:]): dimension(c, fn((a, lo)), fn((a, hi)), 39, number((hi - lo) * 1000, 0))
-            dimension(c, fn((a, b)), fn((d, b)), lower_offset - (23 if len(xs) > 2 else 0), number((d - a) * 1000, 0) + ' · по осям')
-            dimension(c, fn((a, b)), fn((a, e)), 63, number((e - b) * 1000, 0))
+                for lo, hi in zip(xs, xs[1:]): dimension(c, fn((lo, bottom_y)), fn((hi, bottom_y)), lower_offset, number((hi - lo) * 1000, 0))
+            for lo, hi in zip(ys, ys[1:]): dimension(c, fn((a, lo)), fn((a, hi)), -39 if screen_y_down else 39, number((hi - lo) * 1000, 0))
+            dimension(c, fn((a, bottom_y)), fn((d, bottom_y)), lower_offset - (23 if len(xs) > 2 else 0), number((d - a) * 1000, 0) + ' · по осям')
+            dimension(c, fn((a, b)), fn((a, e)), -63 if screen_y_down else 63, number((e - b) * 1000, 0))
         return fn, scale
 
     def technical_schedule(self, c, members, x, y, width, title, max_rows=18):
@@ -1476,7 +1494,7 @@ class Album:
             members = [m for m in self.gr.get('instances') or [] if m.get('beamId') in (node.get('beamIds') or []) and segment_distance(point, xy(m.get('start')), xy(m.get('end'))) < radius]
             pile = piles.get(node.get('pileId'), {}); cap = finite(pile.get('capSize'), finite(self.gr.get('capSize'), 250)) / 1000
             text(c, 'ПЛАН · ФАКТИЧЕСКИЕ ГРАНИ ДОСОК', x + 14, y + h - 72, 7.8, 'Bold')
-            pf, _ = transform([(point[0] - radius, point[1] - radius), (point[0] + radius, point[1] + radius)], (x + 13, y + 220, 245, 240), 20)
+            pf, _ = self.plan_transform([(point[0] - radius, point[1] - radius), (point[0] + radius, point[1] + radius)], (x + 13, y + 220, 245, 240), 20)
             c.saveState(); clip = c.beginPath(); clip.rect(x + 13, y + 220, 245, 240); c.clipPath(clip, stroke=0)
             polygon(c, [pf((point[0] - cap / 2, point[1] - cap / 2)), pf((point[0] + cap / 2, point[1] - cap / 2)), pf((point[0] + cap / 2, point[1] + cap / 2)), pf((point[0] - cap / 2, point[1] + cap / 2))], None, BLUE, 1.3)
             for m in members:
@@ -1891,7 +1909,7 @@ class Album:
             text(c, 'СЕЧЕНИЕ ' + ('ПОПЕРЁК СТЕНЫ' if parallel else 'ВДОЛЬ СТЕНЫ'), x + 280, y + h - 69, 7.5, 'Bold')
             radius = .36 if parallel else .43
             plan_box = (x + 14, y + 220, 245, 240)
-            pf, _ = transform([(point[0] - radius, point[1] - radius), (point[0] + radius, point[1] + radius)], plan_box, 19)
+            pf, _ = self.plan_transform([(point[0] - radius, point[1] - radius), (point[0] + radius, point[1] + radius)], plan_box, 19)
             ids = {str(member.get('id')) for member in node.get('members', [])}
             c.saveState(); clip = c.beginPath(); clip.rect(*plan_box); c.clipPath(clip, stroke=0)
             for member in self.members:
@@ -2143,7 +2161,7 @@ class Album:
     def draw_roofplan(self, c, data, index):
         annex_roofs = [(annex, face) for annex in self.annexes for face in (annex.get('roof') or {}).get('surfaces') or []]
         pts = [xy(p) for s in self.roof.get('surfaces', []) for p in s.get('points', [])] + self.level_polygon() + [xy(p) for z in self.roof.get('zones', []) for p in z.get('coverPolygon', [])] + [xy(p) for _, face in annex_roofs for p in face.get('points') or []]
-        fn, scale = transform(pts, (45, 135, 800, H - 245), 45)
+        fn, scale = self.plan_transform(pts, (45, 135, 800, H - 245), 45)
         polygon(c, [fn(p) for p in self.level_polygon()], None, LINE, 1)
         for annex, face in annex_roofs:
             polygon(c, [fn(xy(p)) for p in face.get('points') or []], colors.HexColor('#e3edf0'), BLUE, .8)
@@ -2519,7 +2537,7 @@ class Album:
         a, b, d, e = bounds(poly)
         text(c, 'ВЕРХНИЙ УРОВЕНЬ · ПРОЁМ И ПУТИ ДВИЖЕНИЯ', 48, H - 135, 9, 'Bold', GREEN)
         gallery_points = [xy(p) for g in galleries for p in g.get('polygon') or []]
-        fn, scale = transform(poly + gallery_points, (48, 300, 405, 355), 28)
+        fn, scale = self.plan_transform(poly + gallery_points, (48, 300, 405, 355), 28)
         polygon(c, [fn(p) for p in poly], colors.HexColor('#f3ecdb'), ORANGE, 1)
         for gallery in galleries:
             gp = [xy(p) for p in gallery.get('polygon') or []]
@@ -2624,7 +2642,7 @@ class Album:
         drawing_members = members + foundation_members
         poly = [xy(p) for p in annex.get('polygon') or []]
         text(c, 'ПЛАН · НАСТИЛ, ОБЩИЙ РОСТВЕРК И КРОВЛЯ' if shared else 'ПЛАН · НАСТИЛ, САМОСТОЯТЕЛЬНОЕ ОСНОВАНИЕ И КРОВЛЯ', 48, H - 135, 9, 'Bold', GREEN)
-        fn, scale = transform(poly + [(p.get('x', 0), p.get('y', 0)) for p in piles], (48, 345, 495, 309), 35)
+        fn, scale = self.plan_transform(poly + [(p.get('x', 0), p.get('y', 0)) for p in piles], (48, 345, 495, 309), 35)
         polygon(c, [fn(p) for p in poly], PAPER, GREEN, 1)
         if foundation_members and poly:
             c.saveState(); clip = c.beginPath(); clip.moveTo(*fn(poly[0]))

@@ -6,9 +6,18 @@ import {defaultDesignerProject,calculateDesigner,validateDesignerProject} from '
 import {calculateCutting} from './cutting.js';
 import {exportBoardsCSV,exportModelOBJ} from './house-exports.js';
 import {analyzeSnowCases} from './snow-envelope.js';
+import {cutGeometry} from './board-geometry.js';
 const near=(a,b,t=1e-8)=>assert.ok(Number.isFinite(a)&&Math.abs(a-b)<t,`${a} != ${b}`),cp=structuredClone;
 function project(){const p=cp(defaultDesignerProject);p.openings=[];p.auxiliaryTimber={...p.auxiliaryTimber,enabled:false};p.roof={...p.roof,type:'gable',snowMu:1,sourceModel:{id:'IMPORTED',source:{title:'Source reconstruction',pageRefs:[46,47]},members:[{id:'B1',name:'Imported rafter',role:'rafter',section:'40x200',start:[0,4.2,0],end:[4,4.2,0],crossAxis:[0,0,1],sourceMark:'B-41'}],surfaces:[{id:'S1',kind:'left',points:[[0,4,0],[4,4,0],[4,5.5,3],[0,5.5,3]]}]}};p.material.density=500;return p;}
 const model=p=>p.roof.sourceModel;
+const meshVolume=b=>{const g=cutGeometry(b),p=g.getAttribute('position');let v=0;for(let i=0;i<p.count;i+=3)v+=(p.getX(i)*(p.getY(i+1)*p.getZ(i+2)-p.getZ(i+1)*p.getY(i+2))+p.getY(i)*(p.getZ(i+1)*p.getX(i+2)-p.getX(i+1)*p.getZ(i+2))+p.getZ(i)*(p.getX(i+1)*p.getY(i+2)-p.getY(i+1)*p.getX(i+2)))/6;g.dispose();return v;};
+test('layered width profiles retain the110mm stud back behind a40mm brace groove; mesh and net mass agree',()=>{
+ const p=project(),b=model(p).members[0],rect=(a,z)=>[[a,-.02],[z,-.02],[z,.02],[a,.02]];b.section='40x150';b.shape={type:'layeredProfile',plane:'width',layers:[{from:-.075,to:.035,points:rect(-2,2)},{from:.035,to:.075,points:rect(-2,-.1)},{from:.035,to:.075,points:rect(.1,2)}]};const r=calculateSourceRoof(p),m=r.instances[0];near(m.volume,.04*4*.15-.04*.2*.04);near(meshVolume(m),m.volume,1e-7);near(m.mass,m.volume*500);assert.ok(m.massCenter[1]<4.2);const d=calculateDesigner(p,{roofModel:r}),physical=d.timber.instances.find(m=>m.sourceBoardId==='B1');assert.deepEqual(physical.shape,m.shape);near(meshVolume(physical),m.volume,1e-7);assert.ok(exportModelOBJ({engine:{version:'test'},result:d}).includes('v '));
+ b.shape.layers.push(cp(b.shape.layers[0]));assert.equal(validateSourceRoofModel(model(p)).valid,false);b.shape.layers.pop();b.shape.layers[0].from=-.076;assert.equal(validateSourceRoofModel(model(p)).valid,false);b.shape.layers[0].from=-.075;b.shape.layers[0].points[0][1]=-.021;assert.equal(validateSourceRoofModel(model(p)).valid,false);
+});
+test('ordinary width-face profile has actual150mm extrusion and no reversed mesh winding',()=>{
+ const p=project(),b=model(p).members[0];b.section='40x150';b.shape={type:'rippedBoard',plane:'width',points:[[-2,-.02],[2,-.02],[2,.02],[-2,.02]]};const m=calculateSourceRoof(p).instances[0];near(m.volume,.024);near(meshVolume(m),.024,1e-7);
+});
 
 test('physical timber mass, slope area and horizontal snow area are computed independently once',()=>{
  const p=project(),before=JSON.stringify(p),r=calculateRoofZones(p,{});assert.equal(r.sourceMode,true);near(r.mass,16);near(r.volume,.032);near(r.area,12*Math.sqrt(1.25));near(r.projectedArea,12);near(r.snowEffectiveArea,12);assert.equal(JSON.stringify(p),before);assert.equal(r.status,'unverified');assert.equal(r.structurallyVerified,false);assert.equal(r.certified,false);assert.deepEqual(r.zones,[]);assert.ok(r.checks.some(c=>c.id==='source-roof-strength'&&c.status==='unverified'));assert.ok(r.checks.some(c=>c.id==='source-roof-load-path'&&c.status==='unverified'));

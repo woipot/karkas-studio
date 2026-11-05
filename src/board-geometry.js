@@ -1,6 +1,15 @@
 import * as THREE from 'three';
+function profileLayersGeometry(layers,plane){
+ const values=[];
+ for(const layer of layers){const shape=new THREE.Shape(layer.points.map(p=>new THREE.Vector2(...p))),g=new THREE.ExtrudeGeometry(shape,{depth:layer.to-layer.from,bevelEnabled:false,steps:1}),p=g.getAttribute('position');
+  for(let i=0;i<p.count;i+=3)for(const j of(plane==='width'?[0,2,1]:[0,1,2])){const k=i+j,s=p.getX(k),v=p.getY(k),e=p.getZ(k)+layer.from;values.push(...(plane==='width'?[v,s,e]:[e,s,v]));}g.dispose();
+ }
+ const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(values,3));geo.computeVertexNormals();return geo;
+}
 export function cutGeometry(board){
  const b=board.b/1000,h=board.h/1000,L=board.length,cs=board.cutStart||{},ce=board.cutEnd||{};
+ if(board.shape?.type==='layeredProfile')return profileLayersGeometry(board.shape.layers,board.shape.plane??'depth');
+ if(board.shape?.plane==='width'&&board.shape.points)return profileLayersGeometry([{from:-h/2,to:h/2,points:board.shape.points}],'width');
  const isLap=c=>['halfLap','half-lap','scarf'].includes(c.scheme)&&c.lapLength>0;
  const grooves=(board.notches??[]).filter(n=>n.shape==='verticalStudGroove'&&!n.requiresCutBoolean&&Number.isFinite(n.station)&&n.length>0&&n.depth>0).map(n=>({...n,from:n.station-n.length/2,to:n.station+n.length/2}));
  const xs=[0,L];if(isLap(cs))xs.push(cs.lapLength-.00001,cs.lapLength);if(isLap(ce))xs.push(L-ce.lapLength,L-ce.lapLength+.00001);

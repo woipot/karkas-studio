@@ -1187,7 +1187,14 @@ class Album:
                 tangent = math.tan(math.radians(finite(cut.get('angle')))) * finite(cut.get('tiltSign'), 1)
                 station += width * tangent if cut.get('plane') == 'width' else height * tangent * (1 if at_start else -1)
             return station
-        if profile:
+        if shape.get('type') == 'layeredProfile' or shape.get('plane') == 'width':
+            # Silhouette of actual profile layers. Internal grooves remain in
+            # JSON/OBJ; a projection does not expose hidden machining surfaces.
+            face, extrusion = (cross, depth) if shape.get('plane') == 'width' else (depth, cross)
+            thickness = finite(m.get('h')) if shape.get('plane') == 'width' else finite(m.get('b'))
+            layers = shape.get('layers') if shape.get('type') == 'layeredProfile' else [{'from': -thickness / 2000, 'to': thickness / 2000, 'points': profile or []}]
+            points = sorted(set(project(tuple(center[i] + u[i] * finite(p[0]) + face[i] * finite(p[1]) + extrusion[i] * finite(e) for i in range(3))) for layer in layers for p in layer['points'] for e in (layer['from'], layer['to'])))
+        elif profile:
             outline = [project(tuple(center[i] + u[i] * cut_station(finite(p[0]), finite(p[1]), 0) + depth[i] * finite(p[1]) for i in range(3))) for p in profile]
             area = abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(outline, outline[1:] + outline[:1]))) / 2
             width_ends = [project(tuple(center[i] + cross[i] * side * finite(m.get('b')) / 2000 for i in range(3))) for side in (-1, 1)]

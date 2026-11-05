@@ -37,6 +37,10 @@ print(json.dumps(a.projected_member(json.load(sys.stdin),lambda p:(p[0],p[1]))))
 `;
   return JSON.parse(execFileSync(python,['-c',code],{cwd:root,input:JSON.stringify(board),encoding:'utf8'}));
 }
+test('PDF width-face and layered profiles project their real40mm face rather than150mm thickness',()=>{
+ const base={b:40,h:150,start:[0,1,0],end:[2,1,0],crossAxis:[0,1,0]},P=[[-1,-.02],[1,-.02],[1,.02],[-1,.02]];
+ for(const shape of[{type:'rippedBoard',plane:'width',points:P},{type:'layeredProfile',plane:'width',layers:[{from:-.075,to:.035,points:P},{from:.035,to:.075,points:[[-1,-.02],[-.1,-.02],[-.1,.02],[-1,.02]]}]}]){const Q=projectSection({...base,shape});assert.ok(Math.abs(Math.min(...Q.map(p=>p[1]))-.98)<1e-8);assert.ok(Math.abs(Math.max(...Q.map(p=>p[1]))-1.02)<1e-8);}
+});
 
 test('PDF corner selection preserves all six actual plate bodies and the alternating upper joint',()=>{
   const details=inspect(fixture());assert.equal(details.length,1);assert.equal(details[0].records.length,6);

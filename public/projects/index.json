@@ -1,0 +1,17 @@
+{
+  "projects": [
+    {
+      "key": "noginsk",
+      "name": "Ногинск · 6×10 · спальня12.5м²",
+      "projectId": "house-ebd217dd-797e-4047-9db6-620e095d1da5",
+      "assetBase": ""
+    },
+    {
+      "key": "orion",
+      "name": "Орион · 13×14 · перенос по КР",
+      "projectId": "house-716fafe9-8ede-4707-ad6c-7bf2a0f6debd",
+      "assetBase": "/projects/orion",
+      "sourceUrl": "/projects/orion/source.json"
+    }
+  ]
+}

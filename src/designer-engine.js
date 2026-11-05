@@ -1,3 +1,4 @@
+import {validateSourceRoofModel} from './source-roof.js';
 import {buildAuxiliaryTimber} from './auxiliary-timber.js';
 import {buildAnnexes,validateAnnexes,sharedAnnexGrillageLines} from './annexes.js';
 import {buildSpatialLayout,validateSpatialLayoutInput} from './spatial-layout.js';
@@ -146,6 +147,7 @@ export function validateDesignerProject(input){
   }
   for(const key of ['roof','material','loads','foundation','joints','prices'])if(!object(p[key]))error(key,`${key}: требуется объект параметров.`);
   if(object(p.roof)){
+    if(p.roof.sourceModel!==undefined){const sourceRoof=validateSourceRoofModel(p.roof.sourceModel,{floors:p.floors,density:p.material?.density??500,snowMu:p.roof.snowMu});for(const e of sourceRoof.errors)error(e.field,e.message);if(p.roof.type==='none')error('roof.sourceModel','sourceModel несовместим с roof.type none.');if(p.roof.zones!==undefined)error('roof.zones','sourceModel заменяет зоны: удалите одновременно заданные roof.zones.');}
     if(!['king','queen','fink','mono','gable','none'].includes(p.roof.type))error('roof.type','Тип кровли: king, queen, fink, mono или none.');
     if(p.roof.wallFraming!==undefined&&!['auto','continuous','stacked'].includes(p.roof.wallFraming))error('roof.wallFraming','Схема стен: auto, continuous или stacked.');
     overhangs(p.roof.overhangs,'roof.overhangs');

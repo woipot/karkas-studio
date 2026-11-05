@@ -4,6 +4,7 @@ import {checkDesignerMembers} from './designer-mechanics.js';
 const clone=x=>JSON.parse(JSON.stringify(x));
 /** Fixed-section load-case checks. No auto resizing between cases. */
 export function analyzeSnowCases(p,baseline){
+ if(p.roof?.sourceModel!==undefined)return{groundSnow:p.loads?.snow,coefficientMethod:'Imported physical roof surfaces; no source-specific structural snow-case solver',basis:p.snowDesign?.basis??'Source geometry import',cases:[],checks:[{id:'snow-source-roof-scope',label:'Импорт: снеговые силовые случаи не рассчитаны',status:'unverified',note:'Базовый снег учтён по проекциям импортированных скатов. zoneFactors/annexFactors не заменяют расчёт исходных подкосных стен, прогонов, стропил и соединений; screen_pass не выдаётся.'}],worstTotalDesignCase:null,certified:false,assumptions:['Для roof.sourceModel сформирована геометрия и базовый вес/снег; пересчёт силовых снеговых случаев по автоматическим zones отключён. Нужна независимая расчётная схема исходной конструкции.']};
  const requested=p.snowDesign?.cases??[];if(!Array.isArray(requested)||requested.length>12)throw new Error('Снеговые случаи: не более 12.');
  const cases=[],checks=[];
  for(const item of requested){

@@ -1,3 +1,4 @@
+import {calculateSourceRoof} from './source-roof.js';
 import {calculateTiedRafters} from './tied-rafters.js';
 import {physicalTrussBoards,checkPhysicalTrussChords} from './physical-truss.js';
 import {deriveWallProfiles} from './wall-profiles.js';
@@ -92,6 +93,7 @@ function supportedRidgeCuts(out){
 }
 
 export function calculateRoofZones(p,baseResult,{autoOrient=true,roofExtraDeadByZone={},ceilingExtraDeadByZone={}}={}){
+  if(p.roof?.sourceModel!==undefined)return calculateSourceRoof(p);
   const r=baseResult??{},geometry=r.geometry??{},levels=(geometry.levels??[]).filter(l=>l.closed&&l.polygon?.length>=3),platform=r.timber?.platformHeight??((sec(p.floor?.section)?.h??250)/1000+.035);
   const levelTop=l=>finite(l.topY)?l.topY:l.elevation+l.height;
   const fallbackEave=.72+(p.floors??1)*((p.height??2.8)+platform),last=levels.at(-1),defaultEave=last?levelTop(last):fallbackEave;

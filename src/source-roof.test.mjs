@@ -19,6 +19,13 @@ test('Orion5.49m is the plumb-cut blank, not unsupported span or axis length',()
 test('ready birdsmouth profile preserves its actual net volume and centre of mass without a second cut',()=>{
  const p=project(),b=model(p).members[0];b.shape={type:'rafterSeats',points:[[-2,-.1],[2,-.1],[2,.1],[.5,.1],[.5,0],[-.5,0],[-.5,.1],[-2,.1]]};const r=calculateSourceRoof(p),m=r.instances[0];near(m.volume,.028);near(m.mass,14);near(m.grossVolume,.032);near(m.cutLength,4);assert.ok(m.massCenter[1]<4.2);assert.equal(m.cutStart.scheme,'butt');b.cutStart={scheme:'miter',angle:20};assert.equal(validateSourceRoofModel(model(p)).valid,false);
 });
+test('precut blank allowance survives end-open grooves without adding net timber or bypassing stock limits',()=>{
+ const p=project(),b=model(p).members[0];b.shape={type:'rafterSeats',points:[[-1.98,-.1],[2,-.1],[2,.1],[-1.9,.1],[-1.9,.06],[-1.98,.06]]};b.blankLength=4.1;
+ const r=calculateSourceRoof(p),m=r.instances[0];near(m.cutLength,4.1);near(m.grossVolume,.04*.2*4.1);near(m.mass,calculateSourceRoof({...p,roof:{...p.roof,sourceModel:{...model(p),members:[{...b,blankLength:undefined}]}}}).mass);
+ const d=calculateDesigner(p,{roofModel:r}),board=d.timber.instances.find(m=>m.sourceBoardId==='B1');near(board.cutLength,4.1);assert.ok(exportBoardsCSV({result:d}).includes(board.id));
+ for(const length of[3.97,0,-1,NaN,Infinity,41]){b.blankLength=length;assert.equal(validateSourceRoofModel(model(p)).valid,false);}
+ b.blankLength=6.1;const roof=calculateSourceRoof(p);assert.ok(roof.checks.some(c=>c.id==='source-roof-stock'&&c.status==='fail'));const over=calculateCutting(p,calculateDesigner(p,{roofModel:roof}));assert.ok(over.overlength.some(q=>q.sourceBoardId==='B1'||q.id===board.id));
+});
 test('reject malformed geometry, NaN, parallel basis, invalid cuts, duplicate IDs and >40m bounds',()=>{
  for(const change of[p=>{model(p).members[0].start[0]=NaN;},p=>{model(p).members[0].end[0]=41;},p=>{model(p).members[0].crossAxis=[1,0,0];},p=>{model(p).members[0].cutStart={scheme:'halfLap',lapLength:1};},p=>{model(p).members[0].cutStart={scheme:'miter',angle:NaN};},p=>{model(p).members[0].cutStart={scheme:'miter',angle:20,cutWidthMM:NaN};},p=>{model(p).members.push(cp(model(p).members[0]));},p=>{model(p).members[0].section='0x200';},p=>{p.roof.sourceModel=null;}]){const p=project();change(p);const r=calculateRoofZones(p,{});assert.equal(r.status,'fail');assert.equal(r.instances.length,0);assert.equal(r.zones.length,0);assert.ok(r.errors.length);}
 });

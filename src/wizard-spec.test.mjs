@@ -31,14 +31,15 @@ test("default wizard form maps to a valid generated project", () => {
   assert.equal(spec.depth, 7);
   assert.deepEqual(spec.levels, [{ height: 2.8 }]);
   assert.deepEqual(spec.loads, { snow: 1.5, wind: 0.3 });
-  assert.deepEqual(spec.roof, { shape: "gable", pitch: 25, ridgeAngle: 0 });
+  assert.deepEqual(spec.roof, { shape: "gable", pitch: 25 });
+  assert.deepEqual(wizardToGeneratorSpec(form({ ridgeAxis: "y" })).roof.ridgeAngle, 90);
   assert.equal(spec.rooms.length, 2);
   const { project, planning } = buildFromWizard(f);
   assert.equal(validateDesignerProject(project).valid, true);
   assert.equal(project.floors, 1);
   assert.equal(project.loads.snow, 1.5);
   assert.equal(project.roof.shape, "gable");
-  assert.equal(planning.rooms.filter((r) => r.kind !== "corridor").length, 2);
+  assert.equal(planning.rooms.filter((r) => r.kind === "room").length, 2);
   const report = evaluateHouse(project, planning);
   assert.ok(report.result.timber.instances.length > 100);
   assert.ok(report.estimate.total > 0);

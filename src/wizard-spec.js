@@ -34,7 +34,7 @@ export function defaultWizardForm() {
     loadsSource: "default",
     roofShape: "gable",
     pitch: 25,
-    ridgeAxis: "x",
+    ridgeAxis: "auto",
     budget: null,
   };
 }
@@ -142,7 +142,10 @@ export function wizardToGeneratorSpec(form) {
       roof: {
         shape: form.roofShape,
         pitch: round(toNumber(form.pitch), 2),
-        ridgeAngle: form.ridgeAxis === "y" ? 90 : 0,
+        // "auto": the generator puts the ridge along the long side (trusses span the short one).
+        ...(form.ridgeAxis === "x" || form.ridgeAxis === "y"
+          ? { ridgeAngle: form.ridgeAxis === "y" ? 90 : 0 }
+          : {}),
       },
     };
   if (form.shape === "l-shape") {

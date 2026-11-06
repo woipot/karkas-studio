@@ -10,6 +10,8 @@ import * as z from "zod/v4";
 import { createHouseEngine, engineCatalog, ENGINE_VERSION } from "../src/house-engine.js";
 import { EngineError } from "../src/house-engine.js";
 import { proposeFixes, optimize } from "../src/solutions.js";
+import { siteLoads, SNOW_REGIONS, WIND_REGIONS } from "../src/site-loads.js";
+import { LAYOUT_STRATEGIES } from "../src/house-generator.js";
 const num = (a, b) => z.number().finite().min(a).max(b);
 const point = z.object({ x: num(-1000, 1000), y: num(-1000, 1000) }).strict();
 const polygon = z.array(point).min(3).max(100);
@@ -37,6 +39,7 @@ const loads = z
     openingDead: num(0, 20).optional(),
     snow: num(0, 20).optional(),
     wind: num(0, 5).optional(),
+    terrain: z.enum(["A", "B", "C"]).optional().describe("Тип местности СП 20 п.11.1.6; по умолчанию B."),
     gammaG: num(1, 3).optional(),
     gammaQ: num(1, 3).optional(),
   })
@@ -68,9 +71,40 @@ const patch = z
 const id = z.string().regex(/^house-[a-f0-9-]{36}$/),
   revision = z.number().int().positive();
 const ref = { project_id: id, revision: revision.optional() };
+const siteSchema = z
+  .object({
+    city: z
+      .string()
+      .min(1)
+      .max(120)
+      .optional()
+      .describe("Город/населённый пункт России (справочная таблица СП 20)."),
+    snowRegion: z.enum(Object.keys(SNOW_REGIONS)).optional(),
+    windRegion: z.enum(Object.keys(WIND_REGIONS)).optional(),
+    terrain: z.enum(["A", "B", "C"]).optional(),
+  })
+  .strict()
+  .describe(
+    "Площадка → нормативные Sg/w0 по СП 20.13330.2016 и справочная глубина промерзания. Явные регионы важнее города; явные loads важнее площадки.",
+  );
 const generationSchema = z
   .object({
     name: z.string().max(160).optional(),
+    strategy: z
+      .enum(Object.keys(LAYOUT_STRATEGIES))
+      .optional()
+      .describe("Стратегия планировки; без неё генератор перебирает стратегии до первой подходящей."),
+    site: siteSchema.optional(),
+    studStep: num(0.2, 1.2).optional().describe("Шаг стоек всех стен, м (по умолчанию 0.6)."),
+    joistSpacing: num(0.2, 1.2).optional().describe("Шаг лаг перекрытий, м (по умолчанию 0.6)."),
+    stair: z.boolean().optional().describe("false — не создавать автоматическую U-лестницу для двух этажей."),
+    structure: z
+      .object({
+        maxJoistSpan: num(1.5, 12).optional().describe("Целевой максимальный пролёт лаг, м."),
+        bearingWalls: z.boolean().optional().describe("false — не назначать несущие внутренние стены."),
+      })
+      .strict()
+      .optional(),
     template: z.enum(["rectangle", "l-shape"]).optional(),
     width: num(2, 60).optional(),
     depth: num(2, 60).optional(),
@@ -294,10 +328,37 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
   );
   register(
     "karkas_generate",
-    "Создать версионированный дом из размерного контура и программы помещений. Поддерживаются 1–2 этажа, L-план, второй свет, зоны крыш, пакетный ростверк. Возвращает ID, ревизию и итог расчёта, а не вымышленное одобрение.",
+    "Создать версионированный дом из размерного контура и программы помещений. Поддерживаются 1–2 этажа, L-план, второй свет, зоны крыш, пакетный ростверк. Генератор учитывает конструкцию: лаги и фермы по короткому пролёту, несущие стены коридора/хребта под перекрытием, U-лестница для двух этажей, несколько стратегий планировки. site:{city|snowRegion|windRegion|terrain} задаёт снег/ветер по СП 20; явные loads важнее, ответ site.fromSite показывает, что взято из таблицы. Возвращает ID, ревизию и итог расчёта, а не вымышленное одобрение.",
     generationSchema,
     (args) => engine.generate(args),
     false,
+  );
+  register(
+    "karkas_generate_options",
+    "Сгенерировать до count (≤6) различных стратегий планировки по одной спецификации и рассчитать каждую ядром без записи проекта. Возвращает ранжированную таблицу: невыполненные проверки, максимальное и суммарное превышение использования, смета, площади, пролёт лаг, длина стен, доля коммуникаций, ошибка площадей, окна. Сохраните выбранный вариант через karkas_generate с его strategy.",
+    generationSchema.extend({ count: z.number().int().min(1).max(6).default(4) }),
+    ({ count, ...spec }) => engine.generateOptions(spec, count),
+  );
+  register(
+    "karkas_site_loads",
+    "Площадка → нормативные нагрузки: город России или явные снеговой/ветровой районы → Sg (кПа, СП 20.13330.2016 табл. 10.1 / прил. К), w0 (кПа, табл. 11.1), тип местности, справочная нормативная глубина промерзания для суглинков (СП 22.13330.2016 п.5.5.3). Таблица городов справочная — уточняйте по картам СП 20 прил. Е и изысканиям.",
+    siteSchema,
+    (a) => {
+      const r = siteLoads(a);
+      return {
+        loads: { snow: r.snow, wind: r.wind, terrain: r.terrain },
+        site: r.site,
+        frostDepth: r.frostDepth,
+        snowRegion: r.snowRegion,
+        windRegion: r.windRegion,
+        matched: r.matched,
+        fromTable: r.fromTable,
+        basis: r.basis,
+        warnings: r.warnings,
+        sources: r.sources,
+        note: r.note,
+      };
+    },
   );
   register(
     "karkas_import_project",

@@ -19,7 +19,9 @@ const undersizedFloor = {
   width: 8,
   depth: 5,
   levels: [{ height: 2.8 }, { height: 2.7 }],
-  floor: { section: "50x150" },
+  floor: { section: "50x150", axis: "y" },
+  // Keep the deliberately weak 5 m span: no generated bearing spine.
+  structure: { bearingWalls: false },
 };
 const undersizedRafters = {
   name: "Тест: стропила 50×150 над 6 м",

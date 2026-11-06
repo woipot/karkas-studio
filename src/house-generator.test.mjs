@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generateHouse, HouseGenerationError } from "./house-generator.js";
+import { generateHouse, generateHouseOptions, HouseGenerationError } from "./house-generator.js";
 import { validateDesignerProject, calculateDesigner } from "./designer-engine.js";
 import { calculateRoofZones } from "./roof-zones.js";
 
@@ -85,10 +85,15 @@ test("room requirements enforce real net dimensions and oversized/contradictory 
     () => generateHouse({ width: 8, depth: 6, rooms: [{ name: "Большая", area: 100 }] }),
     HouseGenerationError,
   );
+  // The corridor strategy alone cannot host a 5 m deep room in a 6 m house...
   assert.throws(
-    () => generateHouse({ rooms: [{ name: "Широкая", area: 5, minDepth: 5 }] }),
+    () => generateHouse({ strategy: "corridor", rooms: [{ name: "Широкая", area: 5, minDepth: 5 }] }),
     /поперечный размер/,
   );
+  // ...but the generator no longer gives up: an alternative strategy fits the requirement.
+  const wide = generateHouse({ rooms: [{ name: "Широкая", area: 5, minDepth: 5 }] });
+  assert.notEqual(wide.planning.strategy, "corridor");
+  assert.ok(wide.planning.rooms.find((r) => r.kind === "room").dimensions.depth >= 5 - 1e-9);
   const r = generateHouse({
     width: 12,
     depth: 8,
@@ -202,10 +207,10 @@ test("explicit bounds work inside an L footprint and shared partition segments a
       }),
     /выходит за реальный контур/,
   );
-  assert.throws(
-    () => generateHouse({ template: "l-shape", rooms: [{ name: "Без bounds", area: 8 }] }),
-    /задайтеbounds/,
-  );
+  // An L footprint no longer requires manual bounds: it is decomposed into wing rectangles.
+  const auto = generateHouse({ template: "l-shape", rooms: [{ name: "Без bounds", area: 8 }] });
+  assert.match(auto.planning.strategy, /^l-corridor/);
+  assert.ok(auto.planning.rooms.find((r) => r.name === "Без bounds").doorOpeningId);
 });
 
 test("custom non-orthogonal footprint, material, roof and stock settings survive normalization", () => {
@@ -287,4 +292,224 @@ test("generation does not mutate the specification or silently claim complete bu
   );
   assert.ok(r.planning.checks.some((c) => c.id.endsWith("width") && c.status === "unverified"));
   assert.equal(r.project.cutting.stockLength, 6);
+});
+
+// ---------------------------------------------------------------------------
+// Structure-aware generation
+// ---------------------------------------------------------------------------
+const twoStoreyProgram = [
+  { name: "Кухня-гостиная", area: 20 },
+  { name: "Санузел", area: 4 },
+  { name: "Кабинет", area: 9 },
+  { name: "Спальня 1", area: 12, level: 2 },
+  { name: "Спальня 2", area: 12, level: 2 },
+  { name: "Спальня 3", area: 10, level: 2 },
+  { name: "Ванная", area: 5, level: 2 },
+];
+const onSegment = (q, a, b) =>
+  Math.abs(cross(a, b, q)) < 1e-7 &&
+  q.x >= Math.min(a.x, b.x) - 1e-7 &&
+  q.x <= Math.max(a.x, b.x) + 1e-7 &&
+  q.y >= Math.min(a.y, b.y) - 1e-7 &&
+  q.y <= Math.max(a.y, b.y) + 1e-7;
+const contains = (poly, inner) =>
+  inner.every((q) => {
+    let yes = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i],
+        b = poly[j];
+      if (a.y > q.y !== b.y > q.y && q.x < ((b.x - a.x) * (q.y - a.y)) / (b.y - a.y) + a.x) yes = !yes;
+    }
+    return yes;
+  });
+
+test("2-storey 10×9: bearing corridor walls keep upper joist spans under target and are stacked", () => {
+  const { project: p, planning } = generateHouse({
+    width: 10,
+    depth: 9,
+    levels: [{ height: 2.8 }, { height: 2.8 }],
+    rooms: twoStoreyProgram,
+  });
+  assert.equal(validateDesignerProject(p).valid, true);
+  assert.equal(p.floor.axis, "y", "joists span the short 9 m direction");
+  const bearing = p.walls.filter((w) => w.kind === "bearing");
+  assert.ok(bearing.length >= 2);
+  assert.ok(bearing.every((w) => w.level === 1 && Math.abs(w.a.y - w.b.y) < 1e-9));
+  // Every lower bearing line carries a stacked upper wall on the same axis.
+  for (const b of bearing)
+    assert.ok(
+      p.walls.some((w) => w.level === 2 && onSegment(w.a, b.a, b.b) && onSegment(w.b, b.a, b.b)),
+      `${b.id} has no stacked upper wall`,
+    );
+  assert.ok(planning.structure.stackedPartitionIds.length >= 2);
+  assert.ok(planning.structure.maxJoistSpan <= planning.structure.maxJoistSpanTarget + 1e-9);
+  assert.ok(planning.structure.maxJoistSpan < 4.5);
+  // The engine sees the same real spans.
+  const calculated = calculateDesigner(p);
+  assert.ok(calculated.floorPlatform.quantities.maxSpan <= planning.structure.maxJoistSpanTarget + 1e-6);
+  // A U-stair connects the floors through a framed opening.
+  assert.equal(p.staircase.levelFrom, 1);
+  assert.equal(p.staircase.levelTo, 2);
+  const hole = p.voids.find((v) => v.id === p.staircase.voidId);
+  assert.equal(hole.kind, "stair");
+  assert.equal(hole.level, 2);
+  assert.ok(planning.rooms.some((r) => r.kind === "stair" && r.level === 1));
+  assert.ok(planning.rooms.some((r) => r.kind === "stair" && r.level === 2));
+  const stairCheck = calculated.spatialLayout.checks.find((c) => c.id === "GEN-STAIR-fit");
+  assert.equal(stairCheck.status, "pass");
+});
+
+test("structure-aware defaults: ridge and joists follow the short side, explicit values win", () => {
+  const narrow = generateHouse({ width: 6, depth: 10 });
+  assert.equal(narrow.project.roof.ridgeAngle, 90);
+  assert.equal(narrow.planning.structure.trussSpan, 6);
+  assert.equal(narrow.project.floor.axis, "x");
+  const zones = calculateRoofZones(narrow.project, calculateDesigner(narrow.project)).zones;
+  assert.ok(zones.length > 0 && zones.every((z) => z.ridgeAngle === 90));
+  const wide = generateHouse({ width: 10, depth: 6 });
+  assert.equal(wide.project.roof.ridgeAngle, 0);
+  assert.equal(wide.project.floor.axis, "y");
+  const forced = generateHouse({ width: 6, depth: 10, roof: { ridgeAngle: 0 }, floor: { axis: "y" } });
+  assert.equal(forced.project.roof.ridgeAngle, 0);
+  assert.equal(forced.project.floor.axis, "y");
+  const steps = generateHouse({
+    width: 8,
+    depth: 6,
+    studStep: 0.4,
+    joistSpacing: 0.4,
+    rooms: roomProgram.slice(0, 2),
+  });
+  assert.ok(steps.project.walls.every((w) => w.studStep === 0.4));
+  assert.equal(steps.project.floor.spacing, 0.4);
+  // A two-storey shell receives a bearing spine only where the upper floor needs it.
+  const shell = generateHouse({ width: 10, depth: 9, levels: [{ height: 2.8 }, { height: 2.8 }] });
+  assert.equal(shell.project.walls.filter((w) => w.kind === "bearing").length, 1);
+  assert.ok(shell.planning.structure.maxJoistSpan <= shell.planning.structure.maxJoistSpanTarget);
+  const off = generateHouse({
+    width: 10,
+    depth: 9,
+    levels: [{ height: 2.8 }, { height: 2.8 }],
+    structure: { bearingWalls: false },
+  });
+  assert.equal(off.project.walls.filter((w) => w.kind === "bearing").length, 0);
+  assert.ok(off.planning.warnings.some((w) => w.includes("Пролёт лаг")));
+});
+
+test("L footprint with an automatic room program and two storeys needs no manual bounds", () => {
+  const { project: p, planning } = generateHouse({
+    template: "l-shape",
+    width: 10,
+    depth: 8,
+    wingWidth: 5,
+    wingDepth: 4,
+    levels: [{ height: 2.8 }, { height: 2.8 }],
+    rooms: [
+      { name: "Гостиная", area: 12 },
+      { name: "Кухня", area: 8 },
+      { name: "Спальня", area: 10, level: 2 },
+      { name: "Детская", area: 8, level: 2 },
+    ],
+  });
+  assert.equal(validateDesignerProject(p).valid, true);
+  assert.match(planning.strategy, /^l-corridor/);
+  const rooms = planning.rooms.filter((r) => r.kind === "room");
+  assert.equal(rooms.length, 4);
+  for (const r of rooms) {
+    assert.ok(r.doorOpeningId);
+    assert.ok(r.area >= r.targetArea - 1e-8);
+    const outline = p.walls.filter((w) => w.level === r.level && w.kind === "exterior").map((w) => w.a);
+    assert.ok(contains(outline, r.polygon));
+  }
+  assert.ok(p.walls.some((w) => w.kind === "bearing" && w.level === 1));
+});
+
+test("misfit of one strategy falls back to another; a clear Russian error only when nothing fits", () => {
+  // Too narrow for two room strips along a central corridor: another strategy takes over.
+  const narrow = generateHouse({
+    width: 10,
+    depth: 4.5,
+    rooms: [
+      { name: "Спальня", area: 9 },
+      { name: "Кабинет", area: 7 },
+    ],
+  });
+  assert.notEqual(narrow.planning.strategy, "corridor");
+  assert.ok(narrow.planning.rooms.filter((r) => r.kind === "room").every((r) => r.doorOpeningId));
+  assert.throws(
+    () =>
+      generateHouse({ width: 10, depth: 4.5, strategy: "corridor", rooms: [{ name: "Спальня", area: 9 }] }),
+    /слишком узок/,
+  );
+  const side = generateHouse({
+    width: 10,
+    depth: 4.5,
+    strategy: "side-corridor",
+    rooms: [{ name: "Спальня", area: 9 }],
+  });
+  assert.equal(side.planning.rooms.filter((r) => r.kind === "corridor").length, 1);
+  assert.throws(
+    () => generateHouse({ width: 6, depth: 5, rooms: [{ name: "Зал", area: 60 }] }),
+    (e) => e instanceof HouseGenerationError && /ни одной стратегией/.test(e.message) && e.errors.length >= 2,
+  );
+});
+
+test("generateHouseOptions returns distinct valid strategies with score components", () => {
+  const out = generateHouseOptions(
+    {
+      width: 12,
+      depth: 9,
+      rooms: [
+        { name: "Гостиная", area: 22 },
+        { name: "Кухня", area: 10 },
+        { name: "Спальня", area: 12 },
+        { name: "Санузел", area: 5 },
+      ],
+    },
+    { count: 6 },
+  );
+  assert.ok(out.options.length >= 3, JSON.stringify(out.rejected));
+  assert.equal(new Set(out.options.map((o) => o.strategy)).size, out.options.length);
+  const signatures = new Set(out.options.map((o) => JSON.stringify(o.project.walls.map((w) => [w.a, w.b]))));
+  assert.equal(signatures.size, out.options.length);
+  out.options.forEach((o, i) => {
+    assert.equal(o.rank, i + 1);
+    assert.equal(validateDesignerProject(o.project).valid, true);
+    for (const k of [
+      "totalWallLength",
+      "circulationAreaPercent",
+      "roomAreaErrorPercent",
+      "roomsWithoutWindow",
+      "minDaylightRatio",
+    ])
+      assert.ok(Number.isFinite(o.score[k]), `${o.strategy}.${k}`);
+    assert.ok(Array.isArray(o.score.daylight) && o.score.daylight.length === 4);
+    const rooms = o.planning.rooms.filter((r) => r.kind === "room");
+    assert.equal(rooms.length, 4);
+    for (let a = 0; a < rooms.length; a++)
+      for (let b = 0; b < a; b++) near(overlapRect(rooms[a].polygon, rooms[b].polygon), 0);
+  });
+  assert.throws(() => generateHouseOptions({}, { count: 7 }), HouseGenerationError);
+});
+
+test("site table supplies snow/wind; explicit loads override and the origin is reported", () => {
+  const r = generateHouse({ width: 8, depth: 6, site: { city: "москва" } });
+  assert.equal(r.project.loads.snow, 1.45);
+  assert.equal(r.project.loads.wind, 0.23);
+  assert.equal(r.project.loads.terrain, "B");
+  assert.equal(r.project.site.snowRegion, "III");
+  assert.equal(r.project.site.windRegion, "I");
+  assert.ok(r.project.site.source);
+  assert.deepEqual(r.planning.site.applied, { snow: "site", wind: "site", terrain: "site" });
+  const o = generateHouse({
+    width: 8,
+    depth: 6,
+    site: { city: "Москва", terrain: "A" },
+    loads: { snow: 2.4 },
+  });
+  assert.equal(o.project.loads.snow, 2.4);
+  assert.equal(o.project.loads.terrain, "A");
+  assert.equal(o.planning.site.applied.snow, "explicit");
+  const unknown = generateHouse({ width: 8, depth: 6, site: { city: "Нигдебург" } });
+  assert.equal(unknown.project.loads.snow, 1.5, "engine default kept");
+  assert.ok(unknown.planning.warnings.some((w) => w.includes("не найден")));
 });

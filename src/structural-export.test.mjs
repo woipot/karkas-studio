@@ -195,7 +195,13 @@ test(
     assert.equal(report.engine.hash, generated.hash);
     const geometry = report.result.geometry;
     assert.equal(geometry.levels.length, 2);
-    assert.equal(geometry.levels[0].polygon.length, 6);
+    // The generated L1 bearing spine T-joins the exterior wall; collinear junction vertices are not corners.
+    const corners = geometry.levels[0].polygon.filter((q, i, p) => {
+      const a = p[(i + p.length - 1) % p.length],
+        b = p[(i + 1) % p.length];
+      return Math.abs((q.x - a.x) * (b.y - a.y) - (q.y - a.y) * (b.x - a.x)) > 1e-9;
+    });
+    assert.equal(corners.length, 6);
     assert.equal(geometry.levels[0].area, 92);
     assert.equal(geometry.levels[1].voidArea, 6);
     assert.equal(geometry.levels[1].netFloorArea, 34);

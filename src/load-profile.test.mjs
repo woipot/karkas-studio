@@ -18,8 +18,15 @@ import { generateHouse } from "./house-generator.js";
 import { evaluateHouse } from "./house-engine.js";
 
 const near = (a, b, tol = 1e-6) => assert.ok(Math.abs(a - b) <= tol, `${a} != ${b}`);
+// Load-path tests pin the classic layout (ridge along x, joists along y, no generated bearing
+// spine) so the hand calculations stay valid; generator choices are tested in house-generator tests.
 const house = (spec) => {
-  const { project, planning } = generateHouse(spec);
+  const { project, planning } = generateHouse({
+    ...spec,
+    roof: { ridgeAngle: 0, ...spec.roof },
+    floor: { axis: "y", ...spec.floor },
+    structure: { bearingWalls: false, ...spec.structure },
+  });
   return evaluateHouse(project, planning).result;
 };
 const pile = (r, x, y) => r.piles.find((p) => Math.abs(p.x - x) < 1e-6 && Math.abs(p.y - y) < 1e-6);

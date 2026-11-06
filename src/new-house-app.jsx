@@ -133,7 +133,7 @@ function FootprintPreview({ form }) {
     >
       <polygon points={pts.map(([x, y]) => `${pad + x * s},${pad + y * s}`).join(" ")} />
       {ridge &&
-        (form.ridgeAxis === "y" ? (
+        ((form.ridgeAxis === "auto" ? (D > W ? "y" : "x") : form.ridgeAxis) === "y" ? (
           <line x1={pad + (W * s) / 2} y1={pad} x2={pad + (W * s) / 2} y2={pad + D * s} className="ridge" />
         ) : (
           <line x1={pad} y1={pad + (D * s) / 2} x2={pad + W * s} y2={pad + (D * s) / 2} className="ridge" />
@@ -501,6 +501,7 @@ function Wizard({ form, setForm, onRun, siteLoads, busy, lastSaved, onRestore })
                 <span>{form.roofShape === "mono" ? "Направление ската" : "Конёк"}</span>
                 <div>
                   <select value={form.ridgeAxis} onChange={(e) => set({ ridgeAxis: e.target.value })}>
+                    <option value="auto">авто — по длинной стороне</option>
                     <option value="x">вдоль ширины (X)</option>
                     <option value="y">вдоль глубины (Y)</option>
                   </select>

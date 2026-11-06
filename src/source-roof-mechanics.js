@@ -133,7 +133,7 @@ function tributaryWidths(frames, family, fallback) {
   return out;
 }
 
-function solveBeam(F, supportsAt, loadsAt, uniform) {
+function solveBeam(F, supportsAt, loadsAt, uniform, widthForStiffness = F.board.b) {
   // Plane of the member: x = horizontal distance along it, y = elevation.
   const hl = Math.hypot(F.u[0], F.u[2]),
     pos = (s) => ({ x: s * hl, y: s * F.u[1] });
@@ -148,7 +148,7 @@ function solveBeam(F, supportsAt, loadsAt, uniform) {
       id: "E" + i,
       nodeA: "N" + i,
       nodeB: "N" + (i + 1),
-      b: F.board.b,
+      b: widthForStiffness,
       h: F.board.h,
       E: uniform.E,
       qy: -uniform[key],
@@ -173,6 +173,91 @@ function solveBeam(F, supportsAt, loadsAt, uniform) {
     maxAxial: Math.max(0, ...res.map((e) => Math.abs(e.maxAxial ?? 0))),
     deflection,
     governingSpan,
+  };
+}
+
+const WALL_CARRIERS = /^(stud|king|jack|corner)$/;
+
+/**
+ * Per-stud axial forces in the main walls from the roof reactions actually delivered to them.
+ * A reaction on a wall's top plate (or directly on a stud) goes to the nearest carrying stud
+ * of that wall (the top plate spans stud to stud); cripples under sills carry no roof load.
+ */
+function wallStudForces(p, r, others, delivered, f, mat) {
+  const walls = new Map((p.walls ?? []).map((w) => [w.id, w])),
+    byWall = new Map();
+  for (const b of others) {
+    if (!b.wallId || !WALL_CARRIERS.test(b.role ?? "") || !walls.has(b.wallId)) continue;
+    if (!byWall.has(b.wallId)) byWall.set(b.wallId, []);
+    byWall.get(b.wallId).push(b);
+  }
+  const along = (w, x, z) => {
+    const dx = w.b.x - w.a.x,
+      dy = w.b.y - w.a.y,
+      L = Math.hypot(dx, dy) || 1;
+    return ((x - w.a.x) * dx + (z - w.a.y) * dy) / L;
+  };
+  const posOf = (w, b) => along(w, b.start[0], b.start[2]);
+  const forces = new Map();
+  for (const d of delivered) {
+    if (!d.wallId || !d.point || !byWall.has(d.wallId)) continue;
+    const w = walls.get(d.wallId),
+      s0 = along(w, d.point[0], d.point[2]),
+      list = byWall.get(d.wallId),
+      target =
+        list.find((b) => b.id === d.to) ??
+        list.reduce((a, b) => (Math.abs(posOf(w, b) - s0) < Math.abs(posOf(w, a) - s0) ? b : a));
+    const e = forces.get(target.id) ?? { design: 0, service: 0, count: 0 };
+    e.design += d.design;
+    e.service += d.service;
+    e.count++;
+    forces.set(target.id, e);
+  }
+  const studs = [];
+  for (const [wallId, list] of byWall) {
+    const w = walls.get(wallId),
+      pos = list.map((b) => posOf(w, b)).sort((a, b) => a - b);
+    for (const b of list) {
+      const e = forces.get(b.id);
+      if (!e) continue;
+      const s0 = posOf(w, b),
+        i = pos.indexOf(s0),
+        trib = ((pos[i + 1] ?? s0) - (pos[i - 1] ?? s0)) / 2 || (w.studStep ?? 0.6),
+        L = Math.hypot(...b.end.map((v, k) => v - b.start[k])),
+        restraint = p.material?.studRestraint,
+        weak = finite(restraint) && restraint > 0 ? Math.min(L, restraint) : L,
+        layers = (p.loads?.wallDead ?? 0) * L * trib,
+        self = ((b.mass ?? 0) * G) / 1000,
+        N = e.design + layers * f.layers + self * f.timber,
+        comp = axialCompression({ N, b: b.b, h: b.h, l0Strong: L, l0Weak: weak, Fc: mat.Fc, kind: "column" }),
+        bearing = bearingPerpendicular({ F: N, b: b.b, l: b.h, Fc90: mat.Fc90 });
+      studs.push({
+        id: b.id,
+        wallId,
+        role: b.role,
+        N,
+        Ncharacteristic: e.service + layers + self,
+        roofReactions: e.count,
+        roofDesign: e.design,
+        tributaryWidth: trib,
+        length: L,
+        weakAxisLength: weak,
+        lambda: comp.lambda,
+        lambdaLimit: comp.lambdaLimit,
+        phi: comp.phi,
+        capacity: comp.capacity,
+        compressionUtilization: comp.utilization,
+        slendernessUtilization: comp.slendernessUtilization,
+        bearingStress: bearing.stress,
+        bearingLimit: bearing.limit,
+        bearingUtilization: bearing.utilization,
+        utilization: Math.max(comp.utilization, comp.slendernessUtilization),
+      });
+    }
+  }
+  return {
+    studs,
+    method: "Реакции кровли → ближайшая несущая стойка стены (обвязка работает между стойками).",
   };
 }
 
@@ -267,6 +352,7 @@ export function analyzeSourceRoof(p, r) {
         s: c.s,
         t: c.t,
         y: c.pb[1],
+        point: c.pb,
         main: !frames.has(B.board.id),
         axial: isAxial(B),
         vertical: Math.abs(B.u[1]) > 0.9,
@@ -298,11 +384,26 @@ export function analyzeSourceRoof(p, r) {
       );
       continue;
     }
-    const stacked = list
-      .filter((q) => q.overlap && q.overlap.z - q.overlap.a >= 0.8 * F.L)
-      .sort((x, y) => y.y - x.y)[0];
-    if (stacked) {
-      chosen.set(a, [{ ...stacked, share: 1, passThrough: true }]);
+    // Lying on one or several parallel members (stacked plates, plate on a wall top plate made of
+    // 6 m pieces): if they cover ≥80 % of the length, the member works with them and forwards
+    // every load to the piece directly underneath.
+    const parallels = list.filter((q) => q.overlap),
+      covered = parallels
+        .map((q) => [q.overlap.a, q.overlap.z])
+        .sort((x, y) => x[0] - y[0])
+        .reduce((acc, [a0, z0]) => {
+          const last = acc.at(-1);
+          if (last && a0 <= last[1]) last[1] = Math.max(last[1], z0);
+          else acc.push([a0, z0]);
+          return acc;
+        }, [])
+        .reduce((t, [a0, z0]) => t + z0 - a0, 0);
+    if (parallels.length && covered >= 0.8 * F.L) {
+      const top = Math.max(...parallels.map((q) => q.y));
+      chosen.set(
+        a,
+        parallels.filter((q) => q.y >= top - 0.06).map((q) => ({ ...q, share: 1, passThrough: true })),
+      );
       continue;
     }
     const sorted = [...list].sort((x, y) => x.s - y.s),
@@ -343,6 +444,9 @@ export function analyzeSourceRoof(p, r) {
     members = {},
     delivered = [],
     unresolved = [];
+  // Members lying on a beam over its length work together with it (non-composite): bending and
+  // shear are shared in proportion to EI.
+  const stackedOn = new Map();
   let appliedDesign = 0;
   const push = (fromId, q, design, service) => {
     if (q.main) {
@@ -352,6 +456,7 @@ export function analyzeSourceRoof(p, r) {
         to: q.id,
         role: target?.role,
         wallId: target?.wallId ?? null,
+        point: q.point ?? null,
         design,
         service,
       });
@@ -455,20 +560,34 @@ export function analyzeSourceRoof(p, r) {
       service: q.service,
     }));
     appliedDesign += uniform.design * F.L;
-    if (supports.length === 1 && supports[0].passThrough) {
-      // Stacked on a parallel member over (almost) its whole length: works with it, forwards loads.
-      const S = supports[0],
-        B = frames.get(S.id) ?? otherFrames.find((q) => q.board.id === S.id),
-        at = (st) => (B ? Math.max(0, Math.min(B.L, dot(sub(add(F.P, mul(F.u, st)), B.P), B.u))) : 0),
-        n = Math.max(2, Math.ceil(F.L / 0.5));
-      for (const q of loadsAt) push(id, { ...S, t: at(q.s) }, q.design, q.service);
-      for (let i = 0; i < n; i++)
-        push(
-          id,
-          { ...S, t: at(((i + 0.5) * F.L) / n) },
-          (uniform.design * F.L) / n,
-          (uniform.service * F.L) / n,
+    if (supports.length && supports.every((q) => q.passThrough)) {
+      // Lies on parallel member(s): forward each load to the piece directly underneath.
+      const under = (st) =>
+        supports.find((q) => st >= q.overlap.a - 1e-6 && st <= q.overlap.z + 1e-6) ??
+        supports.reduce((x, y) =>
+          Math.min(Math.abs(st - y.overlap.a), Math.abs(st - y.overlap.z)) <
+          Math.min(Math.abs(st - x.overlap.a), Math.abs(st - x.overlap.z))
+            ? y
+            : x,
         );
+      const frameOfId = (sid) => frames.get(sid) ?? otherFrames.find((q) => q.board.id === sid),
+        forward = (st, d, sv) => {
+          const S = under(st),
+            B = frameOfId(S.id),
+            pt = add(F.P, mul(F.u, st)),
+            t = B ? Math.max(0, Math.min(B.L, dot(sub(pt, B.P), B.u))) : 0;
+          push(id, { ...S, t, point: B ? add(B.P, mul(B.u, t)) : pt }, d, sv);
+        },
+        n = Math.max(2, Math.ceil(F.L / 0.3));
+      for (const q of supports)
+        if (frames.has(q.id)) {
+          if (!stackedOn.has(q.id)) stackedOn.set(q.id, []);
+          stackedOn.get(q.id).push(F);
+        }
+      for (const q of loadsAt) forward(q.s, q.design, q.service);
+      for (let i = 0; i < n; i++)
+        forward(((i + 0.5) * F.L) / n, (uniform.design * F.L) / n, (uniform.service * F.L) / n);
+      const S = supports[0];
       members[id] = {
         ...base,
         kind: "beam",
@@ -477,13 +596,17 @@ export function analyzeSourceRoof(p, r) {
         utilization: null,
         lineLoadDesign: uniform.design,
         pointLoads: loadsAt.length,
-        note: `Лежит по всей длине на ${S.id} и работает вместе с ним: нагрузка передана вниз без отдельного пролёта.`,
+        note: `Лежит по всей длине на ${supports.map((q) => q.id).join(", ")} и работает вместе с ними: нагрузка передана вниз в месте приложения.`,
       };
       continue;
     }
     const supportsAt = supports.map((q) => q.s);
     const hasLoad = uniform.design > 0 || loadsAt.length;
-    const solved = supportsAt.length >= 2 ? solveBeam(F, supportsAt, loadsAt, uniform) : null;
+    const Iown = b.b * b.h ** 3,
+      Isum = Iown + (stackedOn.get(id) ?? []).reduce((t, Q) => t + Q.board.b * Q.board.h ** 3, 0),
+      share = Iown / Isum;
+    const solved =
+      supportsAt.length >= 2 ? solveBeam(F, supportsAt, loadsAt, uniform, (b.b * Isum) / Iown) : null;
     if (!solved) {
       members[id] = {
         ...base,
@@ -507,8 +630,8 @@ export function analyzeSourceRoof(p, r) {
     }
     const W = (b.b * b.h ** 2) / 6,
       A = b.b * b.h,
-      sigma = (solved.maxMoment * 1e6) / W,
-      tau = (1.5 * solved.maxShear * 1000) / A,
+      sigma = (solved.maxMoment * share * 1e6) / W,
+      tau = (1.5 * solved.maxShear * share * 1000) / A,
       axial = (solved.maxAxial * 1000) / A,
       ratio = isRafter ? 200 : 250,
       limit = (solved.governingSpan * 1000) / ratio;
@@ -540,8 +663,13 @@ export function analyzeSourceRoof(p, r) {
       utilization: u,
       status: u > 1 ? "fail" : "pass",
       packIds: b.packIds ?? null,
+      stackedIds: (stackedOn.get(id) ?? []).map((Q) => Q.board.id),
+      momentShare: share,
       note:
         [
+          share < 1
+            ? `Работает совместно с лежащими на нём ${(stackedOn.get(id) ?? []).map((Q) => Q.board.id).join(", ")}: доля изгиба и среза ${Math.round(share * 100)}% по жёсткости EI.`
+            : null,
           b.packIds ? `Пакет из ${b.packIds.length} досок, сечение ${b.b}×${b.h} мм как цельное.` : null,
           solved.reactions.some((q) => q.design < -1e-6)
             ? "Отрицательная реакция на опоре: элемент работает консолью и отрывается от опоры — проверьте схему по КР."
@@ -584,6 +712,7 @@ export function analyzeSourceRoof(p, r) {
       (m) => m.kind === "beam" && !RAFTER_ROLE.test(m.role),
     ],
   ];
+  const wallStuds = wallStudForces(p, r, others, delivered, f, mat);
   const list = Object.values(members);
   const deliveredDesign = delivered.reduce((t, q) => t + q.design, 0),
     unresolvedDesign = unresolved.reduce((t, q) => t + q.design, 0);
@@ -612,6 +741,37 @@ export function analyzeSourceRoof(p, r) {
     .filter(Boolean);
   const balanceOk =
     Math.abs(appliedDesign - deliveredDesign - unresolvedDesign) <= 1e-6 * Math.max(1, appliedDesign);
+  if (wallStuds.studs.length) {
+    const worst = wallStuds.studs.reduce((a, q) => (q.utilization > a.utilization ? q : a));
+    const worstBearing = wallStuds.studs.reduce((a, q) =>
+      q.bearingUtilization > a.bearingUtilization ? q : a,
+    );
+    checks.push(
+      {
+        id: "source-roof-wall-studs",
+        label: "Стойки стен под кровлей по чертежу: сжатие φ от фактических реакций",
+        status: worst.utilization > 1 ? "fail" : "pass",
+        value: worst.N,
+        limit: worst.capacity,
+        utilization: worst.utilization,
+        unit: "кН",
+        worstId: worst.id,
+        failIds: wallStuds.studs.filter((q) => q.utilization > 1).map((q) => q.id),
+        note: `Каждая стойка получает реакции досок кровли, опёртых на обвязку над ней (ближайшая несущая стойка), и вес стены с грузовой ширины. Худшая: ${worst.id} (${worst.wallId}), N = ${worst.N.toFixed(1)} кН.`,
+      },
+      {
+        id: "source-roof-wall-plate-bearing",
+        label: "Нижняя обвязка под стойками стен: смятие поперёк волокон от фактических усилий",
+        status: worstBearing.bearingUtilization > 1 ? "fail" : "pass",
+        value: worstBearing.bearingStress,
+        limit: worstBearing.bearingLimit,
+        utilization: worstBearing.bearingUtilization,
+        unit: "МПа",
+        worstId: worstBearing.id,
+        failIds: wallStuds.studs.filter((q) => q.bearingUtilization > 1).map((q) => q.id),
+      },
+    );
+  }
   checks.push({
     id: "source-roof-load-path-balance",
     label: "Кровля по чертежу: баланс пути нагрузки",
@@ -630,6 +790,7 @@ export function analyzeSourceRoof(p, r) {
       "Распор наклонных подкосов и стропил на обвязки не передаётся в основную модель — показан как горизонтальная составляющая.",
     ],
     members,
+    wallStuds,
     delivered,
     unresolved,
     deliveredDesign,

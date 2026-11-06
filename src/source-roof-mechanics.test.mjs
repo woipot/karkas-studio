@@ -98,3 +98,25 @@ test("Orion: knee-wall studs and built-up interior post get real forces; load pa
   const insight = memberInsight(report, studs[0].id);
   assert.equal(insight.analysis.source, "sourceRoof");
 });
+
+test("Orion: wall studs take actual roof reactions; the representative stud is superseded", () => {
+  const report = JSON.parse(
+    readFileSync(new URL("../public/projects/orion/engine-report.json", import.meta.url)),
+  );
+  const r = report.result,
+    ws = r.sourceRoofMechanics.wallStuds.studs;
+  assert.ok(ws.length > 100);
+  // The equivalent line load put ~35 kN on every stud; real reactions are a fraction of it.
+  const max = Math.max(...ws.map((q) => q.N));
+  assert.ok(max < 20, `max stud force ${max}`);
+  const delivered = r.sourceRoofMechanics.delivered
+    .filter((d) => d.wallId && d.point)
+    .reduce((t, d) => t + d.design, 0);
+  const assigned = ws.reduce((t, q) => t + q.roofDesign, 0);
+  near(assigned, delivered, 1e-6);
+  const rep = r.checks.find((c) => c.id === "designerStudCompression");
+  assert.equal(rep.supersededBy, "source-roof-wall-studs");
+  assert.notEqual(rep.status, "fail");
+  const stud = memberInsight(report, ws[0].id);
+  assert.equal(stud.analysis.source, "wallStud");
+});

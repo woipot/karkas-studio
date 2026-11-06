@@ -273,6 +273,49 @@ function grillageAnalysis(r, board) {
   };
 }
 
+function wallStudFromRoofPath(r, board) {
+  const ws = r.sourceRoofMechanics?.wallStuds;
+  if (!ws?.studs?.length) return null;
+  const s = ws.studs.find((q) => q.id === board.id);
+  if (!s)
+    return {
+      source: "wallStud",
+      title: "Стойка стены: нагрузка от кровли",
+      status: "pass",
+      utilization: null,
+      rows: [{ label: "Реакции кровли", text: "на эту стойку не приходят" }],
+      note:
+        board.role === "cripple"
+          ? "Укороченная стойка под подоконником/над перемычкой: вертикальную нагрузку от кровли не несёт."
+          : "По фактическому пути нагрузки реакции кровли уходят на соседние стойки; эта несёт собственный вес стены.",
+    };
+  return {
+    source: "wallStud",
+    title: "Стойка стены: сжатие от фактических реакций кровли",
+    status: s.utilization > 1 ? "fail" : "pass",
+    utilization: s.utilization,
+    rows: [
+      governing([
+        ["устойчивость φ", s.compressionUtilization],
+        ["гибкость λ", s.slendernessUtilization],
+        ["смятие обвязки", s.bearingUtilization],
+      ]),
+      row("Сжимающее усилие N", s.N, "кН"),
+      row("в т.ч. от кровли", s.roofDesign, "кН"),
+      row("Реакций сверху", s.roofReactions, "шт.", 0),
+      row("Грузовая ширина", s.tributaryWidth, "м", 3),
+      row("Длина", s.length, "м", 3),
+      row("Раскрепление слабой оси", s.weakAxisLength, "м", 2),
+      row("Гибкость λ", s.lambda, "", 0),
+      row("Коэффициент φ", s.phi, "", 3),
+      row("Несущая способность φ·Rc·A", s.capacity, "кН"),
+      row("Смятие нижней обвязки σ", s.bearingStress, "МПа"),
+      row("Rсм90", s.bearingLimit, "МПа"),
+    ],
+    note: "Каждая реакция досок кровли передаётся на ближайшую несущую стойку под обвязкой.",
+  };
+}
+
 function studAnalysis(r, board) {
   const walls = r.studMechanics?.walls ?? [];
   const s =
@@ -301,6 +344,23 @@ function studAnalysis(r, board) {
 }
 
 function plateAnalysis(r, board) {
+  const ws = r.sourceRoofMechanics?.wallStuds?.studs?.filter((q) => q.wallId === board.wallId);
+  if (ws?.length) {
+    const w = ws.reduce((a, q) => (q.bearingUtilization > a.bearingUtilization ? q : a));
+    return {
+      source: "plate",
+      title: "Обвязка: смятие поперёк волокон под самой нагруженной стойкой стены",
+      status: w.bearingUtilization > 1 ? "fail" : "pass",
+      utilization: w.bearingUtilization,
+      rows: [
+        row("Усилие от стойки", w.N, "кН"),
+        { label: "Стойка", text: w.id },
+        row("Напряжение смятия σ", w.bearingStress, "МПа"),
+        row("Rсм90", w.bearingLimit, "МПа"),
+      ],
+      note: "Усилия стоек — по фактическим реакциям кровли на эту стену.",
+    };
+  }
   const s = (r.studMechanics?.walls ?? []).find((q) => q.wallId === board.wallId && !q.measured);
   if (!s || !finite(s.force)) return null;
   const Fc90 = r.project?.material?.Fc90 ?? 3,
@@ -324,7 +384,8 @@ function plateAnalysis(r, board) {
 // Engine checks that describe a member type as a whole (representative checks without ids).
 const ROLE_CHECKS = [
   [STUD_ROLES, /^designerStud/],
-  [new Set(["plate"]), /^designerStudPlateBearing$/],
+  [new Set(["plate"]), /^designerStudPlateBearing$|^source-roof-wall-plate-bearing$/],
+  [STUD_ROLES, /^source-roof-wall-studs$/],
   [new Set(["joist"]), /^designerJoist|^designerFloorVibration$|^floor-(supports|stock|blocking)-L/],
   [new Set(["grillagePly"]), /^grillage-|^pileCapacity$|^designerGrillagePileBearing$/],
   [new Set(["top", "bottom", "web", "rafter", "topChord"]), /^designerRoofHeelBearing$/],
@@ -466,7 +527,7 @@ export function memberInsight(report, id) {
     (board.frameMemberId && frameAnalysis(r, board)) ||
     (role === "rafter" && rafterAnalysis(r, board)) ||
     (role === "grillagePly" && grillageAnalysis(r, board)) ||
-    (STUD_ROLES.has(role) && studAnalysis(r, board)) ||
+    (STUD_ROLES.has(role) && (wallStudFromRoofPath(r, board) ?? studAnalysis(r, board))) ||
     (role === "plate" && board.platePosition !== "top" && plateAnalysis(r, board)) ||
     null;
   if (analysis) analysis.rows = analysis.rows.filter(Boolean);

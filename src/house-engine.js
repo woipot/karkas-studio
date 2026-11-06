@@ -196,6 +196,17 @@ export function evaluateHouse(project, planning = {}) {
   if (sourceRoof) {
     result.sourceRoofMechanics = sourceRoof;
     result.checks.push(...sourceRoof.checks);
+    // The representative stud uses one equivalent line load for every stud of every wall; with
+    // the actual roof reactions per stud available it is kept only as a superseded reference.
+    if (sourceRoof.wallStuds?.studs?.length)
+      for (const c of result.checks)
+        if (c.id === "designerStudCompression" || c.id === "designerStudPlateBearing") {
+          c.supersededBy =
+            c.id === "designerStudCompression" ? "source-roof-wall-studs" : "source-roof-wall-plate-bearing";
+          c.status = "unverified";
+          c.note =
+            `Представительная оценка по эквивалентной нагрузке (одна погонная нагрузка на все стены) заменена расчётом каждой стойки по фактическим реакциям кровли: ${c.supersededBy}. ${c.note ?? ""}`.trim();
+        }
     result.assumptions.push(...sourceRoof.assumptions);
   }
   const snowAssessment = analyzeSnowCases(p, result);

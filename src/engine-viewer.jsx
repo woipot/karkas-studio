@@ -76,7 +76,7 @@ function human(text, p) {
   return s;
 }
 
-function download(name, content, type = "application/json") {
+export function download(name, content, type = "application/json") {
   const url = URL.createObjectURL(new Blob([content], { type })),
     a = document.createElement("a");
   a.href = url;
@@ -85,7 +85,7 @@ function download(name, content, type = "application/json") {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function Counter({ label, value, unit, note }) {
+export function Counter({ label, value, unit, note }) {
   return (
     <div className="engine-counter">
       <span>{label}</span>
@@ -918,7 +918,7 @@ function SpatialSummary({ report }) {
   );
 }
 
-function Overview({ report }) {
+export function Overview({ report }) {
   const p = report.project,
     r = report.result;
   const hasSpaces = (r.spatialLayout?.doubleHeightSpaces?.length ?? 0) > 0,
@@ -1352,7 +1352,7 @@ function Overview({ report }) {
   );
 }
 
-function ChecksView({ report }) {
+export function ChecksView({ report }) {
   const [filter, setFilter] = useState("all"),
     [page, setPage] = useState(1);
   const checks = report.result.checks ?? [];
@@ -1442,7 +1442,7 @@ function ChecksView({ report }) {
   );
 }
 
-function MaterialsView({ report }) {
+export function MaterialsView({ report }) {
   const [category, setCategory] = useState("all"),
     [page, setPage] = useState(1),
     [subtab, setSubtab] = useState("boards"),
@@ -1754,7 +1754,7 @@ function StockCard({ stock, index }) {
   );
 }
 
-function CuttingView({ report }) {
+export function CuttingView({ report }) {
   const c = report.cutting,
     [section, setSection] = useState("all"),
     [page, setPage] = useState(1),
@@ -1875,7 +1875,7 @@ function CuttingView({ report }) {
   );
 }
 
-function EstimateView({ report }) {
+export function EstimateView({ report }) {
   const e = report.estimate,
     symbol = e?.currency === "EUR" ? "€" : e?.currency === "USD" ? "$" : "₽",
     amount = (n) => `${fmt(n, 0)} ${symbol}`;
@@ -1960,7 +1960,7 @@ function EstimateView({ report }) {
   );
 }
 
-function readReport(data) {
+export function readReport(data) {
   if (
     !data ||
     typeof data !== "object" ||
@@ -2296,6 +2296,75 @@ export function EngineViewer() {
         </>
       )}
     </div>
+  );
+}
+
+// Report body (tabs + counters + views) for an in-memory report, used by the
+// «Новый дом» wizard and the JSON import. The published-project viewer above keeps
+// its own layout with catalog, release files and source tabs.
+export function ReportSections({ report, extraTabs = [], renderExtra, stateLabel = "Расчёт в браузере" }) {
+  const [tab, setTab] = useState("overview");
+  const p = report.project,
+    r = report.result;
+  const failed = (r?.checks ?? []).filter((c) => c.status === "fail").length;
+  const list = [...tabs.filter((t) => t[0] !== "appearance"), ...extraTabs];
+  const extra = extraTabs.some((t) => t[0] === tab);
+  return (
+    <>
+      <nav className="engine-navigation" aria-label="Разделы отчёта">
+        {list.map(([id, icon, label, badge]) => (
+          <button
+            key={id}
+            className={tab === id ? "active" : ""}
+            aria-current={tab === id ? "page" : undefined}
+            onClick={() => setTab(id)}
+          >
+            <Icon name={icon} size={18} />
+            {label}
+            {id === "checks" && failed > 0 && <small>{failed}</small>}
+            {badge > 0 && <small>{badge}</small>}
+          </button>
+        ))}
+        <div className="engine-report-state">
+          <i />
+          {stateLabel}
+        </div>
+      </nav>
+      <main className="engine-main">
+        {!extra && (
+          <div className="engine-top-counters">
+            <Counter
+              label="Площадь по осям"
+              value={fmt(r.geometry.totalFloorArea, 2)}
+              unit="м²"
+              note={
+                finite(report.summary?.platformArea ?? r.geometry.totalPlatformArea)
+                  ? `Настил по граням каркаса: ${fmt(report.summary?.platformArea ?? r.geometry.totalPlatformArea, 2)} м²`
+                  : undefined
+              }
+            />
+            <Counter label="Этажность" value={p.floors} unit={p.floors === 1 ? "этаж" : "этажа"} />
+            <Counter label="Физические доски" value={r.timber.instances.length} unit="шт." />
+            <Counter label="Масса древесины" value={fmt(r.timber.mass, 0)} unit="кг" />
+            <Counter label="Вертикальная нагрузка · расч." value={fmt(r.loads?.totalDesign)} unit="кН" />
+            <Counter label="Заготовки по 6 м" value={report.cutting?.summary?.boards ?? "—"} unit="шт." />
+          </div>
+        )}
+        {extra ? (
+          renderExtra?.(tab)
+        ) : tab === "overview" ? (
+          <Overview key={report.engine?.hash} report={report} />
+        ) : tab === "checks" ? (
+          <ChecksView report={report} />
+        ) : tab === "materials" ? (
+          <MaterialsView report={report} />
+        ) : tab === "cutting" ? (
+          <CuttingView report={report} />
+        ) : (
+          <EstimateView report={report} />
+        )}
+      </main>
+    </>
   );
 }
 

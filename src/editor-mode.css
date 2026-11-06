@@ -1,0 +1,66 @@
+/* The mode bar sits above the editor; keep the editor shell inside the viewport. */
+@media (min-width: 651px) {
+  body[data-mode="editor"] .app-shell {
+    height: calc(100dvh - 34px);
+  }
+}
+.editor-crash {
+  max-width: 620px;
+  margin: 80px auto;
+  padding: 28px;
+  border: 1px solid #e5d2ae;
+  border-radius: 8px;
+  background: #faf6ec;
+  color: #7d6a4a;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.editor-crash h1 {
+  font-size: 22px;
+  font-weight: 450;
+  margin: 0 0 12px;
+  color: #8a6a3a;
+}
+.editor-crash code {
+  display: block;
+  padding: 10px;
+  margin: 12px 0;
+  background: #fff;
+  border: 1px solid #eadcc2;
+  border-radius: 5px;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+.editor-crash div {
+  display: flex;
+  gap: 10px;
+}
+.editor-crash button {
+  padding: 9px 13px;
+  border: 1px solid #d7c39d;
+  border-radius: 5px;
+  background: #fff;
+  color: #7d6a4a;
+  cursor: pointer;
+}
+.editor-stale-notice {
+  display: grid;
+  place-content: center;
+  min-height: 320px;
+  padding: 40px;
+  text-align: center;
+  color: #8ba672;
+}
+.editor-stale-notice strong {
+  display: block;
+  font-size: 18px;
+  font-weight: 450;
+  color: #63834d;
+  margin-bottom: 10px;
+}
+.editor-stale-notice p {
+  max-width: 520px;
+  margin: 0 auto;
+  font-size: 12px;
+  line-height: 1.8;
+}

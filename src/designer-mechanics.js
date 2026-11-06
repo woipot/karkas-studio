@@ -1,5 +1,6 @@
 /** Preliminary member checks for Designer. No hidden stiffness credit for splices. */
 import { solveFloorWallBeam } from "./floor-wall-loads.js";
+import { memberLoadProject } from "./load-profile.js";
 import {
   axialCompression,
   bearingPerpendicular,
@@ -70,6 +71,13 @@ export function logicalMembers(instances, role) {
 }
 
 export function checkDesignerMembers(p, r) {
+  // Without explicit γG/γQ overrides the SP 20 load profile supplies equivalent factors and w0·k(ze).
+  if (
+    p?.loads &&
+    !(Number.isFinite(p.loads.gammaG) && Number.isFinite(p.loads.gammaQ)) &&
+    !Number.isFinite(p.loads.windK)
+  )
+    p = memberLoadProject(p, r?.loads?.windPressure);
   const assumptions = [
     "Частные проверки элементов — предварительные модели, не нормативный расчёт дома. Пространственная устойчивость, крепёж, ростверк, грунт и передача усилий через реальные узлы не подтверждены.",
     "Балки: каждая логическая длина объединяет ВСЕ физические части с одинаковым memberId. Шестиметровая заготовка или стык не создаёт опору и не уменьшает расчётный пролёт. Линии реальных несущих стен разделяют пролёты в геометрическом ядре.",

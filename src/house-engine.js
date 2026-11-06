@@ -20,6 +20,7 @@ import { calculateCutting, cuttingRowsToCSV, cuttingToPrintHTML } from "./cuttin
 import { calculateEstimate, estimateRowsToCSV } from "./estimate-engine.js";
 import { timberSections, sectionCatalogNote } from "./catalog.js";
 import { generateHouse } from "./house-generator.js";
+import { evaluationMetrics, compareMetrics } from "./check-metrics.js";
 import { exportPlanSVG, exportBoardsCSV, exportModelOBJ } from "./house-exports.js";
 import {
   buildFabricationGroups,
@@ -1055,11 +1056,13 @@ export function createHouseEngine({
       if (!Array.isArray(variants) || !variants.length || variants.length > 12)
         throw new EngineError("INVALID_INPUT", "Сравнивайте от 1 до 12 вариантов.");
       const record = await read(id, revision),
-        baseline = analyzed(record);
+        baseline = analyzed(record),
+        baselineMetrics = evaluationMetrics(baseline);
       const outcomes = variants.map((v, index) => {
         try {
           const p = applyProjectPatch(record.project, v.operations),
-            report = evaluateHouse(p, record.planning);
+            report = evaluateHouse(p, record.planning),
+            metrics = evaluationMetrics(report);
           return {
             index,
             name: v.name,
@@ -1068,7 +1071,13 @@ export function createHouseEngine({
             delta: {
               cost: report.summary.estimateTotal - baseline.summary.estimateTotal,
               mass: report.summary.timberMass - baseline.summary.timberMass,
+              failedChecks: metrics.failedChecks - baselineMetrics.failedChecks,
+              excessUtilization: metrics.excessUtilization - baselineMetrics.excessUtilization,
             },
+            metrics,
+            maxUtilization: metrics.maxUtilization,
+            maxUtilizationCheckId: metrics.maxUtilizationCheckId,
+            excessUtilization: metrics.excessUtilization,
             score:
               report.summary.failedChecks * 1e9 +
               report.summary.unplaced * 1e9 +
@@ -1084,24 +1093,22 @@ export function createHouseEngine({
           };
         }
       });
+      // Lexicographic: failed count, Σ max(0,u−1) over failed checks, unplaced parts, cost.
+      // A variant that brings u from 6.0 to 1.05 now ranks above one that leaves it at 6.0.
       const ranked = outcomes
         .filter((x) => x.score !== null)
-        .sort(
-          (a, b) =>
-            a.summary.failedChecks - b.summary.failedChecks ||
-            a.summary.unplaced - b.summary.unplaced ||
-            a.summary.estimateTotal - b.summary.estimateTotal,
-        );
+        .sort((a, b) => compareMetrics(a.metrics, b.metrics) || a.index - b.index);
       return {
         project_id: id,
         revision: record.revision,
         baseline: baseline.summary,
+        baselineMetrics,
         variants: outcomes,
         ranking: ranked.map((x) => x.index),
         selectedIndex: ranked[0]?.index ?? null,
-        rankingCriteria: ["failedChecks", "unplaced", "estimateTotal"],
+        rankingCriteria: ["failedChecks", "excessUtilization", "unplaced", "estimateTotal"],
         method:
-          "Bounded enumeration; lexicographic failed checks first, then unplaced pieces, then illustrative procurement cost. No variant is applied or certified.",
+          "Bounded enumeration; lexicographic failed checks first, then Σ max(0, utilization − 1) over failed checks, then unplaced pieces, then illustrative procurement cost. No variant is applied or certified. For engine-generated, verified variants use karkas_propose_fixes / karkas_optimize.",
       };
     },
     async export(

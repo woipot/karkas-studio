@@ -187,12 +187,17 @@ export function readSiteLoads(result) {
     wind,
     note:
       [
-        label("", result.city ?? result.name),
+        label("", result.city ?? result.site?.city ?? result.name),
         label("снеговой район ", result.snowRegion ?? result.snowDistrict),
         label("ветровой район ", result.windRegion ?? result.windDistrict),
       ]
         .filter(Boolean)
         .join(" · ") || null,
-    source: typeof result.source === "string" ? result.source : null,
+    source:
+      typeof result.source === "string"
+        ? result.source
+        : typeof result.site?.source === "string"
+          ? result.site.source
+          : null,
   };
 }

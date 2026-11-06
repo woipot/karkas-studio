@@ -39,11 +39,13 @@ export async function loadSolutions() {
   const m = await loadOptional(viteSolutions, "./solutions.js");
   if (!m) return null;
   const proposeFixes = m.proposeFixes ?? m.default?.proposeFixes,
-    optimize = m.optimize ?? m.default?.optimize;
+    optimize = m.optimize ?? m.default?.optimize,
+    planningAfterPatch = m.planningAfterPatch ?? m.default?.planningAfterPatch;
   if (typeof proposeFixes !== "function" && typeof optimize !== "function") return null;
   return {
     proposeFixes: typeof proposeFixes === "function" ? proposeFixes : null,
     optimize: typeof optimize === "function" ? optimize : null,
+    planningAfterPatch: typeof planningAfterPatch === "function" ? planningAfterPatch : null,
   };
 }
 
@@ -74,9 +76,12 @@ export function normalizeFixes(raw) {
 export function normalizeOptimization(raw) {
   if (!raw || typeof raw !== "object") return null;
   if (Array.isArray(raw.walls)) return { project: raw, operations: null, notes: [] };
-  const notes = [raw.summary, raw.description, ...(Array.isArray(raw.notes) ? raw.notes : [])].filter(
-    (x) => typeof x === "string",
-  );
+  const notes = [
+    raw.summary,
+    raw.description,
+    ...(Array.isArray(raw.notes) ? raw.notes : []),
+    ...(Array.isArray(raw.trace) ? raw.trace.map((t) => t?.title) : []),
+  ].filter((x) => typeof x === "string");
   if (raw.project && Array.isArray(raw.project.walls))
     return { project: raw.project, operations: null, notes };
   const operations = raw.operations ?? raw.patch;

@@ -36,15 +36,26 @@ export async function runEngineTask(type, payload = {}) {
     case "proposeFixes": {
       const s = await loadSolutions();
       if (!s?.proposeFixes) return { fixes: [] };
-      return { fixes: clone(normalizeFixes(await s.proposeFixes(payload.project, payload.report))) };
+      return {
+        fixes: clone(
+          normalizeFixes(
+            await s.proposeFixes(payload.project, payload.report, { planning: payload.planning ?? {} }),
+          ),
+        ),
+      };
     }
     case "optimize": {
       const s = await loadSolutions();
       if (!s?.optimize) throw Error("Модуль оптимизации недоступен в этой сборке.");
-      const o = normalizeOptimization(await s.optimize(payload.project));
+      const planning = payload.planning ?? {};
+      const o = normalizeOptimization(
+        await s.optimize(payload.project, { planning, evaluation: payload.report ?? undefined }),
+      );
       if (!o) throw Error("Оптимизация не предложила изменений.");
-      const project = o.project ?? applyProjectPatch(payload.project, o.operations);
-      return { report: evaluate(project, payload.planning ?? {}), notes: o.notes };
+      const project = o.project ?? applyProjectPatch(payload.project, o.operations),
+        nextPlanning =
+          o.operations && s.planningAfterPatch ? s.planningAfterPatch(planning, o.operations) : planning;
+      return { report: evaluate(project, nextPlanning), notes: o.notes };
     }
     default:
       throw Error(`Неизвестная задача движка: ${type}`);

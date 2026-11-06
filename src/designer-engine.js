@@ -2106,8 +2106,8 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
       const lever = (c) => {
         const fA = (sZ - c) / (sZ - sA);
         return [
-          { point: span.start, f: fA, beamId: supportBeam(A) },
-          { point: span.end, f: 1 - fA, beamId: supportBeam(Z) },
+          { point: span.start, f: fA, beamId: supportBeam(A), sourceId: A?.sourceId, kind: A?.kind },
+          { point: span.end, f: 1 - fA, beamId: supportBeam(Z), sourceId: Z?.sourceId, kind: Z?.kind },
         ];
       };
       // A perimeter joist lying on one continuous grillage beam: uniform contact.
@@ -2123,6 +2123,8 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
           point: lerp(span.physicalStart, span.physicalEnd, (i + 0.5) / n),
           f: 1 / n,
           beamId: A.sourceId,
+          sourceId: A.sourceId,
+          kind: A.kind,
         }));
       } else points = lever((lo + hi) / 2);
       if (points.some((q) => q.f < -EPS))
@@ -2153,7 +2155,8 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
     const route = joistRoute(level);
     if (route.entries) {
       const deadScale = route.deadArea / route.raw,
-        liveScale = route.liveArea / route.raw;
+        liveScale = route.liveArea / route.raw,
+        supportTotals = {};
       for (const e of route.entries) {
         const tributary = e.trib * e.length,
           dead = p.loads.floorDead * tributary * deadScale,
@@ -2163,6 +2166,8 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
           const extra = { floorLevel: level.index, joistSpanId: e.span.id };
           distribute(q.point, dead * q.f, "layers", 0, q.beamId, extra);
           distribute(q.point, live * q.f, "live", area * q.f, q.beamId, extra);
+          const key = (q.kind ?? "support") + ":" + (q.sourceId ?? "?");
+          supportTotals[key] = (supportTotals[key] ?? 0) + (dead + live) * q.f;
         }
         sampleCount += e.points.length;
         // Joist self-weight follows the same two supports.
@@ -2188,6 +2193,8 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
         floorArea: route.liveArea,
         dead: p.loads.floorDead * route.deadArea,
         live: p.loads.live * route.liveArea,
+        // characteristic floor layers + live delivered to each real support (kind:id)
+        supportTotals,
       });
       continue;
     }

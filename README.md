@@ -3,12 +3,12 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/engine-4.10.2-607a4c?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/engine-5.0.0-607a4c?style=flat-square">
   <img alt="Node.js 22+" src="https://img.shields.io/badge/Node.js-22%2B-3c873a?style=flat-square&logo=nodedotjs&logoColor=white">
   <img alt="MCP SDK 2.4" src="https://img.shields.io/badge/MCP_SDK-2.4-252d28?style=flat-square">
   <img alt="React 19" src="https://img.shields.io/badge/React-19-149eca?style=flat-square&logo=react&logoColor=white">
   <img alt="three.js" src="https://img.shields.io/badge/three.js-0.180-000000?style=flat-square&logo=threedotjs&logoColor=white">
-  <img alt="tests" src="https://img.shields.io/badge/tests-555_passing-4c9a2a?style=flat-square">
+  <img alt="tests" src="https://img.shields.io/badge/tests-581_passing-4c9a2a?style=flat-square">
 </p>
 
 <p align="center">
@@ -91,7 +91,7 @@ flowchart LR
 git clone https://github.com/woipot/karkas-studio.git
 cd karkas-studio
 npm ci
-npm test          # 555 тестов: аналитические эталоны, геометрия, раскрой, MCP-клиент
+npm test          # 581 тест: аналитические эталоны, геометрия, раскрой, MCP-клиент
 npm run dev       # веб-просмотрщик с примерами проектов
 ```
 

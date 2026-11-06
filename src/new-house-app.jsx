@@ -608,7 +608,10 @@ function FixesPanel({ capabilities, current, run, onApplied }) {
         project: current.report.project,
         planning: current.planning,
       });
-      onApplied(report, ["Оптимизация применена.", ...(notes ?? [])].join(" "));
+      onApplied(
+        report,
+        notes?.length ? `Оптимизация применена: ${notes.join(" → ")}.` : "Оптимизация применена.",
+      );
     } catch (e) {
       setState((s) => ({ ...s, message: e.message }));
     } finally {

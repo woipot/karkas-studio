@@ -28,7 +28,7 @@ import {
   fabricationPartsToCSV,
   fabricationStocksToCSV,
 } from "./fabrication-groups.js";
-export const ENGINE_VERSION = "4.10.2";
+export const ENGINE_VERSION = "5.0.0";
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const canonical = (x) =>
   Array.isArray(x)

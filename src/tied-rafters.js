@@ -1,4 +1,5 @@
 import { solveFrame2D } from "./planar-frame.js";
+import { compressionBending, notchedShear } from "./timber-design.js";
 const EPS = 1e-8,
   G = 9.80665,
   sum = (a) => a.reduce((s, x) => s + x, 0),
@@ -72,6 +73,7 @@ export function calculateTiedRafters(input = {}) {
       Fv: 1.6,
       density: 450,
       deflectionRatio: 300,
+      lateralRestraint: 0.6,
       ...input,
     },
     out = {
@@ -128,6 +130,7 @@ export function calculateTiedRafters(input = {}) {
       ["mu", 0, 3],
       ["gammaG", 1, 2],
       ["gammaQ", 1, 3],
+      ["lateralRestraint", 0.05, 30],
       ["E", 1000, 30000],
       ["Fb", 0.1, 100],
       ["Ft", 0.1, 100],
@@ -508,8 +511,46 @@ export function calculateTiedRafters(input = {}) {
         maxCompression = Math.max(0, ...d.map((e) => e.maxCompression)),
         axialUtilization = Math.max((maxTension * 1000) / (A * p.Ft), (maxCompression * 1000) / (A * p.Fc)),
         bendingStress = (maxMoment * 1e6) / W,
-        interaction = axialUtilization + bendingStress / p.Fb,
+        // In-plane l0: longest frame element of this member between real nodes (supports,
+        // knee posts, collar, ridge). Out of plane: rafters restrained by battens at
+        // lateralRestraint, other members unrestrained over their full length.
+        elementLengths = d.map((e) => {
+          const t = elements.find((q) => q.id === e.id),
+            na = nodes.find((n) => n.id === t.nodeA),
+            nb = nodes.find((n) => n.id === t.nodeB);
+          return length(na, nb);
+        }),
+        l0InPlane = Math.max(...elementLengths, 0.01),
+        l0OutOfPlane = b.role === "topChord" ? Math.min(b.length, p.lateralRestraint) : b.length,
+        kind = b.role === "collarTie" ? "web" : b.role === "kneePost" ? "column" : "chord",
+        beamColumn = compressionBending({
+          N: maxCompression,
+          M: maxMoment,
+          b: b.b,
+          h: minHeight,
+          l0Bending: l0InPlane,
+          l0Weak: l0OutOfPlane,
+          Fc: p.Fc,
+          Fb: p.Fb,
+          kind,
+        }),
+        tensionInteraction = (maxTension * 1000) / (A * p.Ft) + bendingStress / p.Fb,
+        interaction = Math.max(beamColumn.utilization, tensionInteraction),
+        slenderness = maxCompression > 1e-6 ? beamColumn.slendernessUtilization : 0,
+        // B11: birdsmouth seat on the supported side reduces shear resistance (EN 1995-1-1 6.5.2).
+        notch =
+          b.role === "topChord" && minHeight < b.h - 1e-6
+            ? notchedShear({
+                V: maxShear,
+                b: b.b,
+                h: b.h,
+                hef: minHeight,
+                x: ((b.id.endsWith("LOW") ? p.wallDepthLow : p.wallDepthHigh) * 1000) / 2,
+                Fv: p.Fv,
+              })
+            : null,
         shearStress = (1.5 * maxShear * 1000) / A,
+        shearUtilization = notch ? notch.utilization : shearStress / p.Fv,
         deflectionMM = Math.max(0, ...s.map((e) => e.maxVerticalDeflection)) * 1000 + localDeflection,
         limitMM = (S * 1000) / p.deflectionRatio,
         euler =
@@ -517,12 +558,7 @@ export function calculateTiedRafters(input = {}) {
           12 /
           (b.length * 1000) ** 2 /
           1000,
-        utilization = Math.max(
-          interaction,
-          shearStress / p.Fv,
-          deflectionMM / limitMM,
-          maxCompression / euler,
-        );
+        utilization = Math.max(interaction, shearUtilization, deflectionMM / limitMM);
       out.members.push({
         id: b.id,
         role: b.role,
@@ -538,6 +574,20 @@ export function calculateTiedRafters(input = {}) {
         maxCompression,
         idealEuler: euler,
         idealEulerUtilization: maxCompression / euler,
+        idealEulerReferenceOnly: true,
+        l0InPlane,
+        l0OutOfPlane,
+        lambda: beamColumn.lambda,
+        lambdaLimit: beamColumn.lambdaLimit,
+        slendernessUtilization: slenderness,
+        phiInPlane: beamColumn.phiStrong,
+        phiOutOfPlane: beamColumn.phiWeak,
+        xi: beamColumn.xi,
+        compressionStabilityUtilization: maxCompression > 0 ? maxCompression / beamColumn.capacity : 0,
+        strengthInteraction: beamColumn.strengthUtilization,
+        outOfPlaneInteraction: beamColumn.outOfPlaneUtilization,
+        notchShear: notch,
+        shearUtilization,
         interaction,
         axialUtilization,
         bendingStress,
@@ -545,13 +595,13 @@ export function calculateTiedRafters(input = {}) {
         deflectionMM,
         limitMM,
         utilization,
-        status: utilization > 1 ? "fail" : "pass",
+        status: utilization > 1 || slenderness > 1 ? "fail" : "pass",
         minimumSeatSectionHeightMM: minHeight,
         sectionLossVerified: false,
         elementIds: d.map((e) => e.id),
         localOwnWeightBending: localMoment > 0,
         sectionScreen:
-          "Conservative envelope max(N/Ft,Fc)+maxM/Fb and maxV on minimum rafter seat section. Tie/collar gusset transfer and scarf-end net sections are unverified.",
+          "Envelope maxN with maxM on the minimum rafter seat section: СНиП II-25-80 п. 4.17–4.18 (СП 64.13330.2017) N/(A·Rc) + Mд/(W·Rи), Mд = M/ξ, plus out-of-plane φy/φм; birdsmouth shear with EN 1995-1-1 kv. Tie/collar gusset transfer and scarf-end net sections are unverified.",
       });
     }
     if (out.connections.length) {

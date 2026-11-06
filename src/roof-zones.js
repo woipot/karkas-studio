@@ -1355,6 +1355,10 @@ export function calculateRoofZones(
           segment.start[1] += topShift;
           segment.end[1] += topShift;
         }
+        z.trussRows = [];
+      }
+      // A5: chord local bending + axial interaction for every pitched gable truss, not only with eaves.
+      if ((physicalGable || (z.shape === "gable" && z.effectiveFraming === "truss")) && z.analysis?.stable) {
         z.chordAnalysis = checkPhysicalTrussChords(z.analysis, {
           Fb: p.material?.Fb ?? 13,
           Fv: p.material?.Fv ?? 1.5,
@@ -1365,7 +1369,6 @@ export function calculateRoofZones(
         out.checks.push(
           ...z.chordAnalysis.checks.map((q) => ({ ...q, id: z.id + "-" + q.id, zoneId: z.id })),
         );
-        z.trussRows = [];
       }
       z.analysisApplicable =
         rectangle &&

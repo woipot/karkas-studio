@@ -198,9 +198,20 @@ test("loads remain fixed while insufficient thin rafters fail necessary buckling
     large = calculateTiedRafters({ chordSection: "75x200", Emin: 7400 }),
     heavy = calculateTiedRafters({ chordSection: "75x200", Emin: 7400, snow: 2.25 });
   assert.equal(thin.status, "fail");
-  assert.ok(thin.members.some((m) => m.idealEulerUtilization > 1));
+  // SP 64 beam-column (Mд = M/ξ) replaces the ideal Euler screen; Euler is reference only.
+  assert.ok(thin.members.some((m) => m.role === "topChord" && m.strengthInteraction > 1));
   assert.equal(large.status, "unverified");
-  assert.equal(heavy.status, "unverified");
+  // B11: the birdsmouth seat (hef = 168 of 200 mm) reduces shear by EN 1995 kv; at 1.5x snow
+  // the 75x200 rafter now fails that seat shear while bending/stability still pass.
+  const seat = heavy.members.find((m) => m.role === "topChord"),
+    alpha = seat.minimumSeatSectionHeightMM / 200,
+    kv =
+      5 /
+      (Math.sqrt(200) *
+        (Math.sqrt(alpha * (1 - alpha)) + 0.8 * (75 / 200) * Math.sqrt(1 / alpha - alpha ** 2)));
+  near(seat.notchShear.kv, kv);
+  assert.equal(heavy.status, "fail");
+  assert.ok(seat.notchShear.utilization > 1 && seat.strengthInteraction < 1);
   assert.ok(
     heavy.members.find((m) => m.role === "topChord").maxAxial >
       large.members.find((m) => m.role === "topChord").maxAxial,
@@ -276,8 +287,10 @@ test("fixed snow cases preserve tied-frame topology, profiles, real ceiling and 
     assert.equal(c.sectionsFixed, true);
     assert.equal(c.frames.length, 1);
     assert.equal(c.frames[0].members.length, 6);
-    assert.equal(c.failures.filter((c) => c.id.includes("frame-")).length, 0);
   }
+  // Base snow passes; the 1.5x case may fail only the birdsmouth seat shear of the rafters (B11).
+  assert.equal(cases[0].failures.filter((c) => c.id.includes("frame-")).length, 0);
+  assert.ok(cases[1].failures.filter((c) => c.id.includes("frame-")).every((c) => /topChord/.test(c.id)));
   assert.ok(cases[1].snowCharacteristic > cases[0].snowCharacteristic);
 });
 

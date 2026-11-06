@@ -356,7 +356,22 @@ test("final timber, net profiles, six-metre map and self-weight rows contain eve
     r.loads.totalDesign,
   );
   assert.equal(cut.overlength.length, 0);
-  assert.ok(r.checks.every((c) => c.status !== "fail"));
+  // A3 (SP 64 φ instead of ideal Euler): the 50x100 support diagonals of this raised-heel
+  // Fink under 2.75 kPa snow are genuinely too slender (λ = l/(50/√12) > 120). They are the
+  // only failures; every other check of the fabricated truss passes.
+  const z = r.roofModel.zones[0],
+    slender = z.analysis.bars.filter((b) => b.memberKind === "supportStrut" && b.force < 0 && b.lambda > 120);
+  assert.ok(slender.length);
+  for (const b of slender) {
+    const lambda = (b.length * 1000) / (50 / Math.sqrt(12));
+    near(b.lambda, lambda);
+    near(b.capacity, ((3000 / lambda ** 2) * 12.92 * 50 * 100) / 1000);
+  }
+  const failed = r.checks.filter((c) => c.status === "fail").map((c) => c.id);
+  assert.ok(
+    failed.every((id) => slender.some((b) => id.startsWith(`roof-G-${b.id}`)) || id === "roofZonesSolution"),
+    failed.join(", "),
+  );
 });
 
 test("unfabricable continuous bottom stock and unsupported slope choices fail explicitly", () => {

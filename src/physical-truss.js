@@ -1,4 +1,5 @@
 import { solveUniformOverhangBeam } from "./rafters.js";
+import { compressionBending } from "./timber-design.js";
 /** Physical, single-plane raised-heel truss boards. Local x=span, y=up, m.
  * FEM panel nodes do not create physical splices in the continuous chords.
  * Joint profiles are geometric cuts, never a gusset/connection certification. */
@@ -163,7 +164,8 @@ export function physicalTrussBoards(truss) {
 }
 
 /** Local gravity bending screen of the continuous upper chords and their tails.
- * Pin-jointed FEM axial forces are combined transparently with local bending.
+ * Pin-jointed FEM axial forces are combined with local bending per СНиП II-25-80
+ * п. 4.17–4.18 / СП 64.13330.2017 (Mд = M/ξ, out-of-plane between batten restraints).
  * It does not supply plate stiffness, rotational restraint or lateral stability. */
 
 export function checkPhysicalTrussChords(truss, { Fb = 13, Fv = 1.5, Ft = 8, Fc = 12, E = 10000 } = {}) {
@@ -201,7 +203,26 @@ export function checkPhysicalTrussChords(truss, { Fb = 13, Fv = 1.5, Ft = 8, Fc 
       force = bars.reduce((a, b) => (Math.abs(a) > Math.abs(b.force) ? a : b.force), 0),
       axialStress = (Math.abs(force) * 1000) / A,
       bendingStress = (maxMoment * 1e6) / Z,
-      interaction = axialStress / (force < 0 ? Fc : Ft) + bendingStress / Fb,
+      restraint = Math.min(L1, p.chordRestraint ?? 0.6),
+      // СНиП II-25-80 п. 4.17–4.18 (СП 64.13330.2017): Mд = M/ξ, φ in the truss plane over
+      // the panel length; out of plane between batten restraints.
+      beamColumn =
+        force < 0
+          ? compressionBending({
+              N: -force,
+              M: maxMoment,
+              b: chord.b,
+              h: chord.h,
+              l0Bending: L1,
+              l0Weak: restraint,
+              lp: restraint,
+              Fc,
+              Fb,
+              kind: "chord",
+            })
+          : null,
+      interaction = beamColumn ? beamColumn.utilization : axialStress / Ft + bendingStress / Fb,
+      slendernessUtilization = beamColumn ? beamColumn.slendernessUtilization : 0,
       shearStress = (1.5 * Math.max(sol.maxShear, ...bars.map((b) => (qDesign * b.length) / 2)) * 1000) / A,
       localDeflection = Math.max(
         sol.maxDeflection,
@@ -230,6 +251,14 @@ export function checkPhysicalTrussChords(truss, { Fb = 13, Fv = 1.5, Ft = 8, Fc 
       force,
       axialStress,
       bendingStress,
+      amplifiedBendingStress: beamColumn?.bendingStress ?? bendingStress,
+      xi: beamColumn?.xi ?? 1,
+      phiInPlane: beamColumn?.phiStrong ?? null,
+      phiOutOfPlane: beamColumn?.phiWeak ?? null,
+      lambda: beamColumn?.lambda ?? null,
+      strengthInteraction: beamColumn?.strengthUtilization ?? interaction,
+      outOfPlaneInteraction: beamColumn?.outOfPlaneUtilization ?? null,
+      lateralRestraint: restraint,
       shearStress,
       interaction,
       maxMoment,
@@ -238,7 +267,8 @@ export function checkPhysicalTrussChords(truss, { Fb = 13, Fv = 1.5, Ft = 8, Fc 
       tailDeflection,
       tailLimit,
       utilization,
-      status: utilization > 1 ? "fail" : "pass",
+      slendernessUtilization,
+      status: utilization > 1 || slendernessUtilization > 1 ? "fail" : "pass",
       partial: true,
       certified: false,
       assumption:
@@ -258,13 +288,29 @@ export function checkPhysicalTrussChords(truss, { Fb = 13, Fv = 1.5, Ft = 8, Fc 
     maxForce = bottomBars.reduce((a, b) => (Math.abs(a) > Math.abs(b.force) ? a : b.force), 0),
     axialStress = (Math.abs(maxForce) * 1000) / A,
     bendingStress = (maxMoment * 1e6) / Z,
-    interaction = axialStress / (maxForce < 0 ? Fc : Ft) + bendingStress / Fb,
+    bottomPanel = Math.max(...bottomBars.map((b) => b.length)),
+    bottomColumn =
+      maxForce < 0
+        ? compressionBending({
+            N: -maxForce,
+            M: maxMoment,
+            b: bottom.b,
+            h: bottom.h,
+            l0Bending: bottomPanel,
+            l0Weak: Math.min(bottomPanel, p.chordRestraint ?? 0.6),
+            Fc,
+            Fb,
+            kind: "chord",
+          })
+        : null,
+    interaction = bottomColumn ? bottomColumn.utilization : axialStress / Ft + bendingStress / Fb,
     shearStress = (1.5 * Math.max(...bottomBars.map((b) => (qDesign * b.length) / 2)) * 1000) / A,
     deflection =
       Math.max(...bottomBars.map((b) => (5 * qService * (b.length * 1000) ** 4) / (384 * E * I))) +
       Math.max(...truss.displacements.filter((d) => map.get(d.node).y === 0).map((d) => Math.abs(d.y))),
     deflectionLimit = (p.span * 1000) / (p.deflectionLimit ?? 300),
-    utilization = Math.max(interaction, shearStress / Fv, deflection / deflectionLimit);
+    utilization = Math.max(interaction, shearStress / Fv, deflection / deflectionLimit),
+    bottomSlenderness = bottomColumn?.slendernessUtilization ?? 0;
   results.push({
     id: bottom.id,
     side: "bottom",
@@ -281,7 +327,9 @@ export function checkPhysicalTrussChords(truss, { Fb = 13, Fv = 1.5, Ft = 8, Fc 
     deflection,
     deflectionLimit,
     utilization,
-    status: utilization > 1 ? "fail" : "pass",
+    slendernessUtilization: bottomSlenderness,
+    xi: bottomColumn?.xi ?? 1,
+    status: utilization > 1 || bottomSlenderness > 1 ? "fail" : "pass",
     partial: true,
     certified: false,
     assumption:

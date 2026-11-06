@@ -1,6 +1,7 @@
 import { buildGrillage } from "./grillage.js";
 import { analyzeGrillageLoads, solveGrillagePointLoads } from "./grillage-loads.js";
 import { calculateRafter, solveUniformOverhangBeam } from "./rafters.js";
+import { axialCompression } from "./timber-design.js";
 const EPS = 1e-7,
   G = 9.80665,
   sum = (a) => a.reduce((s, x) => s + x, 0),
@@ -1270,14 +1271,28 @@ export function buildAnnexes(project = {}, base = {}) {
           A = ps.b * ps.h,
           I = (Math.max(ps.b, ps.h) * Math.min(ps.b, ps.h) ** 3) / 12,
           euler = (Math.PI ** 2 * (project.material?.Emin ?? material.E) * I) / (b.length * 1000) ** 2 / 1000,
-          capacity = Math.min((material.Fc * A) / 1000, euler);
+          // СП 64.13330.2017 / СНиП II-25-80 п. 4.2–4.3: φ by λ about both axes, full length.
+          buckling = axialCompression({
+            N: force,
+            b: Math.min(ps.b, ps.h),
+            h: Math.max(ps.b, ps.h),
+            l0Strong: b.length,
+            l0Weak: b.length,
+            Fc: material.Fc,
+            kind: "column",
+          }),
+          capacity = buckling.capacity;
         return {
           memberId: b.id,
           length: b.length,
           force,
           euler,
+          idealEulerReferenceOnly: true,
+          lambda: buckling.lambda,
+          lambdaLimit: buckling.lambdaLimit,
+          phi: buckling.phi,
           capacity,
-          utilization: force / capacity,
+          utilization: Math.max(force / capacity, buckling.lambda / buckling.lambdaLimit),
           unbracedLength: b.length,
         };
       });
@@ -1285,9 +1300,9 @@ export function buildAnnexes(project = {}, base = {}) {
       const postEta = Math.max(0, ...postResults.map((p) => p.utilization));
       check(
         "post-compression",
-        "Стойки пристройки: сжатие и идеальный Euler",
+        "Стойки пристройки: сжатие с φ и λ ≤ 120 (СП 64)",
         postEta > 1 ? "fail" : "pass",
-        "Полная фактическая длина без скрытого раскрепления. Минимум FcA и идеального Euler — частный screen; несовершенства, изгиб от ветра и узлы не подтверждены.",
+        "Полная фактическая длина без скрытого раскрепления. N/(φ·Rc·A) ≤ 1 и λ ≤ 120 по СП 64.13330.2017 / СНиП II-25-80 п. 4.2–4.3, табл. 14; изгиб от ветра и узлы не подтверждены.",
         { value: postEta, limit: 1 },
       );
       const maxBeam = Math.max(0, ...item.roof.beams.map((b) => b.utilization));

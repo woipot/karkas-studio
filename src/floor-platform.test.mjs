@@ -6,6 +6,8 @@ import { checkDesignerMembers } from "./designer-mechanics.js";
 import { memberLoadProject, loadFactors } from "./load-profile.js";
 import { calculateCutting } from "./cutting.js";
 import { cutGeometry } from "./board-geometry.js";
+import { generateHouse as generateHouseForPlatformTest } from "./house-generator.js";
+import { evaluateHouse as evaluateHouseForPlatformTest } from "./house-engine.js";
 const clone = structuredClone,
   near = (a, b, t = 1e-6) =>
     assert.ok(Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < t, `${a} ≠ ${b}`),
@@ -577,4 +579,21 @@ test("edge-joist support traces distinguish the crossing grid axis from physical
       (c) => c.id === "floor-grillage-node-transfer-L1" && c.status === "unverified",
     ),
   );
+});
+
+test("nearly collinear partitions parallel to joists keep full timber under both walls", () => {
+  const { project, planning } = generateHouseForPlatformTest({
+    width: 10,
+    depth: 9,
+    levels: [{ height: 2.8 }, { height: 2.7 }],
+    rooms: [
+      { name: "Гостиная", area: 28 },
+      { name: "Спальня", area: 14 },
+      { name: "Спальня 2", area: 12 },
+      { name: "Санузел", area: 6 },
+    ],
+  });
+  const r = evaluateHouseForPlatformTest(project, planning).result,
+    check = r.checks.find((c) => c.id === "floor-wall-framing-L1");
+  assert.equal(check.status, "pass", JSON.stringify(check.failIds));
 });

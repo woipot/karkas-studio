@@ -40,6 +40,10 @@ const loads = z
     snow: num(0, 20).optional(),
     wind: num(0, 5).optional(),
     terrain: z.enum(["A", "B", "C"]).optional().describe("Тип местности СП 20 п.11.1.6; по умолчанию B."),
+    snowCe: num(0.1, 2).optional().describe("Коэффициент сноса снега ce (СП 20 п.10.5), по умолчанию 1."),
+    snowCt: num(0.1, 2).optional().describe("Термический коэффициент ct (СП 20 п.10.10), по умолчанию 1."),
+    code: z.enum(["SP20-2016"]).optional().describe("Профиль норм нагрузок; по умолчанию SP20-2016."),
+    psi2: num(0, 1).optional().describe("Доля длительной части полезной нагрузки для ползучести."),
     gammaG: num(1, 3).optional(),
     gammaQ: num(1, 3).optional(),
   })
@@ -55,8 +59,16 @@ const material = z
     Fv: num(0.1, 20).optional(),
     studRestraint: num(0.2, 8).optional(),
     columnK: num(0.5, 2).optional(),
+    Fc90: num(0.5, 20).optional().describe("Расчётное Rсм90, МПа (по умолчанию 3.0)."),
+    Fc90PartialLength: z.boolean().optional(),
+    grade: z.enum(["1", "2", "3"]).optional(),
+    kdef: num(0, 3).optional(),
+    finalDeflectionRatio: num(100, 600).optional(),
+    wallDeflectionRatio: num(100, 600).optional(),
+    studSheathingRestraint: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  .describe("Расчётные сопротивления СП 64 с учётом m_дл (не характеристические значения вроде C24).");
 const patch = z
   .object({
     op: z.enum(["add", "replace", "remove"]),

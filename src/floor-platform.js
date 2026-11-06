@@ -746,6 +746,12 @@ export function buildFloorPlatform(
     wallRows.sort((a, b) => a.u - b.u);
     for (let i = 1; i < wallRows.length; i++)
       if (wallRows[i].u - wallRows[i - 1].u < section.b / 1000 - EPS) {
+        // A row needed by another, nearly collinear wall is shifted to touch its neighbour
+        // instead of being dropped: dropping it left an unbacked strip under that wall.
+        if (wallRows[i].wallSupportWallIds.some((id) => !wallRows[i - 1].wallSupportWallIds.includes(id))) {
+          wallRows[i].u = wallRows[i - 1].u + section.b / 1000;
+          continue;
+        }
         wallRows[i - 1].wallSupportWallIds.push(...wallRows[i].wallSupportWallIds);
         wallRows[i - 1].edgeWallIds.push(...wallRows[i].edgeWallIds);
         wallRows.splice(i--, 1);

@@ -29,7 +29,7 @@ const EPS = 1e-9,
 
 const boards = timberSections.filter((s) => s.category === "board");
 const SPACING_LADDER = [1.2, 1, 0.8, 0.6, 0.5, 0.4, 0.3];
-const STUD_STEP_LADDER = [0.6, 0.5, 0.4, 0.3];
+const STUD_STEP_LADDER = [0.6, 0.5, 0.4]; // 0.3 m is not a practical framing module
 const PILE_SPACING_LADDER = [3, 2.5, 2, 1.75, 1.5, 1.25, 1];
 const PILE_CAPACITY_LADDER = [20, 30, 40, 60, 80, 100, 150, 200, 300];
 const SHEET_THICKNESS_LADDER = [9, 12, 15, 18, 22];

@@ -4,6 +4,7 @@ import { calculateDesigner, defaultDesignerProject } from "./designer-engine.js"
 import { calculateRoofZones } from "./roof-zones.js";
 import { calculateCutting } from "./cutting.js";
 import { checkDesignerMembers } from "./designer-mechanics.js";
+import { memberLoadProject } from "./load-profile.js";
 import { deriveWallProfiles } from "./wall-profiles.js";
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const near = (a, b, t = 1e-6) =>
@@ -275,7 +276,7 @@ function autoEightMetreMono() {
 test("actual full-height wall checks replace the obsolete global representative compression failure", () => {
   const p = autoEightMetreMono(),
     { result } = calculate(p),
-    m = checkDesignerMembers(p, result),
+    m = checkDesignerMembers(memberLoadProject(p), result),
     actual = result.fullHeightWalls.walls.flatMap((w) => w.studs.map((s) => ({ ...s, wallId: w.wallId })));
   assert.ok(actual.length);
   assert.equal(result.fullHeightWalls.capacityPass, true);
@@ -296,10 +297,13 @@ test("actual full-height wall checks replace the obsolete global representative 
     wallPressure = p.loads.wallDead + panelPressure,
     expectedWallWeight = wallPressure * source.tributaryWidth * source.length;
   near(source.wallWeight, expectedWallWeight);
-  near(source.force, source.roofForceDesign + (source.timberWeight + expectedWallWeight) * p.loads.gammaG);
+  near(
+    source.force,
+    source.roofForceDesign + (source.timberWeight + expectedWallWeight) * memberLoadProject(p).loads.gammaG,
+  );
   p.material.studRestraint = 0.2;
   const repeated = calculate(p).result,
-    short = checkDesignerMembers(p, repeated);
+    short = checkDesignerMembers(memberLoadProject(p), repeated);
   assert.equal(short.stud.measured, true);
   near(short.stud.unbracedLength, m.stud.unbracedLength);
   near(short.stud.capacity, m.stud.capacity);
@@ -309,7 +313,7 @@ test("higher wind fails the actual full-height wall checks without resurrecting 
   const p = autoEightMetreMono();
   p.loads.wind = 5;
   const { result } = calculate(p),
-    m = checkDesignerMembers(p, result);
+    m = checkDesignerMembers(memberLoadProject(p), result);
   assert.equal(m.stud.measured, true);
   assert.equal(result.fullHeightWalls.status, "fail");
   assert.equal(result.fullHeightWalls.capacityPass, false);

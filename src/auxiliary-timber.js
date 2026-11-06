@@ -1,3 +1,4 @@
+import { loadFactors, loadProfile, snowBasis, snowShapeMu } from "./load-profile.js";
 import { solveUniformOverhangBeam } from "./rafters.js";
 import { adaptCeilingToPartitions } from "./ceiling-partitions.js";
 /** Physical service battens and mono-roof secondary timber; metres / mm / kg. */
@@ -202,15 +203,13 @@ export function buildAuxiliaryTimber(project, result = {}) {
         const station = dot(sub(b.start, [w.a.x, 0, w.a.y]), u),
           k = key(station);
         if (!groups.has(k)) groups.set(k, { station, intervals: [] });
-        groups
-          .get(k)
-          .intervals.push({
-            a: Math.min(b.start[1], b.end[1]),
-            b: Math.max(b.start[1], b.end[1]),
-            startCut: b.start[1] <= b.end[1] ? b.cutStart : b.cutEnd,
-            endCut: b.start[1] <= b.end[1] ? b.cutEnd : b.cutStart,
-            sourceIds: [b.id],
-          });
+        groups.get(k).intervals.push({
+          a: Math.min(b.start[1], b.end[1]),
+          b: Math.max(b.start[1], b.end[1]),
+          startCut: b.start[1] <= b.end[1] ? b.cutStart : b.cutEnd,
+          endCut: b.start[1] <= b.end[1] ? b.cutEnd : b.cutStart,
+          sourceIds: [b.id],
+        });
       }
       const openings = (project.openings ?? []).filter(
           (o) => o.wallId === w.id && (o.floor ?? w.level ?? 1) === level,
@@ -580,12 +579,13 @@ export function buildAuxiliaryTimber(project, result = {}) {
           E = project.material.E ?? 10000,
           Fb = project.material.Fb ?? 13,
           Fv = project.material.Fv ?? 1.5,
-          gg = project.loads.gammaG ?? 1.1,
-          gq = project.loads.gammaQ ?? 1.4,
+          gg = loadFactors(project.loads).equivalentG,
+          gq = loadFactors(project.loads).snow,
+          // S0 = ce·ct·µ·Sg (СП 20.13330.2016 п. 10.1, прил. Б)
           sk =
-            (project.loads.snow ?? 1.5) *
+            snowBasis(project.loads).base *
             (z.loadSnowFactor ?? 1) *
-            (z.pitchLeft <= 30 ? 0.8 : Math.max(0, (0.8 * (60 - z.pitchLeft)) / 30)),
+            (z.snowMu ?? snowShapeMu(z.pitchLeft, loadProfile(project.loads))),
           dead = (project.loads.roofDead ?? 0.5) * rowStep + (((density * A) / 1e6) * G) / 1000,
           live = sk * rowStep * pitchCos,
           qS = dead + live,

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { calculateDesigner, defaultDesignerProject } from "./designer-engine.js";
 import { checkDesignerMembers } from "./designer-mechanics.js";
+import { memberLoadProject, loadFactors } from "./load-profile.js";
 import { calculateCutting } from "./cutting.js";
 import { cutGeometry } from "./board-geometry.js";
 const EPS = 1e-6,
@@ -350,7 +351,7 @@ test("legacy missing/false flag is identical and added physical timber contribut
   assert.ok(delta > 0);
   near(delta, floorDelta);
   near(r.loads.totalCharacteristic - off.loads.totalCharacteristic, (delta * G) / 1000);
-  near(r.loads.totalDesign - off.loads.totalDesign, ((delta * G) / 1000) * p.loads.gammaG);
+  near(r.loads.totalDesign - off.loads.totalDesign, ((delta * G) / 1000) * loadFactors(p.loads).timber);
   near(
     sum(r.piles, (q) => q.reaction),
     r.loads.totalDesign,
@@ -377,7 +378,7 @@ test("non-divisible perimeter widths can use real continuous grillage backing wi
   const r = calculateDesigner(p),
     boards = floors(r),
     grillage = r.timber.instances.filter((b) => b.category === "foundation").map(shape),
-    checked = checkDesignerMembers(p, r).joist.members;
+    checked = checkDesignerMembers(memberLoadProject(p), r).joist.members;
   const backed = r.floorPlatform.instances.filter(
     (b) => b.role === "joist" && [b.supportStart, b.supportEnd].some((s) => s.continuousBacking),
   );

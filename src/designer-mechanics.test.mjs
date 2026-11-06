@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { checkDesignerMembers, logicalMembers } from "./designer-mechanics.js";
+import { memberLoadProject } from "./load-profile.js";
 import { calculateDesigner, defaultDesignerProject } from "./designer-engine.js";
 const near = (a, b, tol = 1e-8) => assert.ok(Math.abs(a - b) < tol, `${a} != ${b}`);
 const cp = (x) => JSON.parse(JSON.stringify(x));
 const make = () => ({ ...cp(defaultDesignerProject), openings: [] });
-const run = (p) => checkDesignerMembers(p, calculateDesigner(p));
+const run = (p) => checkDesignerMembers(memberLoadProject(p), calculateDesigner(p));
 
 test("physical overlapping stock pieces recover the original eight-metre logical span", () => {
   const b = { memberId: "M", role: "joist", b: 50, h: 250, mass: 10, floor: 1 };
@@ -29,7 +30,7 @@ test("lower-floor bearing wall creates four-metre spans; ground grillage and sto
   assert.ok(a.joist.members.filter((m) => m.floor === 1).every((m) => m.span <= p.foundation.spacing + 1e-7));
   p.walls = p.walls.filter((w) => w.kind !== "bearing");
   const r = calculateDesigner(p),
-    b = checkDesignerMembers(p, r);
+    b = checkDesignerMembers(memberLoadProject(p), r);
   near(b.joist.span, 8);
   assert.ok(
     r.timber.instances.filter((x) => x.role === "joist" && x.level === 2).every((x) => x.cutLength > 6),
@@ -72,7 +73,7 @@ test("independent 4m 50×200 beam under 1kN/m: M2, stress6MPa, deflection10mm", 
       braceBays: [],
     },
   };
-  const m = checkDesignerMembers(p, r);
+  const m = checkDesignerMembers(memberLoadProject(p), r);
   near(m.joist.lineLoadService, 1);
   near(m.joist.lineLoadDesign, 1);
   near(m.joist.moment, 2);
@@ -83,11 +84,11 @@ test("independent 4m 50×200 beam under 1kN/m: M2, stress6MPa, deflection10mm", 
 test("timber density affects beam dead load exactly once through actual floor wood weight", () => {
   const p = make(),
     r = calculateDesigner(p),
-    a = checkDesignerMembers(p, r);
+    a = checkDesignerMembers(memberLoadProject(p), r);
   const q = cp(p);
   q.material.density *= 2;
   const s = calculateDesigner(q),
-    b = checkDesignerMembers(q, s);
+    b = checkDesignerMembers(memberLoadProject(q), s);
   near(b.joist.floorWoodPressure, 2 * a.joist.floorWoodPressure);
   near(b.joist.lineLoadService - a.joist.lineLoadService, a.joist.floorWoodPressure * p.floor.spacing);
 });
@@ -116,10 +117,10 @@ test("a stud has full unsupported length without an explicit restraint; K and le
 test("modern bracing demand scales with wind while unknown shear capacity and anchors remain unverified", () => {
   const p = make(),
     ra = calculateDesigner(p),
-    a = checkDesignerMembers(p, ra);
+    a = checkDesignerMembers(memberLoadProject(p), ra);
   p.loads.wind *= 2;
   const rb = calculateDesigner(p),
-    b = checkDesignerMembers(p, rb);
+    b = checkDesignerMembers(memberLoadProject(p), rb);
   assert.ok(ra.bracingModel.wallLines.length);
   for (const line of ra.bracingModel.wallLines) {
     const next = rb.bracingModel.wallLines.find((l) => l.wallId === line.wallId && l.level === line.level);
@@ -150,7 +151,7 @@ test("impossible material inputs are unverified instead of producing NaN checks"
   const p = make(),
     r = calculateDesigner(p);
   p.material.E = 0;
-  const m = checkDesignerMembers(p, r);
+  const m = checkDesignerMembers(memberLoadProject(p), r);
   assert.equal(m.joist, null);
   assert.equal(m.stud, null);
   assert.equal(m.status, "unverified");
@@ -165,7 +166,7 @@ test("independent floor footprints and second-light voids use net floor area for
     { height: 3, closed: true, netFloorArea: 56, voidArea: 8 },
   ];
   r.timber.totals.floor.weight = 30;
-  const m = checkDesignerMembers(p, r);
+  const m = checkDesignerMembers(memberLoadProject(p), r);
   near(m.joist.floorWoodPressure, 30 / 152);
   near(m.stud.length, 3 - 0.15);
   assert.ok(m.checks.some((c) => c.id === "designerVoidLoadPath" && c.status === "unverified"));
@@ -179,12 +180,12 @@ test("representative stud includes physical upper deck ring dead load while live
     { index: 1, height: 2.8, closed: true, netFloorArea: 96, platformNetArea: 100 },
     { index: 2, height: 2.8, closed: true, netFloorArea: 80, platformNetArea: 80 },
   ];
-  const a = checkDesignerMembers(p, r);
+  const a = checkDesignerMembers(memberLoadProject(p), r);
   r.geometry.levels[1].platformNetArea = 84;
-  const b = checkDesignerMembers(p, r);
+  const b = checkDesignerMembers(memberLoadProject(p), r);
   near(
     b.stud.equivalentLineLoad - a.stud.equivalentLineLoad,
-    (4 * p.loads.floorDead * p.loads.gammaG) / (2 * a.stud.supportLength),
+    (4 * p.loads.floorDead * memberLoadProject(p).loads.gammaG) / (2 * a.stud.supportLength),
   );
 });
 
@@ -195,7 +196,7 @@ test("joist screen carries full deck dead load and exposes physical end consoles
   l.platformNetArea = l.netFloorArea * 1.1;
   const b = r.timber.instances.find((b) => b.role === "joist");
   b.physicalOverhangStart = 0.051;
-  const m = checkDesignerMembers(p, r),
+  const m = checkDesignerMembers(memberLoadProject(p), r),
     j = m.joist.members.find((j) => j.parts.some((q) => q.id === b.id));
   near(j.floorDeadPressure, p.loads.floorDead * 1.1);
   const c = m.checks.find((c) => c.id === "floorJoistEndConsoles");
@@ -207,7 +208,7 @@ test("joist screen carries full deck dead load and exposes physical end consoles
 test("independent annex wood and roof loads do not alter the house member checks", () => {
   const p = make(),
     r = calculateDesigner(p),
-    a = checkDesignerMembers(p, r),
+    a = checkDesignerMembers(memberLoadProject(p), r),
     q = structuredClone(r);
   q.houseLoads = structuredClone(r.loads);
   for (const [i, category] of ["floor", "walls", "roof", "bracing"].entries())
@@ -229,7 +230,7 @@ test("independent annex wood and roof loads do not alter the house member checks
     q.timber.totals[category].weight += (500 * 9.80665) / 1000;
   q.loads.snow += 1000;
   q.loads.roofWeight += 1000;
-  const b = checkDesignerMembers(p, q);
+  const b = checkDesignerMembers(memberLoadProject(p), q);
   near(b.joist.moment, a.joist.moment);
   near(b.joist.deflection, a.joist.deflection);
   near(b.stud.force, a.stud.force);

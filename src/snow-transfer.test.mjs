@@ -108,7 +108,8 @@ test("equal total asymmetric snow follows real rafter supports instead of an inv
 test("zone snow multiplier changes exact projected snow weight, not timber or slope area", () => {
   const a = calc(project()),
     b = calc(project(1.5, 1));
-  near(b.r.loads.snow - a.r.loads.snow, 2.75 * 0.8 * 16 * 0.5);
+  // µ(25°) = 1 per СП 20.13330.2016 прил. Б.
+  near(b.r.loads.snow - a.r.loads.snow, 2.75 * 1 * 16 * 0.5);
   near(a.r.timber.mass, b.r.timber.mass);
   near(a.roof.area, b.roof.area);
 });

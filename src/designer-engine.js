@@ -13,6 +13,22 @@ import { buildWallBracing } from "./wall-bracing.js";
 import { wallProfileTop } from "./wall-profiles.js";
 import { checkFullHeightWalls } from "./wall-stability.js";
 import { wallPlateEnds } from "./wall-plate-joints.js";
+import {
+  LOAD_PROFILES,
+  TERRAIN_TYPES,
+  loadFactors,
+  loadProfile,
+  snowBasis,
+  snowShapeMu,
+  governingCombination,
+  basicCombinations,
+  combineDesign,
+  kindFactor,
+  windStoreyForces,
+  roofUpliftCases,
+  profileAssumptions,
+  memberLoadProject,
+} from "./load-profile.js";
 /** КАРКАС Designer — geometric concept model, not a code-design or FEA solver.
  * Plan coordinates and lengths: m. Sections: mm. Mass: kg. Forces: kN.
  * Wall coordinates are axes; areas are gross areas enclosed by exterior axes.
@@ -125,8 +141,7 @@ export const defaultDesignerProject = {
     openingDead: 0.3,
     snow: 1.5,
     wind: 0.3,
-    gammaG: 1.1,
-    gammaQ: 1.4,
+    terrain: "B",
   },
   foundation: {
     spacing: 2,
@@ -649,10 +664,22 @@ export function validateDesignerProject(input) {
       ["openingDead", 0, 20],
       ["snow", 0, 20],
       ["wind", 0, 10],
-      ["gammaG", 1, 2],
-      ["gammaQ", 1, 3],
     ])
       range(p.loads[k], a, b, "loads." + k);
+  if (object(p.loads)) {
+    // Explicit partial factors stay accepted as overrides of the code profile.
+    for (const [k, a, b] of [
+      ["gammaG", 1, 2],
+      ["gammaQ", 1, 3],
+      ["snowCe", 0.1, 2],
+      ["snowCt", 0.1, 2],
+    ])
+      if (p.loads[k] !== undefined) range(p.loads[k], a, b, "loads." + k);
+    if (p.loads.terrain !== undefined && !TERRAIN_TYPES.includes(p.loads.terrain))
+      error("loads.terrain", "Тип местности: A, B или C (СП 20.13330.2016 п. 11.1.6).");
+    if (p.loads.code !== undefined && !LOAD_PROFILES[p.loads.code])
+      error("loads.code", "Профиль норм: " + Object.keys(LOAD_PROFILES).join(", ") + ".");
+  }
   if (object(p.foundation)) {
     range(p.foundation.spacing, 0.5, 6, "foundation.spacing");
     range(p.foundation.capacity, 1, 1000, "foundation.capacity");
@@ -1996,27 +2023,183 @@ function mergeTimber(models, p) {
   };
 }
 
-function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTransfers) {
-  const b = geometry.baseBounds || geometry.bounds,
+/** Rows of whole trusses that bear on two eave lines. Physical trusses keep
+ * their solved rows; idealised FEM trusses (default fink/king/queen/mono) get
+ * one row per frame position at the zone bearing lines. */
+function trussRoutingRows(z) {
+  if (z.physicalTruss && z.trussRows?.length) return { rows: z.trussRows, kind: "physical" };
+  if (
+    z.effectiveFraming !== "truss" ||
+    !z.analysis?.stable ||
+    !z.analysisApplicable ||
+    z.partialFrames ||
+    !["gable", "mono"].includes(z.shape) ||
+    !z.rafterRowLoads?.length
+  )
+    return null;
+  const theta = (z.ridgeAngle * Math.PI) / 180,
+    c = Math.cos(theta),
+    s = Math.sin(theta),
+    world = (u, v) => [u * c - v * s, z.eave ?? 0, u * s + v * c];
+  return {
+    kind: "fem",
+    rows: z.rafterRowLoads.map((r) => ({
+      row: r.row,
+      u: r.u,
+      tributaryWidth: r.tributaryWidth,
+      bearingStart: world(r.u, z.bounds.minV),
+      bearingEnd: world(r.u, z.bounds.maxV),
+    })),
+  };
+}
+
+function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTransfers, floorPlatform) {
+  const factors = loads.factors ?? loadFactors(p.loads),
+    snowBase = snowBasis(p.loads).base,
+    profile = loadProfile(p.loads),
     spacing = p.foundation.spacing,
     samples = [];
   const routedWalls = new Set(wallLoadTransfers?.routedWallLayerIds ?? []),
     routedBoards = new Set(wallLoadTransfers?.routedBoardIds ?? []);
-  function distribute(q, characteristic, gamma, area = 0, beamId) {
-    samples.push({ point: q, characteristic, design: characteristic * gamma, area, beamId });
+  // kind: timber | layers | live | snow. Design values are assigned per
+  // load combination at the end, so every sample carries characteristic only.
+  function distribute(q, characteristic, kind, area = 0, beamId, extra = {}) {
+    if (!characteristic && !area) return;
+    samples.push({ point: q, characteristic, kind, area, beamId, ...extra });
   }
-  // Midpoint quadrature is normalized to the exact polygon area, so equilibrium
-  // does not depend on raster resolution. It is an allocation, not grillage FEA.
+  // ---- Floors (A2): joist support reactions, not nearest-span area sampling.
   const sampleStep = Math.max(0.2, Math.min(0.75, spacing / 2));
   let sampleCount = 0;
+  const axisKey = (p.floor?.axis ?? "y") === "x" ? "x" : "y",
+    station = (q) => q[axisKey],
+    platformSpans = floorPlatform?.spans ?? [],
+    joistParts = new Map(),
+    floorRouting = { method: "joist-reactions", levels: [] },
+    routedJoistBoards = new Set();
+  for (const b of timber.instances)
+    if (b.role === "joist" && b.category === "floor" && !b.annexId) {
+      const id = b.platformSpanId ?? b.memberId;
+      if (!id) continue;
+      if (!joistParts.has(id)) joistParts.set(id, []);
+      joistParts.get(id).push(b);
+    }
+  const supportBeam = (support) => (support?.kind === "grillage" ? support.sourceId : undefined);
+  function joistRoute(level) {
+    const spans = platformSpans.filter((s) => s.level === level.index);
+    if (!spans.length) return { reason: "Нет лаг перекрытия этого этажа." };
+    const entries = [];
+    for (const span of spans) {
+      if (span.supportStatus === "fail")
+        return { reason: `Лага ${span.memberId} не имеет двух подтверждённых опор.` };
+      const parts = joistParts.get(span.id) ?? [],
+        trib = parts[0]?.tributaryWidth ?? parts[0]?.actualSpacing ?? p.floor.spacing,
+        a = station(span.physicalStart),
+        z = station(span.physicalEnd),
+        lo = Math.min(a, z),
+        hi = Math.max(a, z),
+        sA = station(span.start),
+        sZ = station(span.end),
+        A = span.supportStart,
+        Z = span.supportEnd;
+      if (!(hi - lo > EPS) || !(trib > EPS) || Math.abs(sZ - sA) < EPS)
+        return { reason: `Лага ${span.memberId}: нулевой пролёт или грузовая ширина.` };
+      const lever = (c) => {
+        const fA = (sZ - c) / (sZ - sA);
+        return [
+          { point: span.start, f: fA, beamId: supportBeam(A) },
+          { point: span.end, f: 1 - fA, beamId: supportBeam(Z) },
+        ];
+      };
+      // A perimeter joist lying on one continuous grillage beam: uniform contact.
+      const backed =
+        span.supportStatus !== "pass" &&
+        A?.kind === "grillage" &&
+        Z?.kind === "grillage" &&
+        A.sourceId === Z.sourceId;
+      let points;
+      if (backed) {
+        const n = Math.max(1, Math.ceil((hi - lo) / 0.5));
+        points = Array.from({ length: n }, (_, i) => ({
+          point: lerp(span.physicalStart, span.physicalEnd, (i + 0.5) / n),
+          f: 1 / n,
+          beamId: A.sourceId,
+        }));
+      } else points = lever((lo + hi) / 2);
+      if (points.some((q) => q.f < -EPS))
+        return { reason: `Лага ${span.memberId}: консоль даёт отрыв опоры.` };
+      entries.push({
+        span,
+        parts,
+        trib,
+        length: hi - lo,
+        lo,
+        hi,
+        points,
+        lever: backed ? null : lever,
+        backed,
+      });
+    }
+    const raw = sum(entries.map((e) => e.trib * e.length)),
+      deadArea = level.platformNetArea ?? level.netFloorArea,
+      liveArea = level.netFloorArea,
+      ratio = deadArea / raw;
+    if (!(raw > EPS) || ratio < 0.75 || ratio > 1.33)
+      return {
+        reason: `Грузовые площади лаг (${raw.toFixed(2)} м²) не согласуются с площадью платформы (${deadArea.toFixed(2)} м²).`,
+      };
+    return { entries, raw, deadArea, liveArea };
+  }
   for (const level of geometry.levels.filter((l) => l.closed && l.netFloorArea > EPS)) {
+    const route = joistRoute(level);
+    if (route.entries) {
+      const deadScale = route.deadArea / route.raw,
+        liveScale = route.liveArea / route.raw;
+      for (const e of route.entries) {
+        const tributary = e.trib * e.length,
+          dead = p.loads.floorDead * tributary * deadScale,
+          live = p.loads.live * tributary * liveScale,
+          area = tributary * liveScale;
+        for (const q of e.points) {
+          const extra = { floorLevel: level.index, joistSpanId: e.span.id };
+          distribute(q.point, dead * q.f, "layers", 0, q.beamId, extra);
+          distribute(q.point, live * q.f, "live", area * q.f, q.beamId, extra);
+        }
+        sampleCount += e.points.length;
+        // Joist self-weight follows the same two supports.
+        for (const board of e.parts) {
+          if (routedBoards.has(board.id)) continue;
+          const W = (board.mass * G) / 1000,
+            c =
+              (station({ x: board.start[0], y: board.start[2] }) +
+                station({ x: board.end[0], y: board.end[2] })) /
+              2,
+            pts = e.lever ? e.lever(c) : e.points.map((q) => ({ ...q, f: 1 / e.points.length }));
+          if (pts.some((q) => q.f < -EPS)) continue;
+          for (const q of pts) distribute(q.point, W * q.f, "timber", 0, q.beamId, { boardId: board.id });
+          routedJoistBoards.add(board.id);
+        }
+      }
+      floorRouting.levels.push({
+        level: level.index,
+        method: "joist-reactions",
+        spans: route.entries.length,
+        tributaryArea: route.raw,
+        platformArea: route.deadArea,
+        floorArea: route.liveArea,
+        dead: p.loads.floorDead * route.deadArea,
+        live: p.loads.live * route.liveArea,
+      });
+      continue;
+    }
+    // Fallback: legacy area quadrature to the nearest grillage span.
+    floorRouting.levels.push({ level: level.index, method: "area-nearest-span", reason: route.reason });
     for (const surface of [
       {
         polygon: level.platformPolygon ?? level.polygon,
         bounds: level.platformBounds ?? level.bounds,
         area: level.platformNetArea ?? level.netFloorArea,
         pressure: p.loads.floorDead,
-        gamma: p.loads.gammaG,
+        kind: "layers",
         countArea: false,
       },
       {
@@ -2024,7 +2207,7 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
         bounds: level.bounds,
         area: level.netFloorArea,
         pressure: p.loads.live,
-        gamma: p.loads.gammaQ,
+        kind: "live",
         countArea: true,
       },
     ]) {
@@ -2053,16 +2236,21 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
       if (!points.length) continue;
       sampleCount += points.length;
       const da = surface.area / points.length;
-      for (const q of points) distribute(q, da * surface.pressure, surface.gamma, surface.countArea ? da : 0);
+      for (const q of points) distribute(q, da * surface.pressure, surface.kind, surface.countArea ? da : 0);
     }
   }
   const exterior = walls.filter((w) => w.kind === "exterior"),
     perimeter = sum(exterior.map((w) => w.length));
+  const windPressure = loads.windPressure?.wm ?? 0,
+    upliftCases = (pl, pr) => roofUpliftCases(pl, pr, profile),
+    uplift = [];
   // For rectangular standalone rafter zones, transfer vertical gravity at the
   // real rafter ends with actual edge tributaries. Asymmetric snow therefore
   // follows its own zone instead of being spread around the entire perimeter.
-  let assignedRoof = 0,
+  let assignedLayers = 0,
+    assignedTimber = 0,
     assignedSnow = 0;
+  const routedZoneIds = new Set();
   for (const z of loads.roofZones ?? []) {
     const rafters = (loads.rawRoofInstances ?? []).filter((b) => b.zoneId === z.id && b.role === "rafter");
     if (z.effectiveFraming !== "rafters" || !z.analysisApplicable || !rafters.length) continue;
@@ -2093,8 +2281,15 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
         (sum(timber.instances.filter((b) => b.category === "roof" && b.zoneId === z.id).map((b) => b.mass)) *
           G) /
         1000,
-      dead = z.surfaceArea * p.loads.roofDead + wood,
-      snow = p.loads.snow * z.snowEffectiveArea;
+      layers = z.surfaceArea * p.loads.roofDead,
+      snow = snowBase * z.snowEffectiveArea,
+      windUp =
+        windPressure *
+        factors.wind *
+        Math.max(0, ...upliftCases(z.pitchLeft, z.pitchLeft).map((c) => c.left)) *
+        (z.coverBounds?.length ?? z.bounds.length) *
+        (z.coverBounds?.span ?? z.bounds.span);
+    let worst = -Infinity;
     for (let i = 0; i < rows.length; i++) {
       const share = rowWidths[i] / width,
         ends = [rows[i].b.bearingStart ?? rows[i].b.start, rows[i].b.bearingEnd ?? rows[i].b.end];
@@ -2102,17 +2297,24 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
         const end = ends[k],
           q = { x: end[0], y: end[2] },
           r = k === 0 ? ratio : 1 - ratio;
-        distribute(q, dead * share * r, p.loads.gammaG);
-        distribute(q, snow * share * r, p.loads.gammaQ);
+        distribute(q, layers * share * r, "layers", 0, undefined, { roofZoneId: z.id });
+        distribute(q, wood * share * r, "timber", 0, undefined, { roofZoneId: z.id });
+        distribute(q, snow * share * r, "snow", 0, undefined, { roofZoneId: z.id });
+        worst = Math.max(worst, windUp * share * 0.5 - factors.favourable * (layers + wood) * share * r);
       }
     }
-    assignedRoof += dead;
+    uplift.push({ zoneId: z.id, framing: "rafters", rows: rows.length, netUpliftPerSupport: worst });
+    assignedLayers += layers;
+    assignedTimber += wood;
     assignedSnow += snow;
+    routedZoneIds.add(z.id);
   }
-  // Whole raised-heel trusses have two real eave bearings. Eave weight/snow
-  // remain outside the support span, so their moments change the reactions.
+  // Whole trusses have two real eave bearings. Eave weight/snow remain outside
+  // the support span, so their moments change the reactions. Idealised FEM
+  // trusses (default fink, no overhang) use the same two-bearing statics.
   for (const z of loads.roofZones ?? []) {
-    if (!z.physicalTruss || !z.analysisApplicable || !z.trussRows?.length) continue;
+    const routing = trussRoutingRows(z);
+    if (!routing || !z.analysisApplicable) continue;
     const theta = (z.ridgeAngle * Math.PI) / 180,
       c = Math.cos(theta),
       sn = Math.sin(theta),
@@ -2126,24 +2328,26 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
       coverWidth = z.coverBounds.length,
       crest = b.minV + z.crestRatio * roofSpan,
       o = z.overhangs,
-      shape = (pitch) => z.snowMu ?? (pitch <= 30 ? 0.8 : Math.max(0, (0.8 * (60 - pitch)) / 30)),
+      shape = (pitch) => z.snowMu ?? snowShapeMu(pitch, profile),
+      pitchRight = z.shape === "mono" ? z.pitchLeft : z.pitchRight,
       leftSpan = crest - (b.minV - o.low),
-      rightSpan = b.maxV + o.high - crest,
+      rightSpan = Math.max(0, b.maxV + o.high - crest),
       leftArea = (coverWidth * leftSpan) / Math.cos((z.pitchLeft * Math.PI) / 180),
-      rightArea = (coverWidth * rightSpan) / Math.cos((z.pitchRight * Math.PI) / 180),
+      rightArea = (coverWidth * rightSpan) / Math.cos((pitchRight * Math.PI) / 180),
       leftCenter = (b.minV - o.low + crest) / 2,
       rightCenter = (crest + b.maxV + o.high) / 2;
-    const rows = [...z.trussRows]
+    const rows = [...routing.rows]
         .sort((a, b) => a.u - b.u)
-        .map((r) => ({ ...r, deadA: 0, deadB: 0, snowA: 0, snowB: 0 })),
+        .map((r) => ({ ...r, layersA: 0, layersB: 0, timberA: 0, timberB: 0, snowA: 0, snowB: 0 })),
       roofWidth = sum(rows.map((r) => r.tributaryWidth)),
       ceilingWidth = sum(rows.map((r) => r.ceilingWidth ?? 0)),
       ceiling = (z.ceilingLoadSplit?.inputFlat ?? 0) * z.bearingArea,
       topLayers = p.loads.roofDead * z.surfaceArea - ceiling,
       topLeft = (topLayers * leftArea) / (leftArea + rightArea),
       topRight = topLayers - topLeft,
-      snowLeft = p.loads.snow * (z.loadSnowFactor ?? 1) * shape(z.pitchLeft) * coverWidth * leftSpan,
-      snowRight = p.loads.snow * (z.loadSnowFactor ?? 1) * shape(z.pitchRight) * coverWidth * rightSpan;
+      snowLeft = snowBase * (z.loadSnowFactor ?? 1) * shape(z.pitchLeft) * coverWidth * leftSpan,
+      snowRight = snowBase * (z.loadSnowFactor ?? 1) * shape(pitchRight) * coverWidth * rightSpan;
+    if (rows.length < 2 || !(S > EPS)) continue;
     const load = (r, W, v, kind) => {
       r[kind + "A"] += (W * (supportMaxV - v)) / S;
       r[kind + "B"] += (W * (v - supportMinV)) / S;
@@ -2151,9 +2355,9 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
     for (const row of rows) {
       const share = row.tributaryWidth / roofWidth,
         ceilShare = ceilingWidth > 0 ? (row.ceilingWidth ?? 0) / ceilingWidth : share;
-      load(row, topLeft * share, leftCenter, "dead");
-      load(row, topRight * share, rightCenter, "dead");
-      load(row, ceiling * ceilShare, (b.minV + b.maxV) / 2, "dead");
+      load(row, topLeft * share, leftCenter, "layers");
+      load(row, topRight * share, rightCenter, "layers");
+      load(row, ceiling * ceilShare, (b.minV + b.maxV) / 2, "layers");
       load(row, snowLeft * share, leftCenter, "snow");
       load(row, snowRight * share, rightCenter, "snow");
     }
@@ -2180,15 +2384,23 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
         const t = (k + 0.5) / n,
           q = centered ? board.massCenter : board.start.map((x, i) => x + (board.end[i] - x) * t),
           W = (board.mass * G) / 1000 / n;
-        for (const [row, factor] of indices(U(q))) load(row, W * factor, V(q), "dead");
+        for (const [row, factor] of indices(U(q))) load(row, W * factor, V(q), "timber");
       }
     }
-    const invalid = rows.some(
-      (r) =>
-        r.deadA * p.loads.gammaG + r.snowA * p.loads.gammaQ < -EPS ||
-        r.deadB * p.loads.gammaG + r.snowB * p.loads.gammaQ < -EPS ||
-        r.deadA + r.snowA < -EPS ||
-        r.deadB + r.snowB < -EPS,
+    const dead = (r, e) => r["layers" + e] + r["timber" + e];
+    const invalid = rows.some((r) =>
+      ["A", "B"].some(
+        (e) =>
+          dead(r, e) + r["snow" + e] < -EPS ||
+          (loads.combinations ?? [{ psi: { snow: 1 } }]).some(
+            (combo) =>
+              combineDesign(
+                { layers: r["layers" + e], timber: r["timber" + e], snow: r["snow" + e] },
+                factors,
+                combo,
+              ) < -EPS,
+          ),
+      ),
     );
     if (invalid) {
       (loads.roofSupportRoutingIssues ??= []).push(z.id);
@@ -2199,27 +2411,63 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
         ["A", row.bearingStart],
         ["B", row.bearingEnd],
       ]) {
-        const characteristic = row["dead" + end] + row["snow" + end],
-          design = row["dead" + end] * p.loads.gammaG + row["snow" + end] * p.loads.gammaQ;
+        // One bearing sample with its components: eave tails may make a single
+        // component negative while the combined downward reaction stays valid.
+        const components = {
+          layers: row["layers" + end],
+          timber: row["timber" + end],
+          snow: row["snow" + end],
+        };
         samples.push({
           point: { x: point[0], y: point[2] },
-          characteristic,
-          design,
+          characteristic: components.layers + components.timber + components.snow,
+          components,
           area: 0,
           roofZoneId: z.id,
           trussRow: row.row,
         });
       }
+    // Wind uplift (B4): suction on each slope plan projection + internal
+    // pressure against 0,9 × permanent heel reaction (СП 20 п. 7.2).
+    let worst = { net: -Infinity };
+    for (const wc of upliftCases(z.pitchLeft, pitchRight))
+      for (const row of rows) {
+        const share = row.tributaryWidth / roofWidth,
+          r = { upA: 0, upB: 0 };
+        const add = (W, v) => {
+          r.upA += (W * (supportMaxV - v)) / S;
+          r.upB += (W * (v - supportMinV)) / S;
+        };
+        add(windPressure * wc.left * coverWidth * leftSpan * share, leftCenter);
+        add(windPressure * wc.right * coverWidth * rightSpan * share, rightCenter);
+        for (const e of ["A", "B"]) {
+          const net = r["up" + e] * factors.wind - factors.favourable * dead(row, e);
+          if (net > worst.net) worst = { net, row: row.row, end: e, case: wc.id, up: r["up" + e] };
+        }
+      }
+    uplift.push({
+      zoneId: z.id,
+      framing: routing.kind === "physical" ? "physicalTruss" : "truss",
+      rows: rows.length,
+      netUpliftPerSupport: worst.net,
+      governingCase: worst.case,
+      row: worst.row,
+      end: worst.end,
+      characteristicUplift: worst.up,
+    });
     const wood = (sum(roofBoards.map((b) => b.mass)) * G) / 1000,
-      dead = p.loads.roofDead * z.surfaceArea + wood,
       snow = snowLeft + snowRight;
-    assignedRoof += dead;
+    assignedLayers += p.loads.roofDead * z.surfaceArea;
+    assignedTimber += wood;
     assignedSnow += snow;
+    routedZoneIds.add(z.id);
     (loads.roofSupportRouting ??= []).push({
       zoneId: z.id,
       method:
-        "Two-bearing whole-truss equilibrium; roof layers and real wood, flat ceiling and asymmetric snow projection. Not a spatial frame stiffness solution.",
-      dead,
+        routing.kind === "physical"
+          ? "Two-bearing whole-truss equilibrium; roof layers and real wood, flat ceiling and asymmetric snow projection. Not a spatial frame stiffness solution."
+          : "Two-bearing equilibrium of each idealised FEM truss row at the zone eave lines; roof layers, real wood and snow projection per slope. Not a spatial frame stiffness solution.",
+      dead: p.loads.roofDead * z.surfaceArea + wood,
       snow,
       ceiling,
       rows: rows.map((r) => ({
@@ -2227,42 +2475,87 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
         u: r.u,
         bearingStart: r.bearingStart,
         bearingEnd: r.bearingEnd,
-        characteristicA: r.deadA + r.snowA,
-        characteristicB: r.deadB + r.snowB,
-        designA: r.deadA * p.loads.gammaG + r.snowA * p.loads.gammaQ,
-        designB: r.deadB * p.loads.gammaG + r.snowB * p.loads.gammaQ,
+        characteristicA: dead(r, "A") + r.snowA,
+        characteristicB: dead(r, "B") + r.snowB,
+        designA: r.layersA * factors.layers + r.timberA * factors.timber + r.snowA * factors.snow,
+        designB: r.layersB * factors.layers + r.timberB * factors.timber + r.snowB * factors.snow,
       })),
     });
   }
-  const remainingRoof = loads.roofWeight - assignedRoof,
-    remainingSnow = loads.snow - assignedSnow;
-  if (Math.abs(remainingRoof) > EPS || Math.abs(remainingSnow) > EPS)
+  const roofLayersTotal = loads.roofWeight - (loads.roofTimberWeight ?? 0),
+    remainingLayers = roofLayersTotal - assignedLayers,
+    remainingTimber = (loads.roofTimberWeight ?? 0) - assignedTimber,
+    remainingSnow = loads.snow - assignedSnow,
+    remaining = remainingLayers + remainingTimber + remainingSnow;
+  loads.roofLoadPath = {
+    routedZoneIds: [...routedZoneIds],
+    unroutedZoneIds: (loads.roofZones ?? []).filter((z) => !routedZoneIds.has(z.id)).map((z) => z.id),
+    perimeterFallback: { layers: remainingLayers, timber: remainingTimber, snow: remainingSnow },
+  };
+  if (Math.abs(remainingLayers) > EPS || Math.abs(remainingTimber) > EPS || Math.abs(remainingSnow) > EPS)
     for (const w of exterior) {
       const n = Math.max(1, Math.ceil(w.length / 0.5));
       for (let i = 0; i < n; i++) {
         const q = lerp(w.a, w.b, (i + 0.5) / n),
-          share = w.length / (perimeter * n);
-        distribute(q, remainingRoof * share, p.loads.gammaG);
-        distribute(q, remainingSnow * share, p.loads.gammaQ);
+          share = w.length / (perimeter * n),
+          extra = { roofFallback: true };
+        distribute(q, remainingLayers * share, "layers", 0, undefined, extra);
+        distribute(q, remainingTimber * share, "timber", 0, undefined, extra);
+        distribute(q, remainingSnow * share, "snow", 0, undefined, extra);
       }
     }
+  loads.roofLoadPath.perimeterFallbackTotal = remaining;
+  loads.windUplift = uplift;
   for (const row of loads.wallLineLoads) {
     if (routedWalls.has(row.wallId)) continue;
     const w = walls.find((w) => w.id === row.wallId);
     if (!w) continue;
     const n = Math.max(1, Math.ceil(w.length / 0.5));
-    for (let i = 0; i < n; i++) distribute(lerp(w.a, w.b, (i + 0.5) / n), row.weight / n, p.loads.gammaG);
+    for (let i = 0; i < n; i++) distribute(lerp(w.a, w.b, (i + 0.5) / n), row.weight / n, "layers");
   }
-  if (loads.gableWeight)
-    for (const w of exterior) {
-      const n = Math.max(1, Math.ceil(w.length / 0.5));
-      for (let i = 0; i < n; i++)
-        distribute(
-          lerp(w.a, w.b, (i + 0.5) / n),
-          (loads.gableWeight * w.length) / (perimeter * n),
-          p.loads.gammaG,
+  if (loads.gableWeight) {
+    // Gable triangles stand on the gable walls of their roof zone (walls at the
+    // zone ends, parallel to the truss span). Fallback: whole perimeter.
+    const gableWalls = [];
+    for (const z of loads.roofZones ?? []) {
+      if (!(z.gableArea > EPS) || !z.bounds) continue;
+      const t = (z.ridgeAngle * Math.PI) / 180,
+        c = Math.cos(t),
+        s = Math.sin(t),
+        U = (q) => q.x * c + q.y * s,
+        list = exterior.filter(
+          (w) =>
+            (w.level === undefined || w.level === z.levelIndex) &&
+            Math.abs(U(w.a) - U(w.b)) < 1e-6 &&
+            [z.bounds.minU, z.bounds.maxU].some((u) => Math.abs(U(w.a) - u) < 1e-6),
         );
+      if (list.length) gableWalls.push({ area: z.gableArea, walls: list });
     }
+    const gableTotal = sum(gableWalls.map((g) => g.area));
+    if (gableTotal > EPS)
+      for (const g of gableWalls) {
+        const length = sum(g.walls.map((w) => w.length));
+        for (const w of g.walls) {
+          const n = Math.max(1, Math.ceil(w.length / 0.5));
+          for (let i = 0; i < n; i++)
+            distribute(
+              lerp(w.a, w.b, (i + 0.5) / n),
+              (((loads.gableWeight * g.area) / gableTotal) * w.length) / (length * n),
+              "layers",
+            );
+        }
+      }
+    else
+      for (const w of exterior) {
+        const n = Math.max(1, Math.ceil(w.length / 0.5));
+        for (let i = 0; i < n; i++)
+          distribute(
+            lerp(w.a, w.b, (i + 0.5) / n),
+            (loads.gableWeight * w.length) / (perimeter * n),
+            "layers",
+          );
+      }
+  }
   const panels = loads.structuralPanels ?? [],
     panelArea = sum(panels.map((q) => q.area ?? 0));
   if (panelArea > EPS)
@@ -2273,12 +2566,12 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
         x: sum(points.map((p) => p[0])) / points.length,
         y: sum(points.map((p) => p[2])) / points.length,
       };
-      distribute(q, (loads.structuralPanelWeight * (panel.area ?? 0)) / panelArea, p.loads.gammaG);
+      distribute(q, (loads.structuralPanelWeight * (panel.area ?? 0)) / panelArea, "timber");
     }
   for (const board of timber.instances) {
     // All wood except roof wood (already in roofWeight) enters once. Spread long
     // pieces along their real axes; foundation plies stay on their own beam.
-    if (board.category === "roof" || routedBoards.has(board.id)) continue;
+    if (board.category === "roof" || routedBoards.has(board.id) || routedJoistBoards.has(board.id)) continue;
     const n = Math.max(1, Math.ceil(board.length / 0.5));
     for (let i = 0; i < n; i++) {
       const t = (i + 0.5) / n,
@@ -2289,7 +2582,7 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
       distribute(
         q,
         (board.mass * G) / 1000 / n,
-        p.loads.gammaG,
+        "timber",
         0,
         board.category === "foundation" ? board.beamId : undefined,
       );
@@ -2297,34 +2590,110 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
   }
   // Only sources with a complete wall -> floor -> real grillage route replace
   // the legacy direct samples. Their weight is never added a second time.
-  samples.push(...(wallLoadTransfers?.foundationSamples ?? []));
-  const analyzed = analyzeGrillageLoads(p, grillageModel, samples);
+  for (const s of wallLoadTransfers?.foundationSamples ?? [])
+    samples.push({ ...s, kind: s.kind ?? (s.sourceBoardId ? "timber" : "layers") });
+  // ---- Basic combinations: evaluate the grillage for each leading action.
+  const combos = (loads.combinations?.length ? loads.combinations : [{ id: "permanent", psi: {} }]).map(
+      (c) => ({ ...c, psi: c.psi ?? {} }),
+    ),
+    governingId = loads.governingCombination ?? combos[0].id,
+    designOf = (s, combo) => combineDesign(s.components ?? { [s.kind]: s.characteristic }, factors, combo);
+  const runs = combos.map((combo) => {
+    const local = samples.map((s) => ({ ...s, design: designOf(s, combo) }));
+    return { combo, samples: local, analyzed: analyzeGrillageLoads(p, grillageModel, local) };
+  });
+  const main = runs.find((r) => r.combo.id === governingId) ?? runs[0],
+    analyzed = main.analyzed;
+  // Grillage bending envelope over combinations.
+  const worstRun = runs.reduce((a, b) =>
+    (b.analyzed.worstSpan?.check?.utilization ?? 0) > (a.analyzed.worstSpan?.check?.utilization ?? 0) ? b : a,
+  );
+  if (worstRun !== main) {
+    const strength = worstRun.analyzed.loadChecks.find((c) => c.id === "grillage-strength"),
+      i = analyzed.loadChecks.findIndex((c) => c.id === "grillage-strength");
+    if (strength && i >= 0) analyzed.loadChecks[i] = { ...strength, combination: worstRun.combo.id };
+  }
   Object.assign(grillageModel, analyzed);
   const piles = analyzed.piles;
   for (const pile of piles) {
-    pile.utilization = pile.reaction / p.foundation.capacity;
+    const values = runs.map((r) => ({
+      id: r.combo.id,
+      reaction: r.analyzed.piles.find((q) => q.id === pile.id)?.reaction ?? 0,
+    }));
+    const max = values.reduce((a, b) => (b.reaction > a.reaction ? b : a));
+    pile.reactionByCombination = Object.fromEntries(values.map((v) => [v.id, v.reaction]));
+    pile.reactionEnvelope = max.reaction;
+    pile.governingCombination = max.id;
+    pile.utilization = pile.reactionEnvelope / p.foundation.capacity;
     pile.status = pile.utilization > 1 ? "fail" : pile.utilization > 0.85 ? "warning" : "pass";
   }
-  const maxPile = piles.reduce((a, b) => (!a || b.reaction > a.reaction ? b : a), null),
+  const maxPile = piles.reduce((a, b) => (!a || b.reactionEnvelope > a.reactionEnvelope ? b : a), null),
     reactionSum = sum(piles.map((x) => x.reaction)),
     characteristicSum = sum(piles.map((x) => x.reactionCharacteristic));
   return {
-    samples,
+    samples: main.samples,
     piles,
+    floorRouting,
     foundation: {
       count: piles.length,
       maxPile,
-      maxReaction: maxPile?.reaction ?? 0,
+      maxReaction: maxPile?.reactionEnvelope ?? 0,
       utilization: maxPile?.utilization ?? 0,
       reactionSum,
       characteristicSum,
       balanceError: reactionSum - loads.totalDesign,
+      combination: main.combo.id,
+      combinations: runs.map((r) => ({
+        id: r.combo.id,
+        reactionSum: sum(r.analyzed.piles.map((q) => q.reaction)),
+        maxReaction: Math.max(0, ...r.analyzed.piles.map((q) => q.reaction)),
+      })),
       status: maxPile && maxPile.utilization > 1 ? "fail" : "unverified",
       method:
-        "Перенос на ближайший пролёт ростверка и равновесие шарнирных балок; без расчёта пространственной жёсткости и грунта.",
+        "Перекрытия — опорные реакции лаг (однопролётные балки) на ростверк или стены нижнего этажа; кровля — реакции рядов ферм/стропил на опорные стены; затем ближайший пролёт ростверка и равновесие шарнирных балок. Без пространственной жёсткости и грунта.",
       sampleCount,
     },
   };
+}
+
+/** Building wind resultants per storey (СП 20.13330.2016 п. 11.1, прил. В). */
+function houseWindForces(p, geometry, roofModel) {
+  const levels = (geometry.levels ?? [])
+    .filter((l) => l.closed && l.bounds)
+    .map((l) => {
+      const top = finite(l.topY) ? l.topY : (l.elevation ?? 0) + (l.height ?? p.height);
+      return {
+        index: l.index,
+        bounds: l.bounds,
+        top,
+        height: finite(l.baseY) ? top - l.baseY : (l.height ?? p.height),
+      };
+    });
+  const zones = (roofModel?.zones ?? []).filter((z) => z.bounds && finite(z.rise));
+  let synthetic = [];
+  const roofLevel = levels.at(-1);
+  if (!roofModel && roofLevel && !["none"].includes(p.roof?.type)) {
+    const mono = p.roof.type === "mono",
+      span = roofLevel.bounds.height,
+      t = Math.tan(((p.roof.pitch ?? 25) * Math.PI) / 180);
+    synthetic = [
+      {
+        shape: mono ? "mono" : "gable",
+        ridgeAngle: 0,
+        bounds: { length: roofLevel.bounds.width, span },
+        rise: mono ? span * t : (span / 2) * t,
+        pitchLeft: p.roof.pitch,
+        pitchRight: p.roof.pitch,
+      },
+    ];
+  }
+  const roofTop = Math.max(
+      -Infinity,
+      ...(roofModel?.surfaces ?? []).flatMap((s) => s.points.map((q) => q[1]).filter(finite)),
+    ),
+    levelTop = Math.max(0, ...levels.map((l) => l.top)),
+    ze = Math.max(levelTop + (synthetic[0]?.rise ?? 0), Number.isFinite(roofTop) ? roofTop : 0);
+  return windStoreyForces({ loads: p.loads, levels, zones: zones.length ? zones : synthetic, ze });
 }
 
 export function calculateDesigner(input, { truss, roofModel } = {}) {
@@ -2509,7 +2878,8 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
   let timber = mergeTimber([...timberParts, grillageTimber], p);
   const checks = [...(grillageModel.checks ?? []), ...partitionHeads.checks];
   warnings.push(...(grillageModel.warnings ?? []));
-  const bracingModel = buildWallBracing(p, { geometry, walls, timber, roofModel });
+  const houseWind = houseWindForces(p, geometry, roofModel);
+  const bracingModel = buildWallBracing(p, { geometry, walls, timber, roofModel, wind: houseWind });
   for (const notch of bracingModel.notches ?? []) {
     const board = timber.instances.find((b) => b.id === notch.boardId);
     if (!board) continue;
@@ -2619,7 +2989,11 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
         joint.memberWorldIds = (joint.memberSourceBoardIds ?? []).flatMap(
           (id) => physicalRoofIds.get(id) ?? [],
         );
-  const fullHeightWalls = checkFullHeightWalls(p, { timber, geometry, bracingModel }, roofModel);
+  const fullHeightWalls = checkFullHeightWalls(
+    memberLoadProject(p, houseWind),
+    { timber, geometry, bracingModel },
+    roofModel,
+  );
   checks.push(...fullHeightWalls.checks);
   warnings.push(...fullHeightWalls.walls.flatMap((w) => w.warnings ?? []));
   if (bracingModel.notches?.length) {
@@ -2695,18 +3069,19 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
     "Площади планировки и полезная нагрузка сохраняются по осевому контуру. Масса слоёв платформы считается по её фактической наружной грани каркаса за вычетом неизменённых проёмов; физическая древесина добавляется отдельно. Передача наружной полосы на оси ростверка — концептуальное вертикальное распределение, не проверка эксцентриситета, смятия или кручения.",
     "Слои перекрытия, кровли и стен вводятся без древесины и отдельно учитываемых плит жёсткости стен. Вес всех сформированных досок добавляется ровно один раз. Площадь проёмов заменяет слои стены заданным весом заполнения.",
     "Треугольные фронтоны добавлены только для прямоугольного плана с симметричной двускатной кровлей. Для односкатной и нерегулярной кровли высоты фасадов и фронтоны требуют отдельного задания.",
-    "Сваи стоят на линиях пакетного ростверка. Нагрузка переносится на ближайшие пролёты и через равновесие шарнирно опёртых балок — на концевые сваи. Жёсткость пространственной решётки, осадки, отрыв и грунт не решены.",
+    "Сваи стоят на линиях пакетного ростверка. Перекрытия передаются опорными реакциями однопролётных лаг на ростверк (1 этаж) или на стены нижнего этажа (верхние этажи, далее по вертикали стены), кровля — реакциями рядов ферм/стропил на опорные стены. Затем нагрузка идёт на ближайший пролёт ростверка и через равновесие шарнирно опёртых балок — на концевые сваи. Жёсткость пространственной решётки, неразрезность ростверка, осадки, отрыв и грунт не решены.",
     roofModel
-      ? "Снег по заданным коэффициентам кровельных зон и проекции покрытия со свесами. loads.mu — средневзвешенное snowEffectiveArea/projectedRoofArea, включая зонные множители; отдельные коэффициенты приведены по зонам. Нормативные сочетания и заносы не подтверждены."
+      ? "Снег S0 = ce·ct·µ·Sg по кровельным зонам и проекции покрытия со свесами (СП 20.13330.2016 п. 10.1, прил. Б). loads.mu — средневзвешенное snowEffectiveArea/projectedRoofArea, включая зонные множители; отдельные коэффициенты приведены по зонам. Несимметричный вариант 2 проверяется для ферм в зонной модели; снеговые мешки не рассчитаны."
       : p.roof.snowMu !== undefined
-        ? "Снег: явно заданный roof.snowMu, Ce=Ct=1. Нормативные сочетания, заносы и снегозадержатели не проверены."
-        : "Снег: равномерный принятый случай μ=0,8 до30°, далее линейно до0 на60°; Ce=Ct=1. Нормативные сочетания и заносы не проверены.",
-    "Ветер не добавляется в вертикальные реакции. Пространственная устойчивость, диафрагмы, анкеры и горизонтальные реакции не рассчитаны.",
+        ? "Снег: явно заданный roof.snowMu, S0 = ce·ct·µ·Sg. Заносы и снегозадержатели не проверены."
+        : "Снег: µ = 1 до 30°, далее линейно до 0 на 60° (СП 20.13330.2016 прил. Б, схема Б.1), S0 = ce·ct·µ·Sg. Заносы не проверены.",
+    "Ветер не добавляется в вертикальные реакции свай. Горизонтальные равнодействующие wm = w0·k(ze)·c по этажам (loads.windStoreys) передаются в проверку раскрепления стен; диафрагмы, анкеры стен и горизонтальные реакции свай не рассчитаны.",
     "Схема кровли по габаритному прямоугольнику требует проверки покрытия и опирания; отсутствие фермы означает отсутствие её древесины в весе.",
     "Физические стыки длинных досок не добавляют шарниры или жёсткость в расчёт фермы: её FEM-модель остаётся идеальной неразрезной по стержням. Геометрическое наращивание не подтверждает передачу усилий.",
     "При наращивании halfLap/scarf геометрические части перекрываются на lapLength; из массы каждого конца вычитается половина объёма нахлёста. Накладки fishplate — отдельные доски. Закупочный объём считается по полным cutLength, не по чистой массе.",
   ];
   assumptions.push(
+    ...profileAssumptions(p.loads),
     ...partitionHeads.assumptions,
     ...(spatialLayout.assumptions ?? []),
     ...(auxiliaryTimber.assumptions ?? []),
@@ -2727,10 +3102,13 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
   if (graph.closed) {
     const A = graph.area,
       F = p.floors,
+      profile = loadProfile(p.loads),
+      factors = loadFactors(p.loads),
+      snowBase = snowBasis(p.loads),
       mu =
         finite(roofModel?.snowEffectiveArea) && roofModel.projectedArea > 0
           ? roofModel.snowEffectiveArea / roofModel.projectedArea
-          : (p.roof.snowMu ?? (p.roof.pitch <= 30 ? 0.8 : (0.8 * (60 - p.roof.pitch)) / 30)),
+          : (p.roof.snowMu ?? snowShapeMu(p.roof.pitch, profile)),
       roofArea =
         p.roof.type === "none"
           ? 0
@@ -2746,10 +3124,11 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
       openingWeight = openingArea * p.loads.openingDead,
       gableWeight = gableArea * p.loads.wallDead,
       live = geometry.totalFloorArea * p.loads.live,
+      // S0 = ce·ct·µ·Sg (СП 20.13330.2016 п. 10.1); µ is inside snowEffectiveArea.
       snow =
         p.roof.type === "none"
           ? 0
-          : p.loads.snow *
+          : snowBase.base *
             (finite(roofModel?.snowEffectiveArea) ? roofModel.snowEffectiveArea : projectedRoofArea * mu),
       dead =
         floorLayers +
@@ -2759,33 +3138,49 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
         openingWeight +
         timber.weight +
         structuralPanelWeight;
-    const rows = [
+    const rawRows = [
       {
         id: "structural-panels",
         label: "Плиты жёсткости стен",
         characteristic: structuralPanelWeight,
         kind: "dead",
+        loadKind: "timber",
       },
       {
         id: "floor-layers",
         label: "Слои перекрытий без древесины",
         characteristic: floorLayers,
         kind: "dead",
+        loadKind: "layers",
       },
-      { id: "roof-layers", label: "Слои кровли без древесины", characteristic: roofLayers, kind: "dead" },
+      {
+        id: "roof-layers",
+        label: "Слои кровли без древесины",
+        characteristic: roofLayers,
+        kind: "dead",
+        loadKind: "layers",
+      },
       {
         id: "wall-layers",
         label: "Слои наружных стен без древесины",
         characteristic: wallWeight,
         kind: "dead",
+        loadKind: "layers",
       },
       {
         id: "inner-layers",
         label: "Слои внутренних стен без древесины",
         characteristic: innerWallWeight,
         kind: "dead",
+        loadKind: "layers",
       },
-      { id: "openings", label: "Заполнение проёмов", characteristic: openingWeight, kind: "dead" },
+      {
+        id: "openings",
+        label: "Заполнение проёмов",
+        characteristic: openingWeight,
+        kind: "dead",
+        loadKind: "layers",
+      },
       ...["foundation", "walls", "floor", "roof", "bracing", "objects", "spatial"].map((k) => ({
         id: "timber-" + k,
         label: {
@@ -2799,32 +3194,27 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
         }[k],
         characteristic: timber.totals[k].weight,
         kind: "dead",
+        loadKind: "timber",
       })),
-      { id: "live", label: "Полезная нагрузка", characteristic: live, kind: "variable" },
-      { id: "snow", label: "Снег", characteristic: snow, kind: "variable" },
-    ].map((r) => ({
-      ...r,
-      design: r.characteristic * (r.kind === "dead" ? p.loads.gammaG : p.loads.gammaQ),
-    }));
+      { id: "live", label: "Полезная нагрузка", characteristic: live, kind: "variable", loadKind: "live" },
+      { id: "snow", label: "Снег", characteristic: snow, kind: "variable", loadKind: "snow" },
+    ];
+    // Basic combinations (СП 20 п. 6.2, 6.4): each temporary action leads once.
+    const components = { timber: 0, layers: 0, live, snow };
+    for (const r of rawRows) if (r.kind === "dead") components[r.loadKind] += r.characteristic;
+    const combination = governingCombination(components, factors),
+      governing = combination.governing;
+    const rows = rawRows.map((r) => {
+      const gamma = kindFactor(factors, r.loadKind),
+        psi = r.kind === "dead" ? 1 : (governing.psi[r.loadKind] ?? 0);
+      return { ...r, gamma, psi, design: r.characteristic * gamma * psi };
+    });
     const wallLineLoads = walls.map((w) => ({
       wallId: w.id,
       weight: (w.grossArea - w.openingArea) * p.loads.wallDead + w.openingArea * p.loads.openingDead,
     }));
     const roofMassIncluded = timber.roofGeometryAvailable || p.roof.type === "none",
       complete = roofMassIncluded && geometry.areaComplete && geometry.platformAreaComplete;
-    const facadeArea = (axis) =>
-      Math.max(
-        ...[1, -1].map((sign) =>
-          sum(
-            walls
-              .filter((w) => w.kind === "exterior")
-              .map((w) => {
-                const normal = axis === "x" ? (w.b.y - w.a.y) / w.length : -(w.b.x - w.a.x) / w.length;
-                return w.grossArea * Math.max(0, sign * normal);
-              }),
-          ),
-        ),
-      ) + gableArea;
     loads = {
       rows,
       roofZones: roofModel?.zones ?? [],
@@ -2836,15 +3226,28 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
       snow,
       mu,
       muBasis: roofModel
-        ? "Area-weighted snowEffectiveArea / projectedRoofArea including zone factors"
+        ? "Area-weighted snowEffectiveArea / projectedRoofArea including zone factors (SP 20.13330.2016 App. B)"
         : p.roof.snowMu !== undefined
           ? "Explicit roof.snowMu"
-          : "Adopted default pitch law",
+          : "SP 20.13330.2016 App. B scheme B.1: mu=1 up to 30 deg, 0 at 60 deg",
+      snowGround: snowBase.Sg,
+      snowCe: snowBase.ce,
+      snowCt: snowBase.ct,
+      profile: profile.id,
+      factors,
+      combinations: combination.combinations.map((c) => ({
+        id: c.id,
+        leading: c.leading,
+        psi: c.psi,
+        totalDesign: c.total,
+      })),
+      governingCombination: governing.id,
       roofArea,
       projectedRoofArea,
       floorArea: geometry.totalFloorArea,
       platformArea: geometry.totalPlatformArea,
       roofWeight: roofLayers + timber.totals.roof.weight,
+      roofTimberWeight: timber.totals.roof.weight,
       wallWeight,
       innerWallWeight,
       openingWeight,
@@ -2852,9 +3255,23 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
       wallLineLoads,
       timberWeight: timber.weight,
       totalCharacteristic: dead + live + snow,
-      totalDesign: dead * p.loads.gammaG + (live + snow) * p.loads.gammaQ,
-      windForceX: p.loads.wind * facadeArea("x"),
-      windForceY: p.loads.wind * facadeArea("y"),
+      totalDesign: governing.total,
+      // Horizontal wind resultants on the whole building (bottom storey shear),
+      // characteristic values: w0·k(ze)·(0,8+0,5)·projected area incl. gables/roof.
+      windForceX: houseWind.forceX,
+      windForceY: houseWind.forceY,
+      windDesignX: houseWind.forceX * factors.wind,
+      windDesignY: houseWind.forceY * factors.wind,
+      windStoreys: houseWind.storeys,
+      windPressure: {
+        w0: houseWind.w0,
+        terrain: houseWind.terrain,
+        ze: houseWind.ze,
+        k: houseWind.k,
+        wm: houseWind.pressure,
+        coefficient: houseWind.coefficient,
+        roofAreas: houseWind.roofAreas,
+      },
       complete,
       roofMassIncluded,
       missingLoads: [
@@ -2875,10 +3292,64 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
       loads,
       grillageModel,
       floorPlatform.wallLoadTransfers,
+      floorPlatform,
     );
     piles = field.piles;
     foundation = field.foundation;
     foundationSamples = field.samples;
+    loads.floorRouting = field.floorRouting;
+    const fallbackLevels = field.floorRouting.levels.filter((l) => l.method !== "joist-reactions");
+    checks.push({
+      id: "floor-load-path",
+      label: "Передача нагрузок перекрытий через лаги",
+      status: fallbackLevels.length ? "unverified" : "pass",
+      levels: field.floorRouting.levels.map((l) => l.level),
+      note: fallbackLevels.length
+        ? "Для этажей " +
+          fallbackLevels.map((l) => l.level + " (" + l.reason + ")").join("; ") +
+          " постоянная и полезная нагрузка распределены по площади на ближайший пролёт ростверка, минуя лаги и стены."
+        : "Постоянная и полезная нагрузка каждого этажа переданы опорными реакциями лаг на реальные опоры: ростверк или стены нижнего этажа.",
+    });
+    const fallback = loads.roofLoadPath?.perimeterFallbackTotal ?? 0;
+    if (Math.abs(fallback) > 1e-3)
+      checks.push({
+        id: "roof-load-path-fallback",
+        label: "Кровля: нагрузка без расчётного пути на опорные стены",
+        status: "unverified",
+        value: fallback,
+        unit: "кН",
+        zoneIds: loads.roofLoadPath.unroutedZoneIds,
+        note: "Часть постоянной нагрузки и снега кровли не имеет решённых опорных реакций (вальма, обрезанные рамы, неустойчивая схема или неучтённые доски). Она условно распределена по длине всех наружных стен, включая фронтонные; реакции опор под ней не подтверждены.",
+      });
+    for (const u of loads.windUplift ?? [])
+      checks.push({
+        id: "wind-uplift-" + u.zoneId,
+        label: "Ветровой отрыв опор кровли: анкеровка",
+        status: u.netUpliftPerSupport > 0 ? "warning" : "pass",
+        value: Math.max(0, u.netUpliftPerSupport),
+        limit: 0,
+        unit: "кН",
+        zoneId: u.zoneId,
+        governingCase: u.governingCase,
+        note:
+          u.netUpliftPerSupport > 0
+            ? `Расчётный отрыв ${u.netUpliftPerSupport.toFixed(2)} кН на опору (1,4·W − 0,9·G, ${u.governingCase}). Анкеровка пяты к обвязке не моделируется: требуется крепёж не менее ${u.netUpliftPerSupport.toFixed(2)} кН на каждую опору.`
+            : `Постоянная нагрузка 0,9·G удерживает опоры от отрыва 1,4·W (запас ${(-u.netUpliftPerSupport).toFixed(2)} кН на опору). Крепление от сдвига и опрокидывания не проверено.`,
+      });
+    checks.push({
+      id: "load-combinations",
+      label: "Сочетания нагрузок",
+      status: "pass",
+      value: loads.totalDesign,
+      unit: "кН",
+      governingCombination: loads.governingCombination,
+      note:
+        "Основные сочетания СП 20.13330.2016 п. 6.2, 6.4: " +
+        loads.combinations.map((c) => `${c.id} = ${c.totalDesign.toFixed(1)} кН`).join("; ") +
+        ". Определяющее по сумме — " +
+        loads.governingCombination +
+        "; реакции свай — огибающая сочетаний.",
+    });
     checks.push(...(grillageModel.loadChecks ?? []));
     if (loads.roofSupportRoutingIssues?.length)
       checks.push({

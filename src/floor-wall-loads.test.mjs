@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { solveFloorWallBeam, attachFloorWallLoads } from "./floor-wall-loads.js";
 import { checkDesignerMembers } from "./designer-mechanics.js";
+import { memberLoadProject } from "./load-profile.js";
 const near = (a, b, t = 1e-8) => assert.ok(Number.isFinite(a) && Math.abs(a - b) < t, `${a} != ${b}`);
 const beam = { length: 4, b: 100, h: 200, E: 10000, Fb: 13, Fv: 1.6 };
 const total = (a) => a.reduce((s, x) => s + x, 0);
@@ -239,14 +240,14 @@ test("incomplete support aborts the whole wall transfer, retains direct-routing 
   assert.equal(out.foundationSamples.length, 0);
   assert.deepEqual(out.unverifiedWallIds, ["P"]);
   assert.ok(f.timber.instances.filter((b) => b.role === "joist").every((j) => j.wallLoadsComplete === false));
-  const m = checkDesignerMembers(f.p, { ...f, loads: {} });
+  const m = checkDesignerMembers(memberLoadProject(f.p), { ...f, loads: {} });
   assert.ok(m.joist.members.every((j) => j.status === "unverified" && !j.numericChecksApplicable));
 });
 test("mixed wall loads augment individual joist checks, no composite credit or false UDL-only span limit", () => {
   const f = fixture(),
-    baseline = checkDesignerMembers(f.p, { ...f, loads: {} });
+    baseline = checkDesignerMembers(memberLoadProject(f.p), { ...f, loads: {} });
   attachFloorWallLoads(f.p, f);
-  const m = checkDesignerMembers(f.p, { ...f, loads: {} });
+  const m = checkDesignerMembers(memberLoadProject(f.p), { ...f, loads: {} });
   assert.ok(m.joist.moment > baseline.joist.moment);
   assert.ok(m.joist.deflection > baseline.joist.deflection);
   assert.equal(m.joist.wallLoaded, true);

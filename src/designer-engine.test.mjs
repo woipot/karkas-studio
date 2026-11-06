@@ -1,4 +1,5 @@
 import test from "node:test";
+import { loadFactors } from "./load-profile.js";
 import assert from "node:assert/strict";
 import {
   defaultDesignerProject,
@@ -235,7 +236,7 @@ test("custom objects add exact mass once and do not become automatic floor suppo
   near(b.timber.mass - a.timber.mass, (0.1 * 0.1 * 2.8 + 0.05 * 0.2 * 4) * 500);
   near(
     b.loads.totalDesign - a.loads.totalDesign,
-    (((b.timber.mass - a.timber.mass) * 9.80665) / 1000) * p.loads.gammaG,
+    (((b.timber.mass - a.timber.mass) * 9.80665) / 1000) * loadFactors(p.loads).timber,
   );
   near(b.foundation.reactionSum, b.loads.totalDesign);
   assert.equal(
@@ -250,7 +251,7 @@ test("all layer loads zero: self weight still balances, with no double-counted s
   const r = calculateDesigner(p),
     selfWeight = (r.timber.mass * 9.80665) / 1000 + r.loads.structuralPanelWeight;
   near(r.loads.totalCharacteristic, selfWeight);
-  near(r.loads.totalDesign, selfWeight * p.loads.gammaG);
+  near(r.loads.totalDesign, selfWeight * loadFactors(p.loads).timber);
   near(r.foundation.reactionSum, r.loads.totalDesign);
   near(
     r.timber.volume,

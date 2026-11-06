@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { loadFactors } from "./load-profile.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
@@ -156,8 +157,8 @@ test("increasing plies adds only actual foundation self-weight once to the house
   );
   const weight = ((b.r.timber.totals.foundation.mass - a.r.timber.totals.foundation.mass) * 9.80665) / 1000;
   near(b.r.loads.totalCharacteristic - a.r.loads.totalCharacteristic, weight);
-  near(b.r.loads.totalDesign - a.r.loads.totalDesign, weight * p.loads.gammaG);
-  near(b.r.foundation.reactionSum - a.r.foundation.reactionSum, weight * p.loads.gammaG);
+  near(b.r.loads.totalDesign - a.r.loads.totalDesign, weight * loadFactors(p.loads).timber);
+  near(b.r.foundation.reactionSum - a.r.foundation.reactionSum, weight * loadFactors(p.loads).timber);
 });
 
 test("every load reaches real span-end piles and reconstructs all pile reactions", () => {

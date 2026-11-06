@@ -7,13 +7,67 @@ import { buildRafterSupports } from "./rafter-supports.js";
 import { timberSections } from "./catalog.js";
 import { calculateRoofDrainage, orientRoofsAwayFromWalls } from "./roof-drainage.js";
 import { buildTruss, trussSources } from "./trusses.js";
+import { loadProfile, loadFactors, snowBasis, snowShapeMu, unbalancedSnow } from "./load-profile.js";
 const EPS = 1e-7,
   G = 9.80665;
 const sum = (a) => a.reduce((s, x) => s + x, 0),
   finite = Number.isFinite;
-const mu = (pitch) => (pitch <= 30 ? 0.8 : Math.max(0, (0.8 * (60 - pitch)) / 30));
-// Explicit project/zone coefficients override the legacy shape rule everywhere.
-const snowMu = (zone, pitch) => zone.snowMu ?? mu(pitch);
+// µ(α) per the active code profile (СП 20.13330.2016 прил. Б, схема Б.1).
+// Explicit project/zone coefficients override the profile rule everywhere.
+const snowMu = (zone, pitch, profile) => zone.snowMu ?? snowShapeMu(pitch, profile);
+/**
+ * Envelope of one symmetric truss solution and its unbalanced snow cases: each
+ * bar keeps the forces of the case with the highest utilisation, deflection
+ * the maximum. Geometry, nodes and reactions stay those of the symmetric case.
+ */
+function envelopeTruss(base, cases) {
+  const all = [{ id: "symmetric", analysis: base }, ...cases.filter((c) => c.analysis?.stable)];
+  if (all.length < 2) return base;
+  const bars = base.bars.map((bar, i) => {
+    const options = all.map((c) => ({ id: c.id, bar: c.analysis.bars[i] })),
+      gov = options.reduce((a, b) => (b.bar.utilization > a.bar.utilization + 1e-12 ? b : a));
+    return {
+      ...gov.bar,
+      snowCase: gov.id,
+      utilizationByCase: Object.fromEntries(options.map((o) => [o.id, o.bar.utilization])),
+    };
+  });
+  const barById = new Map(bars.map((b) => [b.id, b])),
+    deflection = all
+      .map((c) => ({ id: c.id, check: c.analysis.checks.find((q) => q.id === "deflection") }))
+      .reduce((a, b) => ((b.check?.value ?? 0) > (a.check?.value ?? 0) ? b : a));
+  const checks = base.checks.map((q) => {
+    if (barById.has(q.id)) {
+      const bar = barById.get(q.id),
+        source = all.find((c) => c.id === bar.snowCase).analysis.checks.find((x) => x.id === q.id);
+      return { ...source, snowCase: bar.snowCase };
+    }
+    if (q.id === "deflection") return { ...deflection.check, snowCase: deflection.id };
+    return q;
+  });
+  const summary = all.map((c) => ({
+      id: c.id,
+      muLeft: c.muLeft,
+      muRight: c.muRight,
+      maxUtilization: c.analysis.analysis?.maxUtilization ?? null,
+      maxBarUtilization: Math.max(0, ...c.analysis.bars.map((b) => b.utilization)),
+      governedBars: bars.filter((b) => b.snowCase === c.id).map((b) => b.id),
+    })),
+    governing = summary.reduce((a, b) => (b.maxBarUtilization > a.maxBarUtilization ? b : a));
+  return {
+    ...base,
+    bars,
+    checks,
+    reactionsByCase: Object.fromEntries(all.map((c) => [c.id, c.analysis.reactions])),
+    snowCases: summary,
+    governingSnowCase: governing.id,
+    analysis: {
+      ...base.analysis,
+      maxUtilization: Math.max(...all.map((c) => c.analysis.analysis?.maxUtilization ?? 0)),
+    },
+    status: checks.some((c) => c.status === "fail") ? "fail" : base.status,
+  };
+}
 const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 const signedArea = (p) =>
   sum(p.map((a, i) => a.x * p[(i + 1) % p.length].y - p[(i + 1) % p.length].x * a.y)) / 2;
@@ -485,8 +539,8 @@ export function calculateRoofZones(
       sources: [
         ...trussSources,
         {
-          title: "JRC · Snow load shape coefficients",
-          url: "https://eurocodes.jrc.ec.europa.eu/sites/default/files/2022-06/1_Views_from_ECEE.pdf",
+          title: "СП 20.13330.2016 · Нагрузки и воздействия (снег — прил. Б, ветер — прил. В)",
+          url: "https://mchs.gov.ru/uploads/document/2025-04-18/8816d4293b285b2e72e149f6cea13cf2.pdf",
         },
       ],
       status: "unverified",
@@ -536,7 +590,15 @@ export function calculateRoofZones(
     return out;
   }
   const density = p.material?.density ?? 500,
-    E = p.material?.E ?? 10000;
+    E = p.material?.E ?? 10000,
+    profile = loadProfile(p.loads),
+    factors = loadFactors(p.loads),
+    // S = ce·ct·Sg, multiplied by µ of each slope (СП 20.13330.2016 п. 10.1).
+    snowBase = snowBasis(p.loads).base,
+    // Roof members carry layers (γf 1,2) and own timber (1,1) through one γG:
+    // the larger value keeps the member checks on the safe side.
+    gammaG = factors.equivalentG,
+    gammaQ = factors.snow;
   const add = (zone, role, b, h, a, z, extra = {}) => {
     const length = Math.hypot(...z.map((v, i) => v - a[i]));
     if (length < EPS) return;
@@ -627,9 +689,10 @@ export function calculateRoofZones(
       if (z.snowMu !== undefined && (!finite(z.snowMu) || z.snowMu < 0 || z.snowMu > 3))
         throw Error("snowMu: конечный коэффициент снега от0 до3.");
       z.snowCoefficients = {
-        method: z.snowMu === undefined ? "legacy-shape-rule" : "manual",
-        left: snowMu(z, z.pitchLeft),
-        right: snowMu(z, z.pitchRight),
+        method: z.snowMu === undefined ? profile.id : "manual",
+        clause: profile.snow.clause,
+        left: snowMu(z, z.pitchLeft, profile),
+        right: snowMu(z, z.pitchRight, profile),
       };
       if (!["auto", "rafters", "truss", "tiedRafters"].includes(z.framing))
         throw Error("Несущая схема: auto, rafters, truss или tiedRafters.");
@@ -813,7 +876,7 @@ export function calculateRoofZones(
           z.snowEffectiveArea +=
             projected *
             (z.loadSnowFactor ?? 1) *
-            snowMu(z, (Math.atan(Math.hypot(plane.a, plane.b)) * 180) / Math.PI);
+            snowMu(z, (Math.atan(Math.hypot(plane.a, plane.b)) * 180) / Math.PI, profile);
           out.surfaces.push({
             id: `${z.id}-S${out.surfaces.length + 1}`,
             zoneId: z.id,
@@ -964,10 +1027,10 @@ export function calculateRoofZones(
           ceilingSpacing: Math.max(...ceilingWidths),
           roofDead: z.ceilingLoadSplit.topPressure,
           ceilingDead: z.ceilingLoadSplit.flatPressure,
-          snow: (p.loads?.snow ?? 1.5) * (z.loadSnowFactor ?? 1),
-          mu: snowMu(z, z.pitchLeft),
-          gammaG: p.loads?.gammaG ?? 1.1,
-          gammaQ: p.loads?.gammaQ ?? 1.4,
+          snow: snowBase * (z.loadSnowFactor ?? 1),
+          mu: snowMu(z, z.pitchLeft, profile),
+          gammaG,
+          gammaQ,
           E,
           Emin: p.material?.Emin,
           Fb: p.material?.Fb ?? 13,
@@ -994,6 +1057,14 @@ export function calculateRoofZones(
         z.trussRows = z.frameRows;
         z.partialFrames = 0;
         out.checks.push(...frame.checks.map((q) => ({ ...q, id: z.id + "-" + q.id, zoneId: z.id })));
+        if (unbalancedSnow(z.pitchLeft, z.pitchRight, { override: z.snowMu, profile }))
+          out.checks.push({
+            id: `${z.id}-snow-unbalanced`,
+            zoneId: z.id,
+            label: `${z.name ?? z.id}: несимметричный снег стропильной рамы`,
+            status: "unverified",
+            note: "СП 20.13330.2016 прил. Б.2, вариант 2 (0,75µ / 1,25µ) для рамы с затяжкой не рассчитан: решатель стропильной рамы принимает один µ на оба ската. Рассчитан только равномерный вариант.",
+          });
         out.sources.push(...frame.sources);
         if (!frame.stable) throw Error(frame.errors.join("; "));
         z.roofSurfaceLift = frame.geometry.roofSurfaceLift;
@@ -1205,10 +1276,10 @@ export function calculateRoofZones(
           overhangLow: overhangs.low,
           overhangHigh: overhangs.high,
           roofDead: (p.loads?.roofDead ?? 0.5) + extraDead,
-          snow: (p.loads?.snow ?? 1.5) * (z.loadSnowFactor ?? 1),
-          mu: snowMu(z, z.pitchLeft),
-          gammaG: p.loads?.gammaG ?? 1.1,
-          gammaQ: p.loads?.gammaQ ?? 1.4,
+          snow: snowBase * (z.loadSnowFactor ?? 1),
+          mu: snowMu(z, z.pitchLeft, profile),
+          gammaG,
+          gammaQ,
           E,
           Fb: p.material?.Fb ?? 13,
           Fv: p.material?.Fv ?? 1.5,
@@ -1334,12 +1405,14 @@ export function calculateRoofZones(
               roofDead: physicalGable
                 ? z.ceilingLoadSplit.topPressure
                 : (p.loads?.roofDead ?? 0.5) + extraDead,
-              snow: (p.loads?.snow ?? 1.5) * (z.loadSnowFactor ?? 1),
-              mu: z.snowMu ?? 0.8,
-              muLeft: snowMu(z, z.pitchLeft),
-              muRight: snowMu(z, z.pitchRight),
-              gammaG: p.loads?.gammaG ?? 1.1,
-              gammaQ: p.loads?.gammaQ ?? 1.4,
+              snow: snowBase * (z.loadSnowFactor ?? 1),
+              mu: snowMu(z, z.pitchLeft, profile),
+              muLeft: snowMu(z, z.pitchLeft, profile),
+              muRight: snowMu(z, z.pitchRight, profile),
+              gammaG,
+              gammaQ,
+              // A6: the zone deflection limit, not the builder default L/300.
+              deflectionLimit: z.deflectionRatio,
               E,
               tensionDesign: p.material?.Ft ?? 8,
               compressionDesign: p.material?.Fc ?? 12,
@@ -1366,6 +1439,32 @@ export function calculateRoofZones(
           ...z.chordAnalysis.checks.map((q) => ({ ...q, id: z.id + "-" + q.id, zoneId: z.id })),
         );
         z.trussRows = [];
+      }
+      // B2: unbalanced snow (СП 20.13330.2016 прил. Б.2, вариант 2) for gable trusses.
+      if (z.shape === "gable" && z.analysis?.stable && z.effectiveFraming === "truss") {
+        const unbalanced = unbalancedSnow(z.pitchLeft, z.pitchRight, { override: z.snowMu, profile });
+        if (unbalanced) {
+          const symmetric = z.analysis,
+            cases = unbalanced.cases.map((c) => ({
+              ...c,
+              analysis: buildTruss({ ...symmetric.input, muLeft: c.muLeft, muRight: c.muRight }),
+            }));
+          z.analysis = envelopeTruss(symmetric, cases);
+          z.analysis.symmetricInput = symmetric.input;
+          z.snowCaseSummary = {
+            clause: "СП 20.13330.2016 прил. Б.2, вариант 2",
+            factors: unbalanced.factors,
+            range: unbalanced.range,
+            coefficientsVerified: unbalanced.verified,
+            cases: z.analysis.snowCases,
+            governing: z.analysis.governingSnowCase,
+          };
+        } else
+          z.snowCaseSummary = {
+            clause: "СП 20.13330.2016 прил. Б.2, вариант 2",
+            governing: "symmetric",
+            note: "Уклон вне диапазона варианта 2; принят равномерный снег.",
+          };
       }
       z.analysisApplicable =
         rectangle &&
@@ -1642,6 +1741,31 @@ export function calculateRoofZones(
         );
       if (z.analysisApplicable && z.analysis)
         out.checks.push(...z.analysis.checks.map((q) => ({ ...q, id: `${z.id}-${q.id}`, zoneId: z.id })));
+      if (z.analysisApplicable && z.snowCaseSummary) {
+        const sc = z.snowCaseSummary,
+          gov = sc.cases?.find((c) => c.id === sc.governing),
+          names = {
+            symmetric: "равномерный (вариант 1)",
+            "unbalanced-left": "несимметричный, больше на левом скате",
+            "unbalanced-right": "несимметричный, больше на правом скате",
+          };
+        out.checks.push({
+          id: `${z.id}-snow-cases`,
+          zoneId: z.id,
+          label: `${z.name ?? z.id}: снег — равномерный и несимметричный варианты`,
+          status: sc.cases ? (sc.coefficientsVerified ? "pass" : "warning") : "pass",
+          value: gov?.maxBarUtilization ?? null,
+          governingCase: sc.governing,
+          cases: sc.cases?.map((c) => ({
+            id: c.id,
+            maxBarUtilization: c.maxBarUtilization,
+            governedBars: c.governedBars,
+          })),
+          note: sc.cases
+            ? `${sc.clause}: ${sc.factors.low}µ / ${sc.factors.high}µ при ${sc.range[0]}°…${sc.range[1]}°. Огибающая стержней фермы; определяющий случай — ${names[sc.governing] ?? sc.governing}${gov?.governedBars?.length ? " (стержни " + gov.governedBars.join(", ") + ")" : ""}.${sc.coefficientsVerified ? "" : " Коэффициенты варианта 2 приняты по СНиП 2.01.07-85 и требуют сверки с действующей редакцией СП 20."}`
+            : sc.note,
+        });
+      }
       out.checks.push({
         id: `${z.id}-junctions`,
         label: `${z.name ?? z.id}: примыкания и раскрепление`,
@@ -1755,6 +1879,20 @@ export function calculateRoofZones(
     out.warnings.push(
       "Несколько зон: сток, перепады и общие кромки проверяются по скатам. Конструктивное исполнение узлов и пространственная работа требуют отдельного решения.",
     );
+  // B3: local drifts at roof steps and valleys (СП 20.13330.2016 прил. Б, схемы Б.4, Б.8)
+  // are not modelled; a multi-zone roof states them explicitly instead of passing.
+  if (out.zones.length > 1) {
+    const eaves = out.zones.map((z) => z.eave).filter(finite),
+      step = eaves.length ? Math.max(...eaves) - Math.min(...eaves) : 0;
+    out.checks.push({
+      id: "snow-drift-roof-steps",
+      label: "Снеговые мешки у перепадов высот и в ендовах",
+      status: "unverified",
+      value: step,
+      unit: "м",
+      note: `Зон кровли: ${out.zones.length}, перепад карнизов до ${step.toFixed(2)} м. Повышенные µ у перепадов высот (СП 20.13330.2016 прил. Б, схема Б.8) и в ендовах/примыканиях (схема Б.4) не рассчитаны; принят равномерный снег каждой зоны.`,
+    });
+  }
   out.wallProfiles = deriveWallProfiles(p, r, out);
   const supportBase = { ...r, wallProfiles: out.wallProfiles };
   for (const z of out.zones.filter((z) => z.effectiveFraming === "rafters")) {

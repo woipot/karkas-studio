@@ -4,6 +4,7 @@ import { annexDefaults, validateAnnexes, buildAnnexes } from "./annexes.js";
 import { calculateDesigner, defaultDesignerProject, validateDesignerProject } from "./designer-engine.js";
 import { calculateCutting } from "./cutting.js";
 import { checkDesignerMembers } from "./designer-mechanics.js";
+import { memberLoadProject } from "./load-profile.js";
 import { cutGeometry } from "./board-geometry.js";
 const sum = (a) => a.reduce((s, x) => s + x, 0),
   G = 9.80665,
@@ -154,8 +155,8 @@ test("attaching any variant leaves house axes, platform areas, roof inputs and h
   assert.deepEqual(r.houseTimberTotals, house.timber.totals);
   assert.ok(r.geometry.compositeBounds.minY < r.geometry.bounds.minY);
   near(r.annexes.quantities.floorArea, 10);
-  const m = checkDesignerMembers(p, r),
-    m0 = checkDesignerMembers(without, house);
+  const m = checkDesignerMembers(memberLoadProject(p), r),
+    m0 = checkDesignerMembers(memberLoadProject(without), house);
   near(m.joist.floorWoodPressure, m0.joist.floorWoodPressure);
   near(m.joist.moment, m0.joist.moment);
 });

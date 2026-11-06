@@ -1,4 +1,5 @@
 import test from "node:test";
+import { loadFactors } from "./load-profile.js";
 import assert from "node:assert/strict";
 import { analyzeSnowCases } from "./snow-envelope.js";
 import { calculateDesigner, defaultDesignerProject } from "./designer-engine.js";
@@ -60,7 +61,11 @@ test("independent annexFactors make150percent all-roofs exact and keep every sec
   near(main.snowCharacteristic, 1.5 * mainSnow + annexSnow);
   near(all.snowCharacteristic, 1.5 * (mainSnow + annexSnow));
   near(all.annexes[0].snowCharacteristic, 1.5 * annexSnow);
-  near(all.totalDesign - main.totalDesign, 0.5 * annexSnow * (p.annexes[0].loads.gammaQ ?? p.loads.gammaQ));
+  // Annex snow: one γQ = max(snow 1,4; live) of the profile unless the annex sets its own.
+  near(
+    all.totalDesign - main.totalDesign,
+    0.5 * annexSnow * (p.annexes[0].loads?.gammaQ ?? loadFactors(p.loads).snow),
+  );
   assert.deepEqual(all.annexFactors, { A: 1.5 });
   assert.deepEqual(main.annexFactors, {});
   for (const c of out.cases) {

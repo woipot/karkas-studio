@@ -1,3 +1,12 @@
+import {
+  loadFactors,
+  loadProfile,
+  snowBasis,
+  snowShapeMu,
+  windK,
+  windTerrain,
+  monoRoofUpliftCoefficient,
+} from "./load-profile.js";
 import { buildGrillage } from "./grillage.js";
 import { analyzeGrillageLoads, solveGrillagePointLoads } from "./grillage-loads.js";
 import { calculateRafter, solveUniformOverhangBeam } from "./rafters.js";
@@ -108,11 +117,14 @@ export function annexDefaults(project = {}) {
       floorDead: 0.25,
       live: 2.5,
       roofDead: 0.3,
-      snow: project.loads?.snow ?? 1.5,
+      // Sg × ce × ct of the house site; µ for the low annex slope per СП 20 прил. Б.
+      snow: snowBasis(project.loads).base,
       wind: project.loads?.wind ?? 0.3,
-      gammaG: project.loads?.gammaG ?? 1.35,
-      gammaQ: project.loads?.gammaQ ?? 1.5,
-      snowMu: 0.8,
+      // One γG/γQ pair per annex: the larger profile factors of each family
+      // (layers 1,2 vs timber 1,1; snow 1,4 vs live 1,3/1,2), ψ = 1.
+      gammaG: loadFactors(project.loads ?? {}).equivalentG,
+      gammaQ: Math.max(loadFactors(project.loads ?? {}).snow, loadFactors(project.loads ?? {}).live),
+      snowMu: snowShapeMu(10, loadProfile(project.loads)),
       deckSnowFactor: 1,
     },
   };
@@ -136,7 +148,12 @@ function normalized(a, p) {
     floor: { ...d.floor, ...a.floor },
     roof: { ...d.roof, ...a.roof, overhangs: { ...d.roof.overhangs, ...a.roof?.overhangs } },
     glazing: { ...d.glazing, ...a.glazing },
-    loads: { ...d.loads, ...a.loads },
+    loads: {
+      ...d.loads,
+      // µ of the real annex slope (СП 20.13330.2016 прил. Б, схема Б.1) unless given.
+      snowMu: snowShapeMu(a.roof?.pitch ?? d.roof.pitch, loadProfile(p.loads)),
+      ...a.loads,
+    },
   };
 }
 export function validateAnnexes(project = {}, onError) {
@@ -1352,6 +1369,26 @@ export function buildAnnexes(project = {}, base = {}) {
         : "Все слои, стекло и физическая древесина включены один раз. Реакции этой пристройки остаются на её собственных сваях.",
       { value: actual - expected, limit: 1e-6, unit: "кН" },
     );
+    if (roofed && item.roof.roofProjectedArea > 0) {
+      // B4: wind uplift of the light annex roof, 1,4·W − 0,9·G (СП 20.13330.2016 п. 7.2, 11.1).
+      const profile = loadProfile(project.loads),
+        f = loadFactors(project.loads ?? {}),
+        w = (a.loads.wind ?? 0) * windK(5, windTerrain(project.loads), profile),
+        c = monoRoofUpliftCoefficient(a.roof.pitch, { open: a.kind === "coveredTerrace" }, profile),
+        roofWood = (sum(local.filter((b) => b.category === "roof").map((b) => b.mass)) * G) / 1000,
+        up = w * c * item.roof.roofProjectedArea,
+        net = f.wind * up - f.favourable * (roofLayers + roofWood),
+        posts = Math.max(1, item.roof.posts?.length ?? 0);
+      check(
+        "wind-uplift",
+        "Ветровой отрыв крыши пристройки: анкеровка стоек",
+        net > 0 ? "warning" : "pass",
+        net > 0
+          ? `Расчётный отрыв ${net.toFixed(2)} кН на крышу (${(net / posts).toFixed(2)} кН на стойку при ${posts} стойках, c = ${c.toFixed(2)}). Анкеровка стоек и крыши не моделируется: требуется крепёж на это усилие.`
+          : `Вес крыши 0,9·G удерживает её от отрыва 1,4·W (c = ${c.toFixed(2)}); крепление от сдвига не проверено.`,
+        { value: Math.max(0, net / posts), limit: 0, unit: "кН" },
+      );
+    }
     check(
       "pile-capacity",
       "Реакции свай пристройки",

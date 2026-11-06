@@ -84,7 +84,8 @@ test("symmetric rectangular gable has exact slope area, snow area, fascia, and b
   assert.equal(r.zones.length, 1);
   near(r.projectedArea, 96);
   near(r.area, 96 / Math.cos((25 * Math.PI) / 180));
-  near(r.snowEffectiveArea, 96 * 0.8);
+  // СП 20.13330.2016 прил. Б: µ = 1 at 25°.
+  near(r.snowEffectiveArea, 96 * 1);
   near(r.gableArea, 8 * 4 * Math.tan((25 * Math.PI) / 180));
   near(
     r.mass,
@@ -112,7 +113,8 @@ test("different left/right slopes move the crest and produce weighted snow and a
     r.area,
     (12 * left) / Math.cos((20 * Math.PI) / 180) + (12 * (8 - left)) / Math.cos((40 * Math.PI) / 180),
   );
-  near(r.snowEffectiveArea, 12 * (left * 0.8 + ((8 - left) * 0.8 * (60 - 40)) / 30));
+  // µ(20°) = 1, µ(40°) = (60 − 40)/30 (СП 20.13330.2016 прил. Б, схема Б.1).
+  near(r.snowEffectiveArea, 12 * (left * 1 + ((8 - left) * (60 - 40)) / 30));
   near(z.analysis.nodes.find((n) => n.id === "R").x, left);
   near(z.analysis.analysis.balanceMoment, 0);
 });

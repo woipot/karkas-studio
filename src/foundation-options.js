@@ -80,7 +80,12 @@ export function compareFoundationOptions(project, result, site = {}) {
     for (const pile of result.piles)
       if (!object(pile) || !finite(pile.reaction) || pile.reaction < 0)
         invalid("result.piles.reaction", "Реакции всех опор должны быть конечными и неотрицательными.");
-    if (Math.abs(Math.max(0, ...result.piles.map((p) => p.reaction)) - maxDesignReaction) > 1e-6)
+    // Pile reactions may carry an envelope over load combinations (СП 20 п. 6.4).
+    if (
+      Math.abs(
+        Math.max(0, ...result.piles.map((p) => p.reactionEnvelope ?? p.reaction)) - maxDesignReaction,
+      ) > 1e-6
+    )
       invalid("result.foundation.maxReaction", "Максимальная реакция не совпадает с фактическими опорами.");
   }
   const baselineMaxReaction = maxDesignReaction;

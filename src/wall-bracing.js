@@ -1,3 +1,4 @@
+import { loadFactors } from "./load-profile.js";
 /** Actual wall bracing geometry. Shear capacity is never inferred from a picture. */
 const EPS = 1e-7;
 const sum = (a) => a.reduce((s, x) => s + x, 0),
@@ -458,18 +459,23 @@ export function buildWallBracing(project, result = {}) {
             .filter((c) => c.l.index === q.index)
             .map((c) => Math.max(...c.frame.map((p) => p.y)) - c.baseY),
         ),
-      windX =
-        sum(above.map((q) => (q.bounds?.height ?? geometry.bounds?.height ?? 0) * windHeight(q))) *
-        (project.loads?.wind ?? 0),
-      windY =
-        sum(above.map((q) => (q.bounds?.width ?? geometry.bounds?.width ?? 0) * windHeight(q))) *
-        (project.loads?.wind ?? 0);
+      // Storey shear from the code profile (СП 20 п. 11.1: w0·k(ze)·(0,8+0,5), gables and
+      // roof projection included). Legacy facade × w0 only without a wind model.
+      storey = result.wind?.storeys?.find((q) => q.level === l.index),
+      windX = storey
+        ? storey.forceX
+        : sum(above.map((q) => (q.bounds?.height ?? geometry.bounds?.height ?? 0) * windHeight(q))) *
+          (project.loads?.wind ?? 0),
+      windY = storey
+        ? storey.forceY
+        : sum(above.map((q) => (q.bounds?.width ?? geometry.bounds?.width ?? 0) * windHeight(q))) *
+          (project.loads?.wind ?? 0);
     const parallel = contexts.filter(
       (q) =>
         q.l.index === l.index && q.w.kind === "exterior" && Math.abs(q.u[0] * u[0] + q.u[1] * u[1]) > 0.99,
     ).length;
     const demandShear =
-      (Math.max(Math.abs(windX * u[0]), Math.abs(windY * u[1])) * (project.loads?.gammaQ ?? 1.4)) /
+      (Math.max(Math.abs(windX * u[0]), Math.abs(windY * u[1])) * loadFactors(project.loads).wind) /
       Math.max(1, Math.min(2, parallel));
     const capacity = p.designShear === null ? null : p.designShear * availableLength;
     const wallLine = {

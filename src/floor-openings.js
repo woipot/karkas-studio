@@ -1,91 +1,712 @@
-import {platformInnerFaceStation} from './floor-platform-contour.js';
-import {solveGrillagePointLoads} from './grillage-loads.js';
+import { platformInnerFaceStation } from "./floor-platform-contour.js";
+import { solveGrillagePointLoads } from "./grillage-loads.js";
 /** Actual rectangular opening frames; plan m, sections mm, forces kN. */
-const EPS=1e-7,G=9.80665,finite=Number.isFinite,sum=a=>a.reduce((s,x)=>s+x,0);
-const point=q=>q&&finite(q.x)&&finite(q.y),distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
-const parse=s=>{const m=typeof s==='string'&&s.replaceAll(' ','').match(/^(\d+)[x×](\d+)$/);return m?{b:+m[1],h:+m[2]}:null;};
-const bounds=p=>({minX:Math.min(...p.map(q=>q.x)),maxX:Math.max(...p.map(q=>q.x)),minY:Math.min(...p.map(q=>q.y)),maxY:Math.max(...p.map(q=>q.y))});
-const cross=(a,b,c)=>(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
-function on(p,a,b){return Math.abs(cross(a,b,p))<EPS&&p.x>=Math.min(a.x,b.x)-EPS&&p.x<=Math.max(a.x,b.x)+EPS&&p.y>=Math.min(a.y,b.y)-EPS&&p.y<=Math.max(a.y,b.y)+EPS;}
-function inside(p,poly){if(poly.some((a,i)=>on(p,a,poly[(i+1)%poly.length])))return true;let yes=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)yes=!yes;}return yes;}
-function segmentInside(a,b,poly){if(!inside(a,poly)||!inside(b,poly))return false;const dx=b.x-a.x,dy=b.y-a.y,L2=dx*dx+dy*dy,cuts=[0,1];for(let i=0;i<poly.length;i++){const c=poly[i],d=poly[(i+1)%poly.length],vx=d.x-c.x,vy=d.y-c.y,den=dx*vy-dy*vx;if(Math.abs(den)>EPS){const t=((c.x-a.x)*vy-(c.y-a.y)*vx)/den,u=((c.x-a.x)*dy-(c.y-a.y)*dx)/den;if(t>0&&t<1&&u>=-EPS&&u<=1+EPS)cuts.push(t);}else if(Math.abs(cross(a,b,c))<EPS)for(const p of [c,d]){const t=((p.x-a.x)*dx+(p.y-a.y)*dy)/L2;if(t>0&&t<1)cuts.push(t);}}cuts.sort((a,b)=>a-b);for(let i=1;i<cuts.length;i++){const t=(cuts[i]+cuts[i-1])/2;if(!inside({x:a.x+dx*t,y:a.y+dy*t},poly))return false;}return true;}
-function rectangle(poly){if(!Array.isArray(poly)||poly.length!==4||!poly.every(point))return null;const b=bounds(poly),w=b.maxX-b.minX,h=b.maxY-b.minY;if(w<EPS||h<EPS)return null;for(let i=0;i<4;i++){const a=poly[i],z=poly[(i+1)%4];if(Math.abs(a.x-z.x)>EPS&&Math.abs(a.y-z.y)>EPS)return null;}const A=Math.abs(sum(poly.map((q,i)=>q.x*poly[(i+1)%4].y-poly[(i+1)%4].x*q.y)))/2;return Math.abs(A-w*h)<EPS?b:null;}
-function wallCoverage(start,end,walls){const L=distance(start,end),dx=(end.x-start.x)/L,dy=(end.y-start.y)/L,t=q=>(q.x-start.x)*dx+(q.y-start.y)*dy,at=s=>({x:start.x+dx*s,y:start.y+dy*s}),parts=walls.filter(w=>Math.abs(cross(start,end,w.a))<EPS&&Math.abs(cross(start,end,w.b))<EPS).map(w=>({wall:w,lo:Math.max(0,Math.min(t(w.a),t(w.b))),hi:Math.min(L,Math.max(t(w.a),t(w.b)))})).filter(p=>p.hi-p.lo>EPS).sort((a,b)=>a.lo-b.lo||a.hi-b.hi),covered=[];let cursor=0;for(const p of parts){if(p.lo>cursor+EPS)return null;if(p.hi<=cursor+EPS)continue;const lo=Math.max(cursor,p.lo);covered.push({wall:p.wall,start:at(lo),end:at(p.hi),length:p.hi-lo});cursor=p.hi;if(cursor>=L-EPS)return covered;}return null;}
-function udl(length,design,service){return Array.from({length:80},(_,i)=>({at:length*(i+.5)/80,design:design*length/80,characteristic:service*length/80,source:'uniform_screen_quadrature'}));}
+const EPS = 1e-7,
+  G = 9.80665,
+  finite = Number.isFinite,
+  sum = (a) => a.reduce((s, x) => s + x, 0);
+const point = (q) => q && finite(q.x) && finite(q.y),
+  distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const parse = (s) => {
+  const m = typeof s === "string" && s.replaceAll(" ", "").match(/^(\d+)[x×](\d+)$/);
+  return m ? { b: +m[1], h: +m[2] } : null;
+};
+const bounds = (p) => ({
+  minX: Math.min(...p.map((q) => q.x)),
+  maxX: Math.max(...p.map((q) => q.x)),
+  minY: Math.min(...p.map((q) => q.y)),
+  maxY: Math.max(...p.map((q) => q.y)),
+});
+const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+function on(p, a, b) {
+  return (
+    Math.abs(cross(a, b, p)) < EPS &&
+    p.x >= Math.min(a.x, b.x) - EPS &&
+    p.x <= Math.max(a.x, b.x) + EPS &&
+    p.y >= Math.min(a.y, b.y) - EPS &&
+    p.y <= Math.max(a.y, b.y) + EPS
+  );
+}
+function inside(p, poly) {
+  if (poly.some((a, i) => on(p, a, poly[(i + 1) % poly.length]))) return true;
+  let yes = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i],
+      b = poly[j];
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) yes = !yes;
+  }
+  return yes;
+}
+function segmentInside(a, b, poly) {
+  if (!inside(a, poly) || !inside(b, poly)) return false;
+  const dx = b.x - a.x,
+    dy = b.y - a.y,
+    L2 = dx * dx + dy * dy,
+    cuts = [0, 1];
+  for (let i = 0; i < poly.length; i++) {
+    const c = poly[i],
+      d = poly[(i + 1) % poly.length],
+      vx = d.x - c.x,
+      vy = d.y - c.y,
+      den = dx * vy - dy * vx;
+    if (Math.abs(den) > EPS) {
+      const t = ((c.x - a.x) * vy - (c.y - a.y) * vx) / den,
+        u = ((c.x - a.x) * dy - (c.y - a.y) * dx) / den;
+      if (t > 0 && t < 1 && u >= -EPS && u <= 1 + EPS) cuts.push(t);
+    } else if (Math.abs(cross(a, b, c)) < EPS)
+      for (const p of [c, d]) {
+        const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2;
+        if (t > 0 && t < 1) cuts.push(t);
+      }
+  }
+  cuts.sort((a, b) => a - b);
+  for (let i = 1; i < cuts.length; i++) {
+    const t = (cuts[i] + cuts[i - 1]) / 2;
+    if (!inside({ x: a.x + dx * t, y: a.y + dy * t }, poly)) return false;
+  }
+  return true;
+}
+function rectangle(poly) {
+  if (!Array.isArray(poly) || poly.length !== 4 || !poly.every(point)) return null;
+  const b = bounds(poly),
+    w = b.maxX - b.minX,
+    h = b.maxY - b.minY;
+  if (w < EPS || h < EPS) return null;
+  for (let i = 0; i < 4; i++) {
+    const a = poly[i],
+      z = poly[(i + 1) % 4];
+    if (Math.abs(a.x - z.x) > EPS && Math.abs(a.y - z.y) > EPS) return null;
+  }
+  const A = Math.abs(sum(poly.map((q, i) => q.x * poly[(i + 1) % 4].y - poly[(i + 1) % 4].x * q.y))) / 2;
+  return Math.abs(A - w * h) < EPS ? b : null;
+}
+function wallCoverage(start, end, walls) {
+  const L = distance(start, end),
+    dx = (end.x - start.x) / L,
+    dy = (end.y - start.y) / L,
+    t = (q) => (q.x - start.x) * dx + (q.y - start.y) * dy,
+    at = (s) => ({ x: start.x + dx * s, y: start.y + dy * s }),
+    parts = walls
+      .filter((w) => Math.abs(cross(start, end, w.a)) < EPS && Math.abs(cross(start, end, w.b)) < EPS)
+      .map((w) => ({
+        wall: w,
+        lo: Math.max(0, Math.min(t(w.a), t(w.b))),
+        hi: Math.min(L, Math.max(t(w.a), t(w.b))),
+      }))
+      .filter((p) => p.hi - p.lo > EPS)
+      .sort((a, b) => a.lo - b.lo || a.hi - b.hi),
+    covered = [];
+  let cursor = 0;
+  for (const p of parts) {
+    if (p.lo > cursor + EPS) return null;
+    if (p.hi <= cursor + EPS) continue;
+    const lo = Math.max(cursor, p.lo);
+    covered.push({ wall: p.wall, start: at(lo), end: at(p.hi), length: p.hi - lo });
+    cursor = p.hi;
+    if (cursor >= L - EPS) return covered;
+  }
+  return null;
+}
+function udl(length, design, service) {
+  return Array.from({ length: 80 }, (_, i) => ({
+    at: (length * (i + 0.5)) / 80,
+    design: (design * length) / 80,
+    characteristic: (service * length) / 80,
+    source: "uniform_screen_quadrature",
+  }));
+}
 
-export function buildFloorOpenings(project={}, {geometry={},walls=project.walls??[]}={}){
-  const out={instances:[],openings:[],checks:[],warnings:[],assumptions:[],status:'unverified'},levels=geometry.levels??[],axis=project.floor?.axis??'y',along=axis==='y'?'y':'x',fixed=axis==='y'?'x':'y',floorSection=parse(project.floor?.section),density=project.material?.density??500,E=project.material?.E,Fb=project.material?.Fb,Fv=project.material?.Fv??1.5,gammaG=project.loads?.gammaG,gammaQ=project.loads?.gammaQ;
-  const materials=[E,Fb,Fv,density,gammaG,gammaQ].every(q=>finite(q)&&q>0)&&finite(project.loads?.floorDead)&&project.loads.floorDead>=0&&finite(project.loads?.live)&&project.loads.live>=0;
-  const append=(id,label,status,note,extra={})=>{const c={id,label,status,note,...extra};out.checks.push(c);return c;};
-  if(!floorSection||![floorSection.b,floorSection.h].every(finite)||floorSection.b<=0||floorSection.h<floorSection.b||!['x','y'].includes(axis)||!finite(project.floor?.spacing)||project.floor.spacing<=0||!finite(density)||density<=0){append('opening-floor-input','Исходные данные обрамления','fail','Нужны корректное сечение перекрытия, направлениеx/y, положительные шаг лаг и плотность.');out.status='fail';return out;}
-  const position=(f,a)=>axis==='y'?{x:f,y:a}:{x:a,y:f};
-  for(const opening of project.voids??[]){
-    const info={id:opening.id,voidId:opening.id,level:opening.level,kind:opening.kind,shape:'unsupported',generated:false,replaceLegacy:false,axis,trimmers:[],headers:[],checks:[],status:'unverified'};out.openings.push(info);
-    const check=(suffix,label,status,note,extra={})=>{const c=append(`opening-${opening.id}-${suffix}`,label,status,note,extra);info.checks.push(c);if(status==='fail')info.status='fail';return c;};
-    const level=levels.find(l=>l.index===opening.level),lower=levels.find(l=>l.index===opening.level-1),b=rectangle(opening.polygon),boardSection=parse(opening.edgeSection??project.floor.section),plies=opening.edgePlies===undefined?1:opening.edgePlies,section=boardSection?{b:boardSection.b*plies,h:boardSection.h}:null;
-    if(!b&&(opening.edgePlies??1)>1){info.replaceLegacy=true;check('package-shape','Пакетное обрамление произвольного проёма','fail','Пакеты реализованы для прямоугольного проёма по осям. Неподтверждённая контурная доска вместо пакета не создаётся.');continue;}
-    if(!b){check('shape','Обрамление произвольного проёма','unverified','Автоматическая опорная схема реализована только для прямоугольника по осямx/y. Старая контурная геометрия не считается расчётным обрамлением.');continue;}
-    info.shape='rectangle';info.bounds=b;info.plies=plies;info.boardSection=boardSection;info.frameWidth=section?.b??null;
-    if(!Number.isInteger(plies)||plies<1||plies>6){check('plies','Число досок пакета','fail','edgePlies должен быть целым от1до6.');continue;}
-    if(!level||!lower||!level.closed||!lower.closed||!finite(level.baseY)||!finite(lower.topY)||!section||![section.b,section.h].every(finite)||section.b<=0||section.h<section.b){check('levels','Опорные этажи и сечения обрамления','unverified','Нужны замкнутые контуры текущего и нижнего этажа, конечные отметки и корректное сечение; скрытые стойки или опоры не назначены.');continue;}
-    const floorDeadRatio=level.platformNetArea>0&&level.netFloorArea>0?level.platformNetArea/level.netFloorArea:1,floorDead=(project.loads?.floorDead??0)*floorDeadRatio,contour=geometry.platformContours?.find(c=>c.index===opening.level),floorDepth=floorSection.h/1000,Y=level.baseY+floorDepth-section.h/2000,lowY=level.baseY+floorDepth-section.h/1000,f0=axis==='y'?b.minX:b.minY,f1=axis==='y'?b.maxX:b.maxY,a0=axis==='y'?b.minY:b.minX,a1=axis==='y'?b.maxY:b.maxX,lowerWalls=walls.filter(w=>w.kind!=='partition'&&(w.level===undefined||w.level===opening.level-1)&&point(w.a)&&point(w.b));
-    const wallOpeningIds=(wall,start,end=start)=>{const L=distance(wall.a,wall.b),station=p=>((p.x-wall.a.x)*(wall.b.x-wall.a.x)+(p.y-wall.a.y)*(wall.b.y-wall.a.y))/L,s0=station(start),s1=station(end),lo=Math.min(s0,s1),hi=Math.max(s0,s1);return (project.openings??[]).filter(o=>o.wallId===wall.id&&(o.floor??wall.level??1)===opening.level-1&&(hi-lo<EPS?lo>o.offset-EPS&&lo<o.offset+o.width+EPS:hi>o.offset+EPS&&lo<o.offset+o.width-EPS)).map(o=>o.id);};
-    const supportAtFixed=f=>{
-      const points=[];for(const w of lowerWalls){const df=w.b[fixed]-w.a[fixed];if(Math.abs(df)<EPS)continue;const t=(f-w.a[fixed])/df;if(t< -EPS||t>1+EPS)continue;const a=w.a[along]+(w.b[along]-w.a[along])*t,q=position(f,a),s=parse(w.section??project.floor.section),L=distance(w.a,w.b),sine=Math.abs(df)/L;points.push({at:a,point:q,wallId:w.id,wallLevel:opening.level-1,wallKind:w.kind,wallThickness:s?.h/1000??0,halfBearing:s?(s.h/2000)/sine:0,position:[q.x,lower.topY,q.y],bearingTopY:lower.topY,sourceWallOpeningIds:wallOpeningIds(w,q)});}return points.sort((a,b)=>a.at-b.at);
+export function buildFloorOpenings(project = {}, { geometry = {}, walls = project.walls ?? [] } = {}) {
+  const out = {
+      instances: [],
+      openings: [],
+      checks: [],
+      warnings: [],
+      assumptions: [],
+      status: "unverified",
+    },
+    levels = geometry.levels ?? [],
+    axis = project.floor?.axis ?? "y",
+    along = axis === "y" ? "y" : "x",
+    fixed = axis === "y" ? "x" : "y",
+    floorSection = parse(project.floor?.section),
+    density = project.material?.density ?? 500,
+    E = project.material?.E,
+    Fb = project.material?.Fb,
+    Fv = project.material?.Fv ?? 1.5,
+    gammaG = project.loads?.gammaG,
+    gammaQ = project.loads?.gammaQ;
+  const materials =
+    [E, Fb, Fv, density, gammaG, gammaQ].every((q) => finite(q) && q > 0) &&
+    finite(project.loads?.floorDead) &&
+    project.loads.floorDead >= 0 &&
+    finite(project.loads?.live) &&
+    project.loads.live >= 0;
+  const append = (id, label, status, note, extra = {}) => {
+    const c = { id, label, status, note, ...extra };
+    out.checks.push(c);
+    return c;
+  };
+  if (
+    !floorSection ||
+    ![floorSection.b, floorSection.h].every(finite) ||
+    floorSection.b <= 0 ||
+    floorSection.h < floorSection.b ||
+    !["x", "y"].includes(axis) ||
+    !finite(project.floor?.spacing) ||
+    project.floor.spacing <= 0 ||
+    !finite(density) ||
+    density <= 0
+  ) {
+    append(
+      "opening-floor-input",
+      "Исходные данные обрамления",
+      "fail",
+      "Нужны корректное сечение перекрытия, направлениеx/y, положительные шаг лаг и плотность.",
+    );
+    out.status = "fail";
+    return out;
+  }
+  const position = (f, a) => (axis === "y" ? { x: f, y: a } : { x: a, y: f });
+  for (const opening of project.voids ?? []) {
+    const info = {
+      id: opening.id,
+      voidId: opening.id,
+      level: opening.level,
+      kind: opening.kind,
+      shape: "unsupported",
+      generated: false,
+      replaceLegacy: false,
+      axis,
+      trimmers: [],
+      headers: [],
+      checks: [],
+      status: "unverified",
     };
-    const pairs=[f0,f1].map(f=>{const all=supportAtFixed(f),before=all.filter(s=>s.at<=a0+EPS).sort((a,b)=>b.at-a.at)[0],after=all.filter(s=>s.at>=a1-EPS).sort((a,b)=>a.at-b.at)[0];return {fixed:f,before,after};});
-    if(pairs.some(p=>!p.before||!p.after||p.after.at-p.before.at<EPS)){check('supports','Настоящие опоры продольных балок проёма','fail','Не найдены несущие стены нижнего этажа до и после проёма на обеих сторонах. Стойки в свободном помещении не добавляются.');continue;}
-    const outside=pairs.some(p=>!segmentInside(position(p.fixed,p.before.at),position(p.fixed,p.after.at),level.polygon??[]));
-    if(outside){check('outside','Путь продольных балок в реальном контуре','fail','Продлённая балка пересекает внешний вырез контура; требуется другая опорная схема.');continue;}
-    const localStart=out.instances.length;
-    const add=(role,a,z,supports,extra={})=>{
-      const length=distance(a,z),dx=(z.x-a.x)/length,dz=(z.y-a.y)/length,volume=section.b*section.h*length/1e6,id=`FO-${opening.id}-${role==='openingTrimmer'?'T':'H'}${role==='openingTrimmer'?info.trimmers.length+1:info.headers.length+1}`;
-      const board={id,name:role==='openingTrimmer'?'Продольная балка обрамления проёма':'Поперечная балка обрамления проёма',category:'floor',role,voidId:opening.id,level:opening.level,floor:opening.level,b:section.b,h:section.h,length,cutLength:length,start:[a.x,Y,a.y],end:[z.x,Y,z.y],crossAxis:[-dz,0,dx],volume,mass:volume*density,requireSingleStock:true,memberId:id,supports,clearSpan:length,analyticalSpan:length,cutStart:{scheme:'butt',angle:0},cutEnd:{scheme:'butt',angle:0},connectionVerified:false,...extra};
-      (role==='openingTrimmer'?info.trimmers:info.headers).push(board);
-      if(plies===1)out.instances.push(board);
+    out.openings.push(info);
+    const check = (suffix, label, status, note, extra = {}) => {
+      const c = append(`opening-${opening.id}-${suffix}`, label, status, note, extra);
+      info.checks.push(c);
+      if (status === "fail") info.status = "fail";
+      return c;
+    };
+    const level = levels.find((l) => l.index === opening.level),
+      lower = levels.find((l) => l.index === opening.level - 1),
+      b = rectangle(opening.polygon),
+      boardSection = parse(opening.edgeSection ?? project.floor.section),
+      plies = opening.edgePlies === undefined ? 1 : opening.edgePlies,
+      section = boardSection ? { b: boardSection.b * plies, h: boardSection.h } : null;
+    if (!b && (opening.edgePlies ?? 1) > 1) {
+      info.replaceLegacy = true;
+      check(
+        "package-shape",
+        "Пакетное обрамление произвольного проёма",
+        "fail",
+        "Пакеты реализованы для прямоугольного проёма по осям. Неподтверждённая контурная доска вместо пакета не создаётся.",
+      );
+      continue;
+    }
+    if (!b) {
+      check(
+        "shape",
+        "Обрамление произвольного проёма",
+        "unverified",
+        "Автоматическая опорная схема реализована только для прямоугольника по осямx/y. Старая контурная геометрия не считается расчётным обрамлением.",
+      );
+      continue;
+    }
+    info.shape = "rectangle";
+    info.bounds = b;
+    info.plies = plies;
+    info.boardSection = boardSection;
+    info.frameWidth = section?.b ?? null;
+    if (!Number.isInteger(plies) || plies < 1 || plies > 6) {
+      check("plies", "Число досок пакета", "fail", "edgePlies должен быть целым от1до6.");
+      continue;
+    }
+    if (
+      !level ||
+      !lower ||
+      !level.closed ||
+      !lower.closed ||
+      !finite(level.baseY) ||
+      !finite(lower.topY) ||
+      !section ||
+      ![section.b, section.h].every(finite) ||
+      section.b <= 0 ||
+      section.h < section.b
+    ) {
+      check(
+        "levels",
+        "Опорные этажи и сечения обрамления",
+        "unverified",
+        "Нужны замкнутые контуры текущего и нижнего этажа, конечные отметки и корректное сечение; скрытые стойки или опоры не назначены.",
+      );
+      continue;
+    }
+    const floorDeadRatio =
+        level.platformNetArea > 0 && level.netFloorArea > 0 ? level.platformNetArea / level.netFloorArea : 1,
+      floorDead = (project.loads?.floorDead ?? 0) * floorDeadRatio,
+      contour = geometry.platformContours?.find((c) => c.index === opening.level),
+      floorDepth = floorSection.h / 1000,
+      Y = level.baseY + floorDepth - section.h / 2000,
+      lowY = level.baseY + floorDepth - section.h / 1000,
+      f0 = axis === "y" ? b.minX : b.minY,
+      f1 = axis === "y" ? b.maxX : b.maxY,
+      a0 = axis === "y" ? b.minY : b.minX,
+      a1 = axis === "y" ? b.maxY : b.maxX,
+      lowerWalls = walls.filter(
+        (w) =>
+          w.kind !== "partition" &&
+          (w.level === undefined || w.level === opening.level - 1) &&
+          point(w.a) &&
+          point(w.b),
+      );
+    const wallOpeningIds = (wall, start, end = start) => {
+      const L = distance(wall.a, wall.b),
+        station = (p) =>
+          ((p.x - wall.a.x) * (wall.b.x - wall.a.x) + (p.y - wall.a.y) * (wall.b.y - wall.a.y)) / L,
+        s0 = station(start),
+        s1 = station(end),
+        lo = Math.min(s0, s1),
+        hi = Math.max(s0, s1);
+      return (project.openings ?? [])
+        .filter(
+          (o) =>
+            o.wallId === wall.id &&
+            (o.floor ?? wall.level ?? 1) === opening.level - 1 &&
+            (hi - lo < EPS
+              ? lo > o.offset - EPS && lo < o.offset + o.width + EPS
+              : hi > o.offset + EPS && lo < o.offset + o.width - EPS),
+        )
+        .map((o) => o.id);
+    };
+    const supportAtFixed = (f) => {
+      const points = [];
+      for (const w of lowerWalls) {
+        const df = w.b[fixed] - w.a[fixed];
+        if (Math.abs(df) < EPS) continue;
+        const t = (f - w.a[fixed]) / df;
+        if (t < -EPS || t > 1 + EPS) continue;
+        const a = w.a[along] + (w.b[along] - w.a[along]) * t,
+          q = position(f, a),
+          s = parse(w.section ?? project.floor.section),
+          L = distance(w.a, w.b),
+          sine = Math.abs(df) / L;
+        points.push({
+          at: a,
+          point: q,
+          wallId: w.id,
+          wallLevel: opening.level - 1,
+          wallKind: w.kind,
+          wallThickness: s?.h / 1000 ?? 0,
+          halfBearing: s ? s.h / 2000 / sine : 0,
+          position: [q.x, lower.topY, q.y],
+          bearingTopY: lower.topY,
+          sourceWallOpeningIds: wallOpeningIds(w, q),
+        });
+      }
+      return points.sort((a, b) => a.at - b.at);
+    };
+    const pairs = [f0, f1].map((f) => {
+      const all = supportAtFixed(f),
+        before = all.filter((s) => s.at <= a0 + EPS).sort((a, b) => b.at - a.at)[0],
+        after = all.filter((s) => s.at >= a1 - EPS).sort((a, b) => a.at - b.at)[0];
+      return { fixed: f, before, after };
+    });
+    if (pairs.some((p) => !p.before || !p.after || p.after.at - p.before.at < EPS)) {
+      check(
+        "supports",
+        "Настоящие опоры продольных балок проёма",
+        "fail",
+        "Не найдены несущие стены нижнего этажа до и после проёма на обеих сторонах. Стойки в свободном помещении не добавляются.",
+      );
+      continue;
+    }
+    const outside = pairs.some(
+      (p) =>
+        !segmentInside(position(p.fixed, p.before.at), position(p.fixed, p.after.at), level.polygon ?? []),
+    );
+    if (outside) {
+      check(
+        "outside",
+        "Путь продольных балок в реальном контуре",
+        "fail",
+        "Продлённая балка пересекает внешний вырез контура; требуется другая опорная схема.",
+      );
+      continue;
+    }
+    const localStart = out.instances.length;
+    const add = (role, a, z, supports, extra = {}) => {
+      const length = distance(a, z),
+        dx = (z.x - a.x) / length,
+        dz = (z.y - a.y) / length,
+        volume = (section.b * section.h * length) / 1e6,
+        id = `FO-${opening.id}-${role === "openingTrimmer" ? "T" : "H"}${role === "openingTrimmer" ? info.trimmers.length + 1 : info.headers.length + 1}`;
+      const board = {
+        id,
+        name:
+          role === "openingTrimmer"
+            ? "Продольная балка обрамления проёма"
+            : "Поперечная балка обрамления проёма",
+        category: "floor",
+        role,
+        voidId: opening.id,
+        level: opening.level,
+        floor: opening.level,
+        b: section.b,
+        h: section.h,
+        length,
+        cutLength: length,
+        start: [a.x, Y, a.y],
+        end: [z.x, Y, z.y],
+        crossAxis: [-dz, 0, dx],
+        volume,
+        mass: volume * density,
+        requireSingleStock: true,
+        memberId: id,
+        supports,
+        clearSpan: length,
+        analyticalSpan: length,
+        cutStart: { scheme: "butt", angle: 0 },
+        cutEnd: { scheme: "butt", angle: 0 },
+        connectionVerified: false,
+        ...extra,
+      };
+      (role === "openingTrimmer" ? info.trimmers : info.headers).push(board);
+      if (plies === 1) out.instances.push(board);
       else {
-        board.analysisOnly=true;board.plies=plies;board.boardSection=boardSection;board.memberIds=[];
-        for(let plyIndex=0;plyIndex<plies;plyIndex++){
-          const offset=(plyIndex-(plies-1)/2)*boardSection.b/1000,shift=q=>[q[0]+board.crossAxis[0]*offset,q[1],q[2]+board.crossAxis[2]*offset],pid=id+'-P'+(plyIndex+1),v=volume/plies;
-          const physical={...board,id:pid,memberId:pid,name:board.name+' · доска '+(plyIndex+1)+'/'+plies,b:boardSection.b,volume:v,mass:v*density,start:shift(board.start),end:shift(board.end),analysisOnly:false,analysisMemberId:id,packageId:id,plyIndex,plyCount:plies,equalLoadSharingVerified:false};
-          delete physical.memberIds;delete physical.plies;delete physical.boardSection;
-          physical.supports=supports.map(s=>({...s,packageAxisSupport:true,note:'Опорная линия пакета; индивидуальное смятие и передача нагрузки между досками не подтверждены.'}));
-          out.instances.push(physical);board.memberIds.push(pid);
+        board.analysisOnly = true;
+        board.plies = plies;
+        board.boardSection = boardSection;
+        board.memberIds = [];
+        for (let plyIndex = 0; plyIndex < plies; plyIndex++) {
+          const offset = ((plyIndex - (plies - 1) / 2) * boardSection.b) / 1000,
+            shift = (q) => [q[0] + board.crossAxis[0] * offset, q[1], q[2] + board.crossAxis[2] * offset],
+            pid = id + "-P" + (plyIndex + 1),
+            v = volume / plies;
+          const physical = {
+            ...board,
+            id: pid,
+            memberId: pid,
+            name: board.name + " · доска " + (plyIndex + 1) + "/" + plies,
+            b: boardSection.b,
+            volume: v,
+            mass: v * density,
+            start: shift(board.start),
+            end: shift(board.end),
+            analysisOnly: false,
+            analysisMemberId: id,
+            packageId: id,
+            plyIndex,
+            plyCount: plies,
+            equalLoadSharingVerified: false,
+          };
+          delete physical.memberIds;
+          delete physical.plies;
+          delete physical.boardSection;
+          physical.supports = supports.map((s) => ({
+            ...s,
+            packageAxisSupport: true,
+            note: "Опорная линия пакета; индивидуальное смятие и передача нагрузки между досками не подтверждены.",
+          }));
+          out.instances.push(physical);
+          board.memberIds.push(pid);
         }
       }
-      if(length>6+EPS)check('stock-'+id,'Цельная доска обрамления до6м','fail','Балка длиннее6м. Опора или подтверждённая конструкция стыка не назначена.',{value:length,limit:6,unit:'м'});return board;
+      if (length > 6 + EPS)
+        check(
+          "stock-" + id,
+          "Цельная доска обрамления до6м",
+          "fail",
+          "Балка длиннее6м. Опора или подтверждённая конструкция стыка не назначена.",
+          { value: length, limit: 6, unit: "м" },
+        );
+      return board;
     };
-    const rimOffset=s=>s.wallKind==='exterior'&&geometry.platformRimWidth>0?geometry.platformRimWidth/Math.max(EPS,s.wallThickness)*(s.halfBearing??0):0;
-    const trimmers=pairs.map(p=>add('openingTrimmer',position(p.fixed,platformInnerFaceStation(contour,p.before.point,axis,p.before.at+rimOffset(p.before))),position(p.fixed,platformInnerFaceStation(contour,p.after.point,axis,p.after.at-rimOffset(p.after))),[p.before,p.after],{fixed:p.fixed,clearSpan:Math.max(0,p.after.at-p.before.at-p.before.halfBearing-p.after.halfBearing),analyticalSpan:p.after.at-p.before.at,supportMode:'lowerWallEnds'}));
-    for(const t of trimmers){t.sourceWallOpeningIds=[...new Set(t.supports.flatMap(s=>s.sourceWallOpeningIds??[]))];if(t.sourceWallOpeningIds.length)check('bearing-over-opening-'+t.id,'Опора обрамления над проёмом нижней стены','unverified',`Реакция ${t.id} передаётся через область проёмов ${t.sourceWallOpeningIds.join(', ')}. Геометрическая верхняя обвязка есть, но перемычка, стойки и соединения под этой реакцией не рассчитаны.`,{memberId:t.id,sourceWallOpeningIds:t.sourceWallOpeningIds});}
-    const physicalWidth=f1-f0-section.b/1000;
-    if(physicalWidth<=EPS){out.instances.splice(localStart);info.trimmers=[];check('width','Поперечная балка между гранями продольных','fail','Ширина проёма поглощена сечениями продольных балок.');continue;}
-    const levelBounds=level.bounds??bounds(level.polygon),fixedMin=axis==='y'?levelBounds.minX:levelBounds.minY,fixedMax=axis==='y'?levelBounds.maxX:levelBounds.maxY,nominalStep=project.floor.spacing??.6,count=Math.max(1,Math.ceil((fixedMax-fixedMin)/nominalStep)),actualSpacing=(fixedMax-fixedMin)/count;
-    const woodJoistLine=floorSection.b*floorSection.h/1e6*density*G/1000,joistDeadPerArea=(geometry.platformTimberPressureByLevel?.[opening.level]??woodJoistLine/actualSpacing),ownWeightLine=section.b*section.h/1e6*density*G/1000,headerReactions=[[],[]];
-    for(const [index,a]of [a0,a1].entries()){
-      const start=position(f0+section.b/2000,a),end=position(f1-section.b/2000,a),continuous=wallCoverage(start,end,lowerWalls),outsideSpan=Math.max(...pairs.map(p=>index===0?Math.max(0,a0-p.before.at):Math.max(0,p.after.at-a1))),tributaryDepth=actualSpacing+outsideSpan/2;
-      const lineService=(floorDead+joistDeadPerArea+(project.loads?.live??0))*tributaryDepth+ownWeightLine,lineDesign=((floorDead+joistDeadPerArea)*tributaryDepth+ownWeightLine)*(gammaG??1)+((project.loads?.live??0)*tributaryDepth)*(gammaQ??1);
-      const supports=continuous?continuous.map(p=>({mode:'continuousWall',wallId:p.wall.id,wallLevel:opening.level-1,start:p.start,end:p.end,point:{x:(p.start.x+p.end.x)/2,y:(p.start.y+p.end.y)/2},position:[(p.start.x+p.end.x)/2,lower.topY,(p.start.y+p.end.y)/2],bearingTopY:lower.topY,sourceWallOpeningIds:wallOpeningIds(p.wall,p.start,p.end)})):[start,end].map((q,i)=>({point:q,position:[q.x,Y-section.h/2000,q.y],mode:'trimmerConnection',memberId:trimmers[i].id,memberIds:trimmers[i].memberIds??[trimmers[i].id],verified:false}));
-      const header=add('openingHeader',start,end,supports,{clearSpan:physicalWidth,analyticalSpan:physicalWidth,supportMode:continuous?'continuousWall':'trimmerFaces',loads:materials?{method:'conservative_tributary_strip',outsideSpan,tributaryDepth,actualSpacing,floorDead,floorDeadRatio,live:project.loads?.live??0,joistDeadPerArea,ownWeightLine,serviceLineLoad:lineService,designLineLoad:lineDesign}:null});
-      header.sourceWallOpeningIds=[...new Set(supports.flatMap(s=>s.sourceWallOpeningIds??[]))];if(header.sourceWallOpeningIds.length)check('bearing-over-opening-'+header.id,'Опорная линия поперечной балки содержит проём','unverified',`Нагрузка ${header.id} проходит через нижние проёмы ${header.sourceWallOpeningIds.join(', ')}; несущая способность их перемычек, стоек и узлов не подтверждена.`,{memberId:header.id,sourceWallOpeningIds:header.sourceWallOpeningIds});
-      if(continuous){if(materials)header.directWallReaction={design:lineDesign*physicalWidth,service:lineService*physicalWidth,wallId:continuous[0].wall.id,wallIds:continuous.map(p=>p.wall.id),segments:continuous.map(p=>({wallId:p.wall.id,design:lineDesign*p.length,service:lineService*p.length}))};check('header-wall-'+index,'Поперечная балка над несущей стеной','unverified','Обрамление опирается вдоль существующей стены нижнего этажа. Его нагрузка не продублирована в концах продольных балок; местная работа обвязок, проёмы стены и смятие требуют расчёта.');}
-      else if(materials){header.check=solveGrillagePointLoads({length:physicalWidth,b:section.b,h:section.h,plies:1,E,Fb,Fv,deflectionRatio:300,loads:udl(physicalWidth,lineDesign,lineService)});header.check.loadModel='uniform_tributary_screen';for(let i=0;i<2;i++)headerReactions[i].push({at:a-pairs[i].before.at,design:i===0?header.check.reactionStart:header.check.reactionEnd,characteristic:i===0?header.check.serviceStart:header.check.serviceEnd,sourceHeaderId:header.id});check('header-capacity-'+index,'Поперечная балка: частные изгиб/срез/прогиб',header.check.status,'Принята консервативная грузовая полоса, полное собственное сечение и шарнирные связи по граням продольных балок.',{value:header.check.utilization,limit:1,unit:'коэф.'});}
+    const rimOffset = (s) =>
+      s.wallKind === "exterior" && geometry.platformRimWidth > 0
+        ? (geometry.platformRimWidth / Math.max(EPS, s.wallThickness)) * (s.halfBearing ?? 0)
+        : 0;
+    const trimmers = pairs.map((p) =>
+      add(
+        "openingTrimmer",
+        position(
+          p.fixed,
+          platformInnerFaceStation(contour, p.before.point, axis, p.before.at + rimOffset(p.before)),
+        ),
+        position(
+          p.fixed,
+          platformInnerFaceStation(contour, p.after.point, axis, p.after.at - rimOffset(p.after)),
+        ),
+        [p.before, p.after],
+        {
+          fixed: p.fixed,
+          clearSpan: Math.max(0, p.after.at - p.before.at - p.before.halfBearing - p.after.halfBearing),
+          analyticalSpan: p.after.at - p.before.at,
+          supportMode: "lowerWallEnds",
+        },
+      ),
+    );
+    for (const t of trimmers) {
+      t.sourceWallOpeningIds = [...new Set(t.supports.flatMap((s) => s.sourceWallOpeningIds ?? []))];
+      if (t.sourceWallOpeningIds.length)
+        check(
+          "bearing-over-opening-" + t.id,
+          "Опора обрамления над проёмом нижней стены",
+          "unverified",
+          `Реакция ${t.id} передаётся через область проёмов ${t.sourceWallOpeningIds.join(", ")}. Геометрическая верхняя обвязка есть, но перемычка, стойки и соединения под этой реакцией не рассчитаны.`,
+          { memberId: t.id, sourceWallOpeningIds: t.sourceWallOpeningIds },
+        );
     }
-    for(const [i,trimmer]of trimmers.entries()){
-      const additionalTimberPressure=Math.max(0,joistDeadPerArea-woodJoistLine/actualSpacing),lineService=(floorDead+additionalTimberPressure+(project.loads?.live??0))*actualSpacing+ownWeightLine,lineDesign=((floorDead+additionalTimberPressure)*actualSpacing+ownWeightLine)*(gammaG??1)+(project.loads?.live??0)*actualSpacing*(gammaQ??1);
-      trimmer.loads=materials?{method:'floor_strip_plus_header_reactions',actualSpacing,tributaryWidth:actualSpacing,additionalTimberPressure,floorDead,floorDeadRatio,ownWeightLine,serviceLineLoad:lineService,designLineLoad:lineDesign,headerReactions:headerReactions[i]}:null;
-      if(materials){trimmer.check=solveGrillagePointLoads({length:trimmer.analyticalSpan,b:section.b,h:section.h,plies:1,E,Fb,Fv,deflectionRatio:300,loads:[...udl(trimmer.analyticalSpan,lineDesign,lineService),...headerReactions[i]]});check('trimmer-capacity-'+i,'Продольная балка: частные изгиб/срез/прогиб',trimmer.check.status,'Грузовая полоса по всей длине продольной балки консервативно включает участок у проёма; реакции неподдержанных стеной поперечных балок приложены в фактических точках.',{value:trimmer.check.utilization,limit:1,unit:'коэф.'});}
+    const physicalWidth = f1 - f0 - section.b / 1000;
+    if (physicalWidth <= EPS) {
+      out.instances.splice(localStart);
+      info.trimmers = [];
+      check(
+        "width",
+        "Поперечная балка между гранями продольных",
+        "fail",
+        "Ширина проёма поглощена сечениями продольных балок.",
+      );
+      continue;
     }
-    if(!materials)check('material','Материал и нагрузки обрамления','unverified','Геометрия сформирована, но нужны положительныеE/Fb/Fv/плотность/коэффициенты и конечные нагрузки для частных проверок.');
-    if(Math.abs(lowY-lower.topY)>.01)check('bearing-seat','Высота обрамления относительно опорной стены','unverified','Низ глубокого/мелкого обрамления не совпадает с верхом нижней стены; требуется рабочий узел посадки, без выдуманного выреза.',{value:lowY,limit:lower.topY,unit:'м'});
-    check('connections','Подвесы, смятие и ослабленные сечения проёма','unverified','Физическое обрамление продлено до существующих опор. Узлы поперечных балок, эксцентриситет реакций, смятие, боковая устойчивость, крепёж и передача усилий через нижнюю стену не подтверждены.');
-    if(plies>1)check('package-connections','Распределение нагрузки и связи досок пакета','unverified','Созданы отдельные доски с общим верхом, каждая попадает в массу и раскрой один раз. Частный расчёт использует сумму жёсткостей при равной доле нагрузки; крепёж, ввод реакций в каждую доску, смятие и устойчивость пакета не подтверждены.',{plies,boardSection:opening.edgeSection,frameWidth:section.b,unit:'мм'});
-    info.generated=true;info.replaceLegacy=true;info.actualSpacing=actualSpacing;info.status=info.checks.some(c=>c.status==='fail')?'fail':'unverified';
+    const levelBounds = level.bounds ?? bounds(level.polygon),
+      fixedMin = axis === "y" ? levelBounds.minX : levelBounds.minY,
+      fixedMax = axis === "y" ? levelBounds.maxX : levelBounds.maxY,
+      nominalStep = project.floor.spacing ?? 0.6,
+      count = Math.max(1, Math.ceil((fixedMax - fixedMin) / nominalStep)),
+      actualSpacing = (fixedMax - fixedMin) / count;
+    const woodJoistLine = (((floorSection.b * floorSection.h) / 1e6) * density * G) / 1000,
+      joistDeadPerArea =
+        geometry.platformTimberPressureByLevel?.[opening.level] ?? woodJoistLine / actualSpacing,
+      ownWeightLine = (((section.b * section.h) / 1e6) * density * G) / 1000,
+      headerReactions = [[], []];
+    for (const [index, a] of [a0, a1].entries()) {
+      const start = position(f0 + section.b / 2000, a),
+        end = position(f1 - section.b / 2000, a),
+        continuous = wallCoverage(start, end, lowerWalls),
+        outsideSpan = Math.max(
+          ...pairs.map((p) => (index === 0 ? Math.max(0, a0 - p.before.at) : Math.max(0, p.after.at - a1))),
+        ),
+        tributaryDepth = actualSpacing + outsideSpan / 2;
+      const lineService =
+          (floorDead + joistDeadPerArea + (project.loads?.live ?? 0)) * tributaryDepth + ownWeightLine,
+        lineDesign =
+          ((floorDead + joistDeadPerArea) * tributaryDepth + ownWeightLine) * (gammaG ?? 1) +
+          (project.loads?.live ?? 0) * tributaryDepth * (gammaQ ?? 1);
+      const supports = continuous
+        ? continuous.map((p) => ({
+            mode: "continuousWall",
+            wallId: p.wall.id,
+            wallLevel: opening.level - 1,
+            start: p.start,
+            end: p.end,
+            point: { x: (p.start.x + p.end.x) / 2, y: (p.start.y + p.end.y) / 2 },
+            position: [(p.start.x + p.end.x) / 2, lower.topY, (p.start.y + p.end.y) / 2],
+            bearingTopY: lower.topY,
+            sourceWallOpeningIds: wallOpeningIds(p.wall, p.start, p.end),
+          }))
+        : [start, end].map((q, i) => ({
+            point: q,
+            position: [q.x, Y - section.h / 2000, q.y],
+            mode: "trimmerConnection",
+            memberId: trimmers[i].id,
+            memberIds: trimmers[i].memberIds ?? [trimmers[i].id],
+            verified: false,
+          }));
+      const header = add("openingHeader", start, end, supports, {
+        clearSpan: physicalWidth,
+        analyticalSpan: physicalWidth,
+        supportMode: continuous ? "continuousWall" : "trimmerFaces",
+        loads: materials
+          ? {
+              method: "conservative_tributary_strip",
+              outsideSpan,
+              tributaryDepth,
+              actualSpacing,
+              floorDead,
+              floorDeadRatio,
+              live: project.loads?.live ?? 0,
+              joistDeadPerArea,
+              ownWeightLine,
+              serviceLineLoad: lineService,
+              designLineLoad: lineDesign,
+            }
+          : null,
+      });
+      header.sourceWallOpeningIds = [...new Set(supports.flatMap((s) => s.sourceWallOpeningIds ?? []))];
+      if (header.sourceWallOpeningIds.length)
+        check(
+          "bearing-over-opening-" + header.id,
+          "Опорная линия поперечной балки содержит проём",
+          "unverified",
+          `Нагрузка ${header.id} проходит через нижние проёмы ${header.sourceWallOpeningIds.join(", ")}; несущая способность их перемычек, стоек и узлов не подтверждена.`,
+          { memberId: header.id, sourceWallOpeningIds: header.sourceWallOpeningIds },
+        );
+      if (continuous) {
+        if (materials)
+          header.directWallReaction = {
+            design: lineDesign * physicalWidth,
+            service: lineService * physicalWidth,
+            wallId: continuous[0].wall.id,
+            wallIds: continuous.map((p) => p.wall.id),
+            segments: continuous.map((p) => ({
+              wallId: p.wall.id,
+              design: lineDesign * p.length,
+              service: lineService * p.length,
+            })),
+          };
+        check(
+          "header-wall-" + index,
+          "Поперечная балка над несущей стеной",
+          "unverified",
+          "Обрамление опирается вдоль существующей стены нижнего этажа. Его нагрузка не продублирована в концах продольных балок; местная работа обвязок, проёмы стены и смятие требуют расчёта.",
+        );
+      } else if (materials) {
+        header.check = solveGrillagePointLoads({
+          length: physicalWidth,
+          b: section.b,
+          h: section.h,
+          plies: 1,
+          E,
+          Fb,
+          Fv,
+          deflectionRatio: 300,
+          loads: udl(physicalWidth, lineDesign, lineService),
+        });
+        header.check.loadModel = "uniform_tributary_screen";
+        for (let i = 0; i < 2; i++)
+          headerReactions[i].push({
+            at: a - pairs[i].before.at,
+            design: i === 0 ? header.check.reactionStart : header.check.reactionEnd,
+            characteristic: i === 0 ? header.check.serviceStart : header.check.serviceEnd,
+            sourceHeaderId: header.id,
+          });
+        check(
+          "header-capacity-" + index,
+          "Поперечная балка: частные изгиб/срез/прогиб",
+          header.check.status,
+          "Принята консервативная грузовая полоса, полное собственное сечение и шарнирные связи по граням продольных балок.",
+          { value: header.check.utilization, limit: 1, unit: "коэф." },
+        );
+      }
+    }
+    for (const [i, trimmer] of trimmers.entries()) {
+      const additionalTimberPressure = Math.max(0, joistDeadPerArea - woodJoistLine / actualSpacing),
+        lineService =
+          (floorDead + additionalTimberPressure + (project.loads?.live ?? 0)) * actualSpacing + ownWeightLine,
+        lineDesign =
+          ((floorDead + additionalTimberPressure) * actualSpacing + ownWeightLine) * (gammaG ?? 1) +
+          (project.loads?.live ?? 0) * actualSpacing * (gammaQ ?? 1);
+      trimmer.loads = materials
+        ? {
+            method: "floor_strip_plus_header_reactions",
+            actualSpacing,
+            tributaryWidth: actualSpacing,
+            additionalTimberPressure,
+            floorDead,
+            floorDeadRatio,
+            ownWeightLine,
+            serviceLineLoad: lineService,
+            designLineLoad: lineDesign,
+            headerReactions: headerReactions[i],
+          }
+        : null;
+      if (materials) {
+        trimmer.check = solveGrillagePointLoads({
+          length: trimmer.analyticalSpan,
+          b: section.b,
+          h: section.h,
+          plies: 1,
+          E,
+          Fb,
+          Fv,
+          deflectionRatio: 300,
+          loads: [...udl(trimmer.analyticalSpan, lineDesign, lineService), ...headerReactions[i]],
+        });
+        check(
+          "trimmer-capacity-" + i,
+          "Продольная балка: частные изгиб/срез/прогиб",
+          trimmer.check.status,
+          "Грузовая полоса по всей длине продольной балки консервативно включает участок у проёма; реакции неподдержанных стеной поперечных балок приложены в фактических точках.",
+          { value: trimmer.check.utilization, limit: 1, unit: "коэф." },
+        );
+      }
+    }
+    if (!materials)
+      check(
+        "material",
+        "Материал и нагрузки обрамления",
+        "unverified",
+        "Геометрия сформирована, но нужны положительныеE/Fb/Fv/плотность/коэффициенты и конечные нагрузки для частных проверок.",
+      );
+    if (Math.abs(lowY - lower.topY) > 0.01)
+      check(
+        "bearing-seat",
+        "Высота обрамления относительно опорной стены",
+        "unverified",
+        "Низ глубокого/мелкого обрамления не совпадает с верхом нижней стены; требуется рабочий узел посадки, без выдуманного выреза.",
+        { value: lowY, limit: lower.topY, unit: "м" },
+      );
+    check(
+      "connections",
+      "Подвесы, смятие и ослабленные сечения проёма",
+      "unverified",
+      "Физическое обрамление продлено до существующих опор. Узлы поперечных балок, эксцентриситет реакций, смятие, боковая устойчивость, крепёж и передача усилий через нижнюю стену не подтверждены.",
+    );
+    if (plies > 1)
+      check(
+        "package-connections",
+        "Распределение нагрузки и связи досок пакета",
+        "unverified",
+        "Созданы отдельные доски с общим верхом, каждая попадает в массу и раскрой один раз. Частный расчёт использует сумму жёсткостей при равной доле нагрузки; крепёж, ввод реакций в каждую доску, смятие и устойчивость пакета не подтверждены.",
+        { plies, boardSection: opening.edgeSection, frameWidth: section.b, unit: "мм" },
+      );
+    info.generated = true;
+    info.replaceLegacy = true;
+    info.actualSpacing = actualSpacing;
+    info.status = info.checks.some((c) => c.status === "fail") ? "fail" : "unverified";
   }
   // Detect conflicts between distinct opening systems; do not hide an invented
   // merged composite member or subtract overlapping timber a second time.
-  for(let i=0;i<out.instances.length;i++)for(let j=0;j<i;j++){const a=out.instances[i],b=out.instances[j];if(a.voidId===b.voidId||a.level!==b.level)continue;const box=q=>({x0:Math.min(q.start[0],q.end[0])-Math.abs(q.crossAxis[0])*q.b/2000,x1:Math.max(q.start[0],q.end[0])+Math.abs(q.crossAxis[0])*q.b/2000,z0:Math.min(q.start[2],q.end[2])-Math.abs(q.crossAxis[2])*q.b/2000,z1:Math.max(q.start[2],q.end[2])+Math.abs(q.crossAxis[2])*q.b/2000}),A=box(a),B=box(b);if(Math.min(A.x1,B.x1)-Math.max(A.x0,B.x0)>EPS&&Math.min(A.z1,B.z1)-Math.max(A.z0,B.z0)>EPS)append('opening-conflict-'+a.id+'-'+b.id,'Пересечение обрамлений соседних проёмов','fail','Две отдельные системы обрамления пересекаются. Нужна общая расчётная балка или изменение контуров; совместная работа не выдумывается.');}
-  out.assumptions=['Опоры обрамления ищутся по exterior/bearingстенам нижнего этажа; верхняя перегородка и конец шестиметровой заготовки не считаются опорой.','Прямоугольный проём имеет две продольные балки по его осям, продлённые до ближайших реальных стен до/после проёма. Поперечные балки обрезаны до внутренних граней продольных: объёмы досок внутри одного обрамления не пересекаются.','Частные нагрузки нужны только для проверок элементов, не для повторного добавления в общий вес дома. Фактическая масса добавленных досок учитывается вызывающим кодом один раз.','Постоянная нагрузка слоёв в частных проверках умножена на platformNetArea/осевуюnetFloorArea: масса наружной полосы платформы не исчезает. Полезная нагрузка остаётся по осевой площади. Физические торцы продольных балок подведены к внутренним граням смещённой обвязки; аналитические опоры остаются осями нижних стен.',
-    'Поперечная балка: грузовая глубина=фактический шаг лаг+половина максимального наружного пролёта обрезанных лаг. Это консервативный эквивалент, а не точное распределение каждой доски. Вес лаг оценён по их реальному сечению, шагу и плотности; собственный вес обрамления — по его геометрии.','Продольная балка: полная полоса ширинойшаглаг по всей длине плюс реакции неподдержанных стеной поперечных балок. Собственный вес её сечения добавлен один раз. Сплошная нижняя стена под поперечной балкой принимает её нагрузку напрямую; местная работа стены неизвестна.','Распределённые составляющие представлены80сосредоточенными силами в серединах равных участков. Реакции и эпюра от принятого наборасил — аналитические; приближение распределённой нагрузки имеет малую квадратурную погрешность.','Изгиб, срез и мгновенный прогибL/300 рассчитаны для шарнирных элементов с введённымиE/Fb/Fv. Ползучесть, вибрация, нагрузочные сочетания, пространственная работа и реальные соединения не подтверждены.','edgeSection — сечение одной доски, edgePlies — число параллельных досок. Расчётная ширина пакета равна сумме их толщин. Геометрия, масса и раскрой содержат реальные отдельные доски; равномерная передача нагрузки между ними остаётся допущением.','Триммеры и поперечные балки оставлены цельными. Длина>6м —fail, а не скрытый межсвайный/межстенный стык. Непрямоугольный контур требует отдельного задания опорной схемы.'];
-  out.warnings=out.checks.filter(c=>c.status==='fail').map(c=>c.note);out.status=out.checks.some(c=>c.status==='fail')?'fail':'unverified';return out;
+  for (let i = 0; i < out.instances.length; i++)
+    for (let j = 0; j < i; j++) {
+      const a = out.instances[i],
+        b = out.instances[j];
+      if (a.voidId === b.voidId || a.level !== b.level) continue;
+      const box = (q) => ({
+          x0: Math.min(q.start[0], q.end[0]) - (Math.abs(q.crossAxis[0]) * q.b) / 2000,
+          x1: Math.max(q.start[0], q.end[0]) + (Math.abs(q.crossAxis[0]) * q.b) / 2000,
+          z0: Math.min(q.start[2], q.end[2]) - (Math.abs(q.crossAxis[2]) * q.b) / 2000,
+          z1: Math.max(q.start[2], q.end[2]) + (Math.abs(q.crossAxis[2]) * q.b) / 2000,
+        }),
+        A = box(a),
+        B = box(b);
+      if (
+        Math.min(A.x1, B.x1) - Math.max(A.x0, B.x0) > EPS &&
+        Math.min(A.z1, B.z1) - Math.max(A.z0, B.z0) > EPS
+      )
+        append(
+          "opening-conflict-" + a.id + "-" + b.id,
+          "Пересечение обрамлений соседних проёмов",
+          "fail",
+          "Две отдельные системы обрамления пересекаются. Нужна общая расчётная балка или изменение контуров; совместная работа не выдумывается.",
+        );
+    }
+  out.assumptions = [
+    "Опоры обрамления ищутся по exterior/bearingстенам нижнего этажа; верхняя перегородка и конец шестиметровой заготовки не считаются опорой.",
+    "Прямоугольный проём имеет две продольные балки по его осям, продлённые до ближайших реальных стен до/после проёма. Поперечные балки обрезаны до внутренних граней продольных: объёмы досок внутри одного обрамления не пересекаются.",
+    "Частные нагрузки нужны только для проверок элементов, не для повторного добавления в общий вес дома. Фактическая масса добавленных досок учитывается вызывающим кодом один раз.",
+    "Постоянная нагрузка слоёв в частных проверках умножена на platformNetArea/осевуюnetFloorArea: масса наружной полосы платформы не исчезает. Полезная нагрузка остаётся по осевой площади. Физические торцы продольных балок подведены к внутренним граням смещённой обвязки; аналитические опоры остаются осями нижних стен.",
+    "Поперечная балка: грузовая глубина=фактический шаг лаг+половина максимального наружного пролёта обрезанных лаг. Это консервативный эквивалент, а не точное распределение каждой доски. Вес лаг оценён по их реальному сечению, шагу и плотности; собственный вес обрамления — по его геометрии.",
+    "Продольная балка: полная полоса ширинойшаглаг по всей длине плюс реакции неподдержанных стеной поперечных балок. Собственный вес её сечения добавлен один раз. Сплошная нижняя стена под поперечной балкой принимает её нагрузку напрямую; местная работа стены неизвестна.",
+    "Распределённые составляющие представлены80сосредоточенными силами в серединах равных участков. Реакции и эпюра от принятого наборасил — аналитические; приближение распределённой нагрузки имеет малую квадратурную погрешность.",
+    "Изгиб, срез и мгновенный прогибL/300 рассчитаны для шарнирных элементов с введённымиE/Fb/Fv. Ползучесть, вибрация, нагрузочные сочетания, пространственная работа и реальные соединения не подтверждены.",
+    "edgeSection — сечение одной доски, edgePlies — число параллельных досок. Расчётная ширина пакета равна сумме их толщин. Геометрия, масса и раскрой содержат реальные отдельные доски; равномерная передача нагрузки между ними остаётся допущением.",
+    "Триммеры и поперечные балки оставлены цельными. Длина>6м —fail, а не скрытый межсвайный/межстенный стык. Непрямоугольный контур требует отдельного задания опорной схемы.",
+  ];
+  out.warnings = out.checks.filter((c) => c.status === "fail").map((c) => c.note);
+  out.status = out.checks.some((c) => c.status === "fail") ? "fail" : "unverified";
+  return out;
 }

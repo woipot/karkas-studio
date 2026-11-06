@@ -1,18 +1,164 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import {analyzeSnowCases} from './snow-envelope.js';
-import {calculateDesigner,defaultDesignerProject} from './designer-engine.js';
-import {calculateRoofZones} from './roof-zones.js';
-const near=(a,b,t=1e-6)=>assert.ok(Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<t,`${a} != ${b}`);
-function fixture(kind='coveredTerrace'){const p=structuredClone(defaultDesignerProject);p.bracing.method='none';p.roof={...p.roof,type:'fink',framing:'truss',chordSection:'50x200',webSection:'50x100',pitch:25,snowMu:1};p.annexes=[{id:'A',kind,attachedWallId:'w-north',offset:1,width:4,depth:2.5,loads:{snow:2,snowMu:1}}];p.loads.snow=1.5;return p;}
-function baseline(p){const base=calculateDesigner(p),roof=calculateRoofZones(p,base);return calculateDesigner(p,{roofModel:roof});}
-function cases(p,z){p.snowDesign={cases:[{id:'balanced',name:'Balanced',zoneFactors:{[z]:1}},{id:'main150',name:'Main150',zoneFactors:{[z]:1.5}},{id:'all150',name:'All150',zoneFactors:{[z]:1.5},annexFactors:{A:1.5}}]};}
+import test from "node:test";
+import assert from "node:assert/strict";
+import { analyzeSnowCases } from "./snow-envelope.js";
+import { calculateDesigner, defaultDesignerProject } from "./designer-engine.js";
+import { calculateRoofZones } from "./roof-zones.js";
+const near = (a, b, t = 1e-6) =>
+  assert.ok(Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < t, `${a} != ${b}`);
+function fixture(kind = "coveredTerrace") {
+  const p = structuredClone(defaultDesignerProject);
+  p.bracing.method = "none";
+  p.roof = {
+    ...p.roof,
+    type: "fink",
+    framing: "truss",
+    chordSection: "50x200",
+    webSection: "50x100",
+    pitch: 25,
+    snowMu: 1,
+  };
+  p.annexes = [
+    {
+      id: "A",
+      kind,
+      attachedWallId: "w-north",
+      offset: 1,
+      width: 4,
+      depth: 2.5,
+      loads: { snow: 2, snowMu: 1 },
+    },
+  ];
+  p.loads.snow = 1.5;
+  return p;
+}
+function baseline(p) {
+  const base = calculateDesigner(p),
+    roof = calculateRoofZones(p, base);
+  return calculateDesigner(p, { roofModel: roof });
+}
+function cases(p, z) {
+  p.snowDesign = {
+    cases: [
+      { id: "balanced", name: "Balanced", zoneFactors: { [z]: 1 } },
+      { id: "main150", name: "Main150", zoneFactors: { [z]: 1.5 } },
+      { id: "all150", name: "All150", zoneFactors: { [z]: 1.5 }, annexFactors: { A: 1.5 } },
+    ],
+  };
+}
 
-test('independent annexFactors make150percent all-roofs exact and keep every section/mass fixed',()=>{const p=fixture(),r=baseline(p),z=r.roofModel.zones[0].id;cases(p,z);const input=JSON.stringify(p),out=analyzeSnowCases(p,r),[base,main,all]=out.cases,mainSnow=r.houseLoads.snow,annexSnow=r.annexes.loads.snow;near(base.snowCharacteristic,mainSnow+annexSnow);near(main.snowCharacteristic,1.5*mainSnow+annexSnow);near(all.snowCharacteristic,1.5*(mainSnow+annexSnow));near(all.annexes[0].snowCharacteristic,1.5*annexSnow);near(all.totalDesign-main.totalDesign,.5*annexSnow*(p.annexes[0].loads.gammaQ??p.loads.gammaQ));assert.deepEqual(all.annexFactors,{A:1.5});assert.deepEqual(main.annexFactors,{});for(const c of out.cases){near(c.timberMass,r.timber.mass);near(c.timberVolume,r.timber.volume);assert.equal(c.boardCount,r.timber.boardCount);near(c.annexes[0].woodMass,r.annexes.items[0].quantities.woodMass);near(c.annexes[0].totalDesign,c.annexes[0].pileReactionSum);assert.equal(c.sectionsFixed,true);}assert.equal(JSON.stringify(p),input);assert.equal(out.certified,false);assert.ok(out.checks.some(c=>c.id==='snow-scope'&&c.status==='unverified'));});
+test("independent annexFactors make150percent all-roofs exact and keep every section/mass fixed", () => {
+  const p = fixture(),
+    r = baseline(p),
+    z = r.roofModel.zones[0].id;
+  cases(p, z);
+  const input = JSON.stringify(p),
+    out = analyzeSnowCases(p, r),
+    [base, main, all] = out.cases,
+    mainSnow = r.houseLoads.snow,
+    annexSnow = r.annexes.loads.snow;
+  near(base.snowCharacteristic, mainSnow + annexSnow);
+  near(main.snowCharacteristic, 1.5 * mainSnow + annexSnow);
+  near(all.snowCharacteristic, 1.5 * (mainSnow + annexSnow));
+  near(all.annexes[0].snowCharacteristic, 1.5 * annexSnow);
+  near(all.totalDesign - main.totalDesign, 0.5 * annexSnow * (p.annexes[0].loads.gammaQ ?? p.loads.gammaQ));
+  assert.deepEqual(all.annexFactors, { A: 1.5 });
+  assert.deepEqual(main.annexFactors, {});
+  for (const c of out.cases) {
+    near(c.timberMass, r.timber.mass);
+    near(c.timberVolume, r.timber.volume);
+    assert.equal(c.boardCount, r.timber.boardCount);
+    near(c.annexes[0].woodMass, r.annexes.items[0].quantities.woodMass);
+    near(c.annexes[0].totalDesign, c.annexes[0].pileReactionSum);
+    assert.equal(c.sectionsFixed, true);
+  }
+  assert.equal(JSON.stringify(p), input);
+  assert.equal(out.certified, false);
+  assert.ok(out.checks.some((c) => c.id === "snow-scope" && c.status === "unverified"));
+});
 
-test('annex snow overrides are finite known-ID maps, including valid zero',()=>{const p=fixture(),r=baseline(p),z=r.roofModel.zones[0].id;for(const factors of[{missing:1},{A:-.1},{A:4.01},{A:NaN},{A:Infinity},null,[],2]){p.snowDesign={cases:[{id:'bad',name:'Bad',zoneFactors:{[z]:1},annexFactors:factors}]};assert.throws(()=>analyzeSnowCases(p,r),/annexFactors|пристройки/);}p.snowDesign={cases:[{id:'zero',name:'Zero',zoneFactors:{[z]:1},annexFactors:{A:0}}]};const out=analyzeSnowCases(p,r).cases[0];near(out.annexes[0].snowCharacteristic,0);near(out.snowCharacteristic,r.houseLoads.snow);});
+test("annex snow overrides are finite known-ID maps, including valid zero", () => {
+  const p = fixture(),
+    r = baseline(p),
+    z = r.roofModel.zones[0].id;
+  for (const factors of [
+    { missing: 1 },
+    { A: -0.1 },
+    { A: 4.01 },
+    { A: NaN },
+    { A: Infinity },
+    null,
+    [],
+    2,
+  ]) {
+    p.snowDesign = { cases: [{ id: "bad", name: "Bad", zoneFactors: { [z]: 1 }, annexFactors: factors }] };
+    assert.throws(() => analyzeSnowCases(p, r), /annexFactors|пристройки/);
+  }
+  p.snowDesign = { cases: [{ id: "zero", name: "Zero", zoneFactors: { [z]: 1 }, annexFactors: { A: 0 } }] };
+  const out = analyzeSnowCases(p, r).cases[0];
+  near(out.annexes[0].snowCharacteristic, 0);
+  near(out.snowCharacteristic, r.houseLoads.snow);
+});
 
-test('open-deck and glazed-veranda snow use the same explicit multiplier, and inherited snowfall stays inherited',()=>{for(const kind of['openTerrace','glazedVeranda']){const p=fixture(kind);delete p.annexes[0].loads.snow;const r=baseline(p),z=r.roofModel.zones[0].id;p.snowDesign={cases:[{id:'double',name:'Double',zoneFactors:{[z]:1},annexFactors:{A:2}}]};const out=analyzeSnowCases(p,r).cases[0];near(out.annexes[0].snowCharacteristic,2*r.annexes.items[0].loads.snow);near(out.timberMass,r.timber.mass);near(out.timberVolume,r.timber.volume);}});
+test("open-deck and glazed-veranda snow use the same explicit multiplier, and inherited snowfall stays inherited", () => {
+  for (const kind of ["openTerrace", "glazedVeranda"]) {
+    const p = fixture(kind);
+    delete p.annexes[0].loads.snow;
+    const r = baseline(p),
+      z = r.roofModel.zones[0].id;
+    p.snowDesign = {
+      cases: [{ id: "double", name: "Double", zoneFactors: { [z]: 1 }, annexFactors: { A: 2 } }],
+    };
+    const out = analyzeSnowCases(p, r).cases[0];
+    near(out.annexes[0].snowCharacteristic, 2 * r.annexes.items[0].loads.snow);
+    near(out.timberMass, r.timber.mass);
+    near(out.timberVolume, r.timber.volume);
+  }
+});
 
-test('fixed cases retain per-zone king/queen topology and already auto-selected wall sections',()=>{const p=fixture();p.annexes=[];const zone=(id,x0,x1,trussType)=>({id,name:id,polygon:[{x:x0,y:0},{x:x1,y:0},{x:x1,y:8},{x:x0,y:8}],shape:'gable',ridgeAngle:0,pitchLeft:25,pitchRight:25,framing:'truss',trussType,spacing:.6,chordSection:'50x200',webSection:'50x100'});p.roof.zones=[zone('K',0,6,'king'),zone('Q',6,12,'queen')];let r=baseline(p);p.snowDesign={cases:[{id:'same',name:'Same topology',zoneFactors:{K:1,Q:1}}]};let out=analyzeSnowCases(p,r).cases[0];near(out.timberMass,r.timber.mass);assert.equal(out.boardCount,r.timber.boardCount);
- const q=fixture();q.annexes=[];q.roof={...q.roof,type:'mono',pitch:15,framing:'rafters',wallFraming:'auto',chordSection:'75x300'};r=baseline(q);assert.ok(r.roofModel.wallProfiles.some(p=>p.section));const z=r.roofModel.zones[0].id;q.snowDesign={cases:[{id:'heavy',name:'Heavy fixed sections',zoneFactors:{[z]:4}}]};out=analyzeSnowCases(q,r).cases[0];near(out.timberMass,r.timber.mass);near(out.timberVolume,r.timber.volume);assert.equal(out.boardCount,r.timber.boardCount);});
+test("fixed cases retain per-zone king/queen topology and already auto-selected wall sections", () => {
+  const p = fixture();
+  p.annexes = [];
+  const zone = (id, x0, x1, trussType) => ({
+    id,
+    name: id,
+    polygon: [
+      { x: x0, y: 0 },
+      { x: x1, y: 0 },
+      { x: x1, y: 8 },
+      { x: x0, y: 8 },
+    ],
+    shape: "gable",
+    ridgeAngle: 0,
+    pitchLeft: 25,
+    pitchRight: 25,
+    framing: "truss",
+    trussType,
+    spacing: 0.6,
+    chordSection: "50x200",
+    webSection: "50x100",
+  });
+  p.roof.zones = [zone("K", 0, 6, "king"), zone("Q", 6, 12, "queen")];
+  let r = baseline(p);
+  p.snowDesign = { cases: [{ id: "same", name: "Same topology", zoneFactors: { K: 1, Q: 1 } }] };
+  let out = analyzeSnowCases(p, r).cases[0];
+  near(out.timberMass, r.timber.mass);
+  assert.equal(out.boardCount, r.timber.boardCount);
+  const q = fixture();
+  q.annexes = [];
+  q.roof = {
+    ...q.roof,
+    type: "mono",
+    pitch: 15,
+    framing: "rafters",
+    wallFraming: "auto",
+    chordSection: "75x300",
+  };
+  r = baseline(q);
+  assert.ok(r.roofModel.wallProfiles.some((p) => p.section));
+  const z = r.roofModel.zones[0].id;
+  q.snowDesign = { cases: [{ id: "heavy", name: "Heavy fixed sections", zoneFactors: { [z]: 4 } }] };
+  out = analyzeSnowCases(q, r).cases[0];
+  near(out.timberMass, r.timber.mass);
+  near(out.timberVolume, r.timber.volume);
+  assert.equal(out.boardCount, r.timber.boardCount);
+});

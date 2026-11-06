@@ -10,7 +10,9 @@
     "mcp": "node mcp/server.mjs",
     "example": "node scripts/build-engine-example.mjs",
     "test:mcp": "node --test src/mcp-engine.test.mjs",
-    "demo": "node scripts/demo-mcp.mjs"
+    "demo": "node scripts/demo-mcp.mjs",
+    "format": "prettier --write \"src/**/*.{js,mjs,jsx}\" \"mcp/*.mjs\" \"scripts/*.mjs\"",
+    "format:check": "prettier --check \"src/**/*.{js,mjs,jsx}\" \"mcp/*.mjs\" \"scripts/*.mjs\""
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.4.0",
@@ -21,6 +23,7 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "^2.4.0",
+    "prettier": "^3.9.10",
     "vite": "^7.1.0"
   }
 }

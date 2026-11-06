@@ -104,6 +104,35 @@ export function evaluateHouse(project, planning = {}) {
   }
   // Member checks read one γG/γQ pair and w0·k(ze): see memberLoadProject (load-profile.js).
   const mechanics = checkDesignerMembers(memberLoadProject(p, calculated.loads?.windPressure), calculated);
+  // Per-wall stud results for the viewer's member panel (compact: no geometry arrays).
+  const studFields = [
+    "wallId",
+    "id",
+    "b",
+    "h",
+    "length",
+    "unbracedLength",
+    "weakAxisRestraint",
+    "force",
+    "capacity",
+    "crushing",
+    "lambda",
+    "lambdaLimit",
+    "phi",
+    "tributaryWidth",
+    "utilization",
+    "status",
+    "measured",
+  ];
+  calculated.studMechanics = mechanics.stud
+    ? {
+        note: mechanics.stud.note ?? null,
+        equivalentLineLoad: mechanics.stud.equivalentLineLoad ?? null,
+        walls: (mechanics.stud.walls ?? []).map((s) =>
+          Object.fromEntries(studFields.filter((k) => s[k] !== undefined).map((k) => [k, s[k]])),
+        ),
+      }
+    : null;
   if (p.floor.wallSupportFraming)
     calculated.floorPlatform.joistChecks = (mechanics.joist?.members ?? []).map(({ parts, ...m }) => ({
       ...m,

@@ -6,6 +6,7 @@ import Icon from "./icons.jsx";
 import { parseSection } from "./catalog.js";
 import { formatEndCut, cuttingToPrintHTML } from "./cutting.js";
 import { planAnnotations, planLabelLines } from "./house-exports.js";
+import { MemberPanel } from "./member-panel.jsx";
 import "./engine-viewer.css";
 
 const finite = (n) => typeof n === "number" && Number.isFinite(n);
@@ -1182,6 +1183,9 @@ export function Overview({ report }) {
                 onSelect={setSelected}
                 fitKey={fitKey}
               />
+            )}
+            {selected?.type === "member" && (
+              <MemberPanel report={report} id={selected.id} onClose={() => setSelected(null)} />
             )}
             <div className="engine-canvas-tag">
               <span>

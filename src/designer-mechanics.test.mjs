@@ -102,8 +102,10 @@ test("doubling E halves beam deflection and doubles ideal stud Euler force", () 
 test("a stud has full unsupported length without an explicit restraint; K and length have inverse-square effect", () => {
   const p = make();
   delete p.material.studRestraint;
+  p.material.studSheathingRestraint = false;
   const a = run(p);
   near(a.stud.unbracedLength, p.height - 3 * 0.05);
+  assert.equal(a.stud.weakAxisRestraint, "unbraced");
   p.material.studRestraint = a.stud.length / 2;
   const b = run(p);
   near(b.stud.eulerWeak, a.stud.eulerWeak * 4);
@@ -111,7 +113,39 @@ test("a stud has full unsupported length without an explicit restraint; K and le
   const c = run(p);
   near(c.stud.eulerWeak, b.stud.eulerWeak / 4);
   assert.ok(a.stud.capacity <= a.stud.crushing);
-  assert.ok(a.stud.capacity <= a.stud.euler);
+  // СП 64: unbraced 50 mm axis, λ = 2650/(50/√12) = 183.6 > 120, φ = 3000/λ².
+  const lambda = (a.stud.length * 1000) / (a.stud.b / Math.sqrt(12));
+  near(a.stud.lambda, lambda);
+  near(a.stud.capacity, ((3000 / lambda ** 2) * p.material.Fc * a.stud.b * a.stud.h) / 1000);
+  assert.equal(a.stud.status, "fail");
+});
+test("structural sheathing restrains the stud weak axis at the fastener spacing (C-a)", () => {
+  const p = make();
+  delete p.material.studRestraint;
+  const r = run(p);
+  assert.equal(p.bracing.method, "sheathing");
+  assert.equal(r.stud.weakAxisRestraint, "sheathing");
+  near(r.stud.unbracedLength, p.bracing.fieldNailSpacing / 1000);
+  // Strong axis governs: 50x150, l = 2.65 m → λ = 61.2, φ = 1 − 0.8(λ/100)² = 0.700, N ≈ 63.0 kN.
+  const lambda = 2650 / (150 / Math.sqrt(12)),
+    phi = 1 - 0.8 * (lambda / 100) ** 2;
+  near(r.stud.lambda, lambda, 1e-6);
+  near(r.stud.capacity, (phi * 12 * 50 * 150) / 1000, 1e-6);
+  near(r.stud.capacity, 63.03, 0.05);
+  // Explicit override: a smaller material.studRestraint can still only shorten the weak axis.
+  p.material.studRestraint = 0.2;
+  near(run(p).stud.unbracedLength, 0.2);
+});
+test("opening edge tributary is shared by the real king + jack studs (C-b)", () => {
+  const p = make(),
+    wall = p.walls.find((w) => w.id === "w-north");
+  p.openings = [
+    { id: "O1", wallId: wall.id, offset: 1.2, width: 1.8, height: 1.5, sill: 0.8, type: "window" },
+  ];
+  const r = run(p),
+    s = r.stud.walls.find((q) => q.wallId === wall.id);
+  assert.equal(s.openingEdge.studCount, 2);
+  near(s.tributaryWidth, Math.max(wall.studStep ?? 0.6, (1.8 / 2 + (wall.studStep ?? 0.6)) / 2));
 });
 test("modern bracing demand scales with wind while unknown shear capacity and anchors remain unverified", () => {
   const p = make(),

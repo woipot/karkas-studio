@@ -284,7 +284,9 @@ test("actual full-height wall checks replace the obsolete global representative 
   assert.ok(source);
   near(m.stud.force, source.force);
   near(m.stud.capacity, source.compressionCapacity);
-  near(m.stud.unbracedLength, source.length);
+  // Sheathing on this wall restrains the weak axis at the field-nail spacing (C-a).
+  near(m.stud.unbracedLength, source.unbracedWeakLength);
+  near(source.unbracedWeakLength, Math.min(source.length, (p.bracing?.fieldNailSpacing ?? 300) / 1000));
   near(Math.max(...actual.map((s) => s.length)), 2.8 + 4 * Math.tan((25 * Math.PI) / 180) - 0.15);
   const compression = m.checks.find((c) => c.id === "designerStudCompression");
   assert.ok(compression);
@@ -323,5 +325,5 @@ test("higher wind fails the actual full-height wall checks without resurrecting 
   assert.ok(source);
   near(m.stud.force, source.force);
   near(m.stud.capacity, source.compressionCapacity);
-  near(m.stud.unbracedLength, source.length);
+  near(m.stud.unbracedLength, source.unbracedWeakLength);
 });

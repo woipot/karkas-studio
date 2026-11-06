@@ -162,7 +162,13 @@ test("member stress and Euler use declared sections and full unbraced length", (
         1000,
     );
     assert.ok(b.compressionCapacity <= (12 * b.b * b.h) / 1000 + 1e-8);
-    assert.ok(b.compressionCapacity <= b.euler + 1e-8);
+    // SP 64: capacity = φ·Rc·A with φ from λ about both axes (ideal Euler is reference only).
+    const inPlane = (b.length * 1000) / (b.h / Math.sqrt(12)),
+      outOfPlane = ((b.role === "web" ? b.length : Math.min(b.length, 0.6)) * 1000) / (b.b / Math.sqrt(12)),
+      lambda = Math.max(inPlane, outOfPlane),
+      phi = lambda <= 70 ? 1 - 0.8 * (lambda / 100) ** 2 : 3000 / lambda ** 2;
+    near(b.lambda, lambda);
+    near(b.compressionCapacity, (phi * 12 * b.b * b.h) / 1000);
   }
   assert.equal(t.status, "warning");
   assert.ok(t.checks.some((c) => c.id === "connections" && c.status === "unverified"));

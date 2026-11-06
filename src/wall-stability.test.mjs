@@ -48,22 +48,39 @@ test("independent 3m wind beam: q=.12kN/m gives M=.189kNm design, stress1.008MPa
   assert.ok(s.windStress > s.windStressFirstOrder);
 });
 test("full-height 50x150 can fail while a larger same-width section passes the shown private checks", () => {
-  const a = checkFullHeightWall(input()),
-    b = checkFullHeightWall({ ...input(), studs: [{ ...input().studs[0], h: 200 }] });
+  // Weak axis restrained by sheathing fasteners at 300 mm; the strong axis has the full 5.4 m.
+  const braced = () => ({ ...input(), weakAxisRestraint: 0.3 }),
+    a = checkFullHeightWall(braced()),
+    b = checkFullHeightWall({ ...braced(), studs: [{ ...input().studs[0], h: 200 }] });
+  // 50x150: λ = 5400/(150/√12) = 124.7 > 120 (СНиП II-25-80 табл. 14) → fails on slenderness.
+  near(a.worst.lambda, 5400 / (150 / Math.sqrt(12)), 1e-6);
+  assert.ok(a.worst.slendernessUtilization > 1);
+  // Unrestrained, even 50x200 is far beyond λmax about the 50 mm axis.
+  assert.equal(
+    checkFullHeightWall({ ...input(), studs: [{ ...input().studs[0], h: 200 }] }).capacityPass,
+    false,
+  );
   assert.equal(a.capacityPass, false);
-  assert.ok(a.utilization > 1);
+  assert.equal(a.status, "fail");
   assert.equal(b.capacityPass, true);
   assert.equal(b.status, "unverified");
   assert.equal(b.worst.b, 50);
   assert.equal(b.worst.h, 200);
-  const candidates = evaluateWallSectionCandidates(input());
+  const candidates = evaluateWallSectionCandidates(braced());
   assert.equal(candidates.recommended.section, "50x200");
 });
-test("strong-axis P-delta amplification follows explicitly shown N/Euler and fails at instability", () => {
+test("strong-axis moment amplification is 1/ξ with ξ = 1 − N/(φ·Rc·A) (СП 64) and fails at instability", () => {
   const r = checkFullHeightWall(input()),
-    s = r.worst;
-  near(s.amplification, 1 / (1 - s.force / s.eulerStrong));
+    s = r.worst,
+    lambda = 5400 / (150 / Math.sqrt(12)),
+    phi = 3000 / lambda ** 2,
+    xi = 1 - (s.force * 1000) / (phi * 12 * 50 * 150);
+  near(s.phiStrong, phi);
+  near(s.xi, xi);
+  near(s.amplification, 1 / xi);
   near(s.windStress, s.windStressFirstOrder * s.amplification);
+  // Strength interaction ф. (28): N/(A·Rc) + Mд/(W·Rи).
+  near(s.strengthInteraction, (s.force * 1000) / (7500 * 12) + s.windStress / 13);
   const fail = checkFullHeightWall({ ...input(), roofReactionLine: { design: 1000, service: 1000 } });
   assert.equal(fail.status, "fail");
   assert.equal(fail.capacityPass, false);
@@ -77,12 +94,25 @@ test("Emin changes stability while mean E still controls first-order bending sti
   near(b.worst.windDeflectionFirstOrder, a.worst.windDeflectionFirstOrder);
   assert.ok(b.worst.windDeflection > a.worst.windDeflection);
 });
-test("compression capacity is capped by material stress as well as both Euler axes", () => {
+test("compression capacity is φ·Rc·A about the governing axis, never above Rc·A", () => {
   const r = checkFullHeightWall({ ...input(), Fc: 0.2, studs: [{ ...input().studs[0], length: 1 }] }),
-    s = r.worst;
-  near(s.compressionCapacity, (0.2 * 50 * 150) / 1000);
-  assert.ok(s.compressionCapacity <= s.eulerWeak);
-  assert.ok(s.compressionCapacity <= s.eulerStrong);
+    s = r.worst,
+    lambda = 1000 / (50 / Math.sqrt(12)),
+    phi = 1 - 0.8 * (lambda / 100) ** 2;
+  assert.ok(lambda < 70);
+  near(s.phi, phi);
+  near(s.compressionCapacity, (phi * 0.2 * 50 * 150) / 1000);
+  assert.ok(s.compressionCapacity <= (0.2 * 50 * 150) / 1000);
+  // Sheathing on the face restrains the weak axis: the strong axis then governs.
+  const braced = checkFullHeightWall({
+      ...input(),
+      weakAxisRestraint: 0.3,
+      studs: [{ ...input().studs[0], length: 2.65 }],
+    }).worst,
+    strong = 2650 / (150 / Math.sqrt(12));
+  near(braced.lambda, strong);
+  near(braced.compressionCapacity, ((1 - 0.8 * (strong / 100) ** 2) * 12 * 7500) / 1000);
+  near(braced.compressionCapacity, 63.03, 0.05);
 });
 test("stock fit checks the long-point blank including a top miter, not only axis length", () => {
   const r = checkFullHeightWall({
@@ -123,7 +153,11 @@ test("wrapper joins stock pieces back to the complete continuous logical stud an
   assert.equal(m.status, "fail");
 });
 test("missing roof reaction cannot approve a loadbearing full-height wall and stacked walls stay unverified", () => {
-  const r = checkFullHeightWall({ studs: [{ id: "s", length: 3, b: 50, h: 200 }], wallDead: 0 });
+  const r = checkFullHeightWall({
+    studs: [{ id: "s", length: 3, b: 50, h: 200 }],
+    wallDead: 0,
+    weakAxisRestraint: 0.3,
+  });
   assert.equal(r.capacityPass, false);
   assert.equal(r.status, "unverified");
   assert.equal(r.checks.find((c) => c.id === "full-wall-load-path").status, "unverified");

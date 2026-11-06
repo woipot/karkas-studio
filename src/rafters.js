@@ -1,6 +1,7 @@
 /** Sloping simply supported timber beam under uniform VERTICAL gravity loads.
  * Geometry m; b/h mm; E and strengths MPa; line loads kN/m, deflection mm.
  */
+import { compressionBending, finalDeflection, notchedShear } from "./timber-design.js";
 const G = 9.80665;
 const finite = (x) => typeof x === "number" && Number.isFinite(x);
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -24,6 +25,15 @@ export const rafterDefaults = {
   deflectionRatio: 300,
   overhangLow: 0,
   overhangHigh: 0,
+  /** Out-of-plane restraint of the compression edge by roof battens, m. */
+  lateralRestraint: 0.6,
+  /** EN 1995-1-1 kdef (service class 1, solid timber) and long-term snow share psi2. */
+  kdef: 0.6,
+  psi2Snow: 0.2,
+  finalDeflectionRatio: 200,
+  /** Birdsmouth seat depth (mm) and seat length along the rafter (mm); null = not modelled. */
+  notchDepth: null,
+  seatLength: null,
 };
 export const defaultRafterSections = [
   "40x150",
@@ -102,12 +112,20 @@ export function calculateRafter(input = {}) {
     gammaG: [1, 2],
     gammaQ: [1, 3],
     deflectionRatio: [100, 600],
+    lateralRestraint: [0.05, 30],
+    kdef: [0, 3],
+    psi2Snow: [0, 1],
+    finalDeflectionRatio: [100, 600],
   };
   for (const [k, [a, b]] of Object.entries(bounds))
     if (!finite(p[k]) || p[k] < a || p[k] > b) errors.push(`${k}: требуется число от ${a} до ${b}.`);
   for (const key of ["overhangLow", "overhangHigh"])
     if (!finite(p[key]) || p[key] < 0 || p[key] > 2) errors.push(`${key}: горизонтальный свес от0 до2м.`);
   if (p.h < p.b) errors.push("Высота h должна быть не меньше ширины b: задана сильная ось изгиба.");
+  if (p.notchDepth !== null && (!finite(p.notchDepth) || p.notchDepth < 0 || p.notchDepth >= p.h / 2))
+    errors.push("notchDepth: глубина запила 0…h/2 мм или null.");
+  if (p.seatLength !== null && (!finite(p.seatLength) || p.seatLength < 0 || p.seatLength > 1000))
+    errors.push("seatLength: длина опорной площадки 0…1000 мм или null.");
   if (input.rise !== undefined) {
     if (!finite(input.rise) || input.rise < 0)
       errors.push("rise: требуется конечный неотрицательный перепад.");
@@ -165,8 +183,8 @@ export function calculateRafter(input = {}) {
       qA,
       qAD,
     });
-  function interaction(L, F) {
-    const C = (qND * L ** 2) / (2 * Z * p.Fb),
+  function interaction(L, F, xi = 1) {
+    const C = (qND * L ** 2) / (2 * Z * p.Fb * xi),
       D = (qAD * L) / (A * F),
       x = C > 0 ? clamp((1 - D / C) / 2, 0, 0.5) : 0;
     return {
@@ -186,12 +204,19 @@ export function calculateRafter(input = {}) {
       normalDeflection = (5 * qN * L ** 4) / (384 * p.E * I),
       axialDisplacement = (qA * L ** 2) / (8 * p.E * A),
       verticalDeflection = normalDeflection * c + axialDisplacement * s;
-    const compression = interaction(L, p.Fc),
+    // СНиП II-25-80 п. 4.17–4.18 (СП 64.13330.2017): in-plane φ over the slope length
+    // between supports, Mд = M/ξ on the compressed part; out of plane between battens.
+    const beamColumn = sp64BeamColumn(p, L / 1000, N, M),
+      compression = interaction(L, p.Fc, beamColumn.xi > 0 ? beamColumn.xi : 1e-9),
       tension = interaction(L, p.Ft),
-      interactionUtilization = Math.max(compression.utilization, tension.utilization);
+      interactionUtilization = Math.max(
+        compression.utilization,
+        tension.utilization,
+        N > 0 ? beamColumn.outOfPlaneUtilization : 0,
+      );
     const bendingUtilization = stress / p.Fb,
       shearUtilization = shearStress / p.Fv,
-      compressionUtilization = (N * 1000) / (A * p.Fc),
+      compressionUtilization = N > 0 ? (N * 1000) / (beamColumn.phi * A * p.Fc) : 0,
       tensionUtilization = (N * 1000) / (A * p.Ft),
       deflectionAllowed = (span * 1000) / p.deflectionRatio,
       deflectionUtilization = verticalDeflection / deflectionAllowed;
@@ -224,6 +249,7 @@ export function calculateRafter(input = {}) {
       utilization,
       compressionInteraction: compression,
       tensionInteraction: tension,
+      beamColumn,
     };
   }
   const e = evaluate(p.horizontalSpan),
@@ -334,7 +360,15 @@ export function calculateRafter(input = {}) {
     },
     { id: "rafter-wind", label: "Ветер, отрыв и особые снеговые случаи", status: "unverified" },
   );
-  const capacityPass = e.utilization <= 1;
+  const extra = sp64RafterExtras(p, {
+    beamColumn: e.beamColumn,
+    deflection: e.verticalDeflection,
+    deadShare: deadAxis / qV,
+    span: p.horizontalSpan,
+    shear: e.shear,
+  });
+  checks.push(...extra.checks);
+  const capacityPass = e.utilization <= 1 && extra.pass;
   const diagrams = Array.from({ length: 17 }, (_, i) => {
     const x = i / 16,
       l = L * 1000,
@@ -400,8 +434,11 @@ export function calculateRafter(input = {}) {
       compression: { ...e.compressionInteraction, location: e.compressionInteraction.fraction * L },
       tension: { ...e.tensionInteraction, location: (1 - e.tensionInteraction.fraction) * L },
       utilization: e.interactionUtilization,
-      note: "Линейный предварительный критерий по совпадающим сечениям, без нормативной кривой устойчивости.",
+      xi: e.beamColumn.xi,
+      outOfPlane: e.beamColumn.outOfPlaneUtilization,
+      note: "По совпадающим сечениям N(s), M(s): N/(A·Rc) + Mд/(W·Rи), Mд = M/ξ (СНиП II-25-80 п. 4.17, СП 64.13330.2017); из плоскости N/(φy·Rc·A) + (Mд/(φм·Rи·W))².",
     },
+    ...extra.fields,
     mass: ((p.density * A) / 1e6) * L,
     volume: (A / 1e6) * L,
     checks,
@@ -414,6 +451,100 @@ export function calculateRafter(input = {}) {
           "Предусмотреть реальную промежуточную опору и проверить новый путь передачи нагрузки.",
           "Сравнить отдельную ферму как вариант конструктивной схемы.",
         ],
+  };
+}
+
+/** SP 64 beam-column for a rafter: l0 in plane = slope length between supports, m. */
+function sp64BeamColumn(p, slopeLength, N, M) {
+  const restraint = Math.min(slopeLength, p.lateralRestraint ?? 0.6);
+  return compressionBending({
+    N,
+    M,
+    b: p.b,
+    h: p.h,
+    l0Bending: slopeLength,
+    l0Weak: restraint,
+    lp: restraint,
+    Fc: p.Fc,
+    Fb: p.Fb,
+    kind: "chord",
+  });
+}
+/** λmax, creep final deflection (B8) and birdsmouth shear (B11) checks shared by both schemes. */
+function sp64RafterExtras(p, { beamColumn, deflection, deadShare, span, shear }) {
+  const compressed = beamColumn.N > 1e-9,
+    slender = compressed && beamColumn.lambda > beamColumn.lambdaLimit,
+    creep = finalDeflection({
+      wG: deflection * deadShare,
+      wQ: deflection * (1 - deadShare),
+      kdef: p.kdef ?? 0.6,
+      psi2: p.psi2Snow ?? 0.2,
+    }),
+    finalLimit = (span * 1000) / (p.finalDeflectionRatio ?? 200),
+    finalUtilization = creep.final / finalLimit,
+    notch =
+      finite(p.notchDepth) && p.notchDepth > 0
+        ? notchedShear({
+            V: shear,
+            b: p.b,
+            h: p.h,
+            hef: p.h - p.notchDepth,
+            x: finite(p.seatLength) ? p.seatLength / 2 : 0,
+            Fv: p.Fv,
+          })
+        : null;
+  const checks = [
+    {
+      id: "rafter-slenderness",
+      label: "Предельная гибкость сжатой стропильной доски λ ≤ 120 (СНиП II-25-80 табл. 14)",
+      value: compressed ? beamColumn.lambda : 0,
+      limit: beamColumn.lambdaLimit,
+      unit: "",
+      utilization: compressed ? beamColumn.lambda / beamColumn.lambdaLimit : 0,
+      status: slender ? "fail" : "pass",
+    },
+    {
+      id: "rafter-final-deflection",
+      label: `Конечный прогиб с ползучестью · пролёт / ${p.finalDeflectionRatio ?? 200}`,
+      value: creep.final,
+      limit: finalLimit,
+      unit: "мм",
+      utilization: finalUtilization,
+      status: finalUtilization > 1 ? "fail" : "pass",
+      note: "w_fin = w_G(1+kdef) + w_S(1+ψ2·kdef), EN 1995-1-1 2.2.3; kdef 0.6 (класс эксплуатации 1), ψ2 снега 0.2. СП 64 не задаёт kdef явно.",
+    },
+    notch
+      ? {
+          id: "rafter-notch-shear",
+          label: "Срез по ослабленному запилом сечению (kv, EN 1995-1-1 6.5.2)",
+          value: notch.stress,
+          limit: notch.limit,
+          unit: "МПа",
+          utilization: notch.utilization,
+          status: notch.utilization > 1 ? "fail" : "pass",
+        }
+      : {
+          id: "rafter-notch-shear",
+          label: "Срез у опорного запила (birdsmouth)",
+          status: "unverified",
+          note: "Глубина запила не задана (notchDepth): срез проверен по полному сечению; ослабление kv по EN 1995-1-1 6.5.2 не применено.",
+        },
+  ];
+  return {
+    checks,
+    pass: !slender && finalUtilization <= 1 && (!notch || notch.utilization <= 1),
+    fields: {
+      lambda: beamColumn.lambda,
+      lambdaLimit: beamColumn.lambdaLimit,
+      phiInPlane: beamColumn.phiStrong,
+      phiOutOfPlane: beamColumn.phiWeak,
+      xi: beamColumn.xi,
+      finalDeflection: creep.final,
+      finalDeflectionAllowed: finalLimit,
+      finalDeflectionUtilization: finalUtilization,
+      creep,
+      notchShear: notch,
+    },
   };
 }
 
@@ -669,10 +800,13 @@ function calculateOverhangRafter(p, result, k) {
         };
       }),
     ),
-    comp = states.reduce((x, y) => (x.compression > y.compression ? x : y)),
-    tens = states.reduce((x, y) => (x.tension > y.tension ? x : y)),
     maxCompression = Math.max(0, ...states.map((x) => -x.N)),
-    maxTension = Math.max(0, ...states.map((x) => x.N));
+    maxTension = Math.max(0, ...states.map((x) => x.N)),
+    beamColumn = sp64BeamColumn(p, span / c, maxCompression, normal.maxMoment),
+    xi = beamColumn.xi > 0 ? beamColumn.xi : 1e-9;
+  for (const q of states) q.compression = q.bend / (q.N < 0 ? xi : 1) + (Math.max(0, -q.N) * 1000) / A / p.Fc;
+  const comp = states.reduce((x, y) => (x.compression > y.compression ? x : y)),
+    tens = states.reduce((x, y) => (x.tension > y.tension ? x : y));
   const stress = (normal.maxMoment * 1e6) / Z,
     shearStress = (1.5 * normal.maxShear * 1000) / A,
     deflectionAllowed = (p.horizontalSpan * 1000) / p.deflectionRatio,
@@ -682,9 +816,13 @@ function calculateOverhangRafter(p, result, k) {
     highLimit = (p.overhangHigh * 2000) / p.deflectionRatio;
   const bendingUtilization = stress / p.Fb,
     shearUtilization = shearStress / p.Fv,
-    compressionUtilization = (maxCompression * 1000) / A / p.Fc,
+    compressionUtilization = maxCompression > 0 ? (maxCompression * 1000) / A / p.Fc / beamColumn.phi : 0,
     tensionUtilization = (maxTension * 1000) / A / p.Ft,
-    interactionUtilization = Math.max(comp.compression, tens.tension),
+    interactionUtilization = Math.max(
+      comp.compression,
+      tens.tension,
+      maxCompression > 0 ? beamColumn.outOfPlaneUtilization : 0,
+    ),
     deflectionUtilization = verticalDeflection / deflectionAllowed,
     lowUtil = p.overhangLow ? lowDeflection / lowLimit : 0,
     highUtil = p.overhangHigh ? highDeflection / highLimit : 0,
@@ -771,6 +909,14 @@ function calculateOverhangRafter(p, result, k) {
     { id: "rafter-lateral", label: "Боковая устойчивость и раскрепление", status: "unverified" },
     { id: "rafter-wind", label: "Ветер и отрыв", status: "unverified" },
   );
+  const extra = sp64RafterExtras(p, {
+    beamColumn,
+    deflection: verticalDeflection,
+    deadShare: k.deadAxis / qV,
+    span: p.horizontalSpan,
+    shear: normal.maxShear,
+  });
+  checks.push(...extra.checks);
   const loads = {
     roofDeadAxis: k.roofDeadAxis,
     timberAxis: k.timberAxis,
@@ -816,7 +962,7 @@ function calculateOverhangRafter(p, result, k) {
       verticalDeflection: verticalAt(x),
       axialDisplacement: u(x) * 1000,
     })),
-    capacityPass = utilization <= 1 && !uplift;
+    capacityPass = utilization <= 1 && !uplift && extra.pass;
   return {
     ...result,
     valid: true,
@@ -892,7 +1038,10 @@ function calculateOverhangRafter(p, result, k) {
       compression: { utilization: comp.compression, location: comp.s },
       tension: { utilization: tens.tension, location: tens.s },
       utilization: interactionUtilization,
+      xi: beamColumn.xi,
+      outOfPlane: beamColumn.outOfPlaneUtilization,
     },
+    ...extra.fields,
     mass: ((p.density * A) / 1e6) * L,
     volume: (A / 1e6) * L,
     checks,

@@ -1,6 +1,7 @@
 /** Full-height wall studs. No automatic restraint at the former storey height.
  * Length m; b/h mm; line forces kN/m; wind kPa; E/F MPa; deflection mm.
  */
+import { axialCompression, compressionBending } from "./timber-design.js";
 const G = 9.80665,
   EPS = 1e-8;
 const finite = (n) => typeof n === "number" && Number.isFinite(n);
@@ -25,12 +26,11 @@ export const wallStabilitySources = [
   },
 ];
 const assumptions = [
-  "Проверяется фактическая полная длина каждой цельной стойки. Высота прежнего этажа и p.material.studRestraint не создают раскрепление автоматически. В этой модели обе оси имеют полную нераскреплённую длину L и K=1, если другой K явно не введён.",
-  "Euler — теоретическая потеря устойчивости идеальной центрально сжатой прямой доски. Для устойчивости используется явно заданный Emin, иначе введённый E с предупреждением. Средний E не заменяет нормативный нижний модуль и нормативные коэффициенты устойчивости.",
+  "Проверяется фактическая полная длина каждой цельной стойки. Высота прежнего этажа и p.material.studRestraint не создают раскрепление автоматически. Сильная ось (изгиб из плоскости стены) имеет полную длину L×K. Слабая ось (в плоскости стены) раскреплена несущей обшивкой, если на этой стене в модели есть листы sheathing: расчётная длина — шаг гвоздей в поле листа (bracing.fieldNailSpacing, по умолчанию 300 мм); без обшивки — полная длина.",
+  "Устойчивость по СП 64.13330.2017 / СНиП II-25-80 п. 4.2–4.3: N/(φ·Rc·A) ≤ 1 по обеим осям, φ = 1 − 0.8(λ/100)² при λ ≤ 70, φ = 3000/λ² при λ > 70, предельная гибкость 120 (табл. 14). Идеальный Euler (Emin, иначе E) показан только для справки и для увеличения прогиба от ветра.",
   "Вертикальная сила включает введённую реакцию кровли и дополнительную погонную нагрузку на грузовую ширину, вес слоёв стены и собственный вес самой стойки. Полный нижний N консервативно принят постоянным по длине для проверки устойчивости.",
   "Ветер — введённое давление на фасад, равномерно по грузовой ширине стойки. Доска шарнирно опёрта сверху и снизу, изгиб из плоскости стены вокруг сильной оси I=b×h³/12. Фактические связи верхней и нижней опоры должны быть подтверждены отдельно.",
-  "Показаны изгиб, сдвиг и мгновенный прогиб от ветра. Упрощённое увеличение момента и прогиба 1/(1−N/Ncr,strong) использует идеальный Euler сильной оси. Это предварительный расчёт первого/второго порядка, не полный NDS/СП расчёт деревянной стены.",
-  "Прозрачный критерий взаимодействия: N/min(FcA,Ncr,weak,Ncr,strong) + σb,увел/Fb при сжатии, либо |N|/FtA + σb/Fb при растяжении. Для полной проверки нужны нормативные сочетания, несовершенства, эксцентриситеты, вырезы, влажность и ползучесть.",
+  "Сжатие с изгибом от ветра по СНиП II-25-80 п. 4.17–4.18 (СП 64.13330.2017): N/(A·Rc) + Mд/(W·Rи) ≤ 1, Mд = M/ξ, ξ = 1 − N/(φ·Rc·A) с φ сильной оси; из плоскости N/(φy·Rc·A) + (Mд/(φм·Rи·W))² ≤ 1. При растяжении |N|/(Ft·A) + σb/Fb. Прогиб от ветра увеличен 1/(1−N/Ncr,strong) по идеальному Euler (эксплуатационная оценка).",
   "MWFRS и C&C — разные ветровые случаи. Здесь одна пользовательская ветровая величина используется как сценарий; оба нормативных набора и особые снеговые случаи автоматически не назначаются.",
   "stockFits относится к полной заготовке с припусками длинных точек, а не к длине одного отрезанного куска. Заготовка более 6 м не одобряется через автоматическое наращивание. Узел составной стены или реальное раскрепление требуют отдельного решения.",
   "Наличие частных проверок не подтверждает работу всего дома, передачу реакции кровли через верхнюю обвязку, анкеры, диафрагмы и узлы. Обшивке и пакету досок не присваивается совместная жёсткость без отдельного расчёта.",
@@ -66,6 +66,7 @@ export function checkFullHeightWall(input = {}) {
   };
   const errors = [],
     warnings = [],
+    weakRestraint = finite(p.weakAxisRestraint) && p.weakAxisRestraint > 0 ? p.weakAxisRestraint : null,
     roof = lineLoad(p.roofReactionLine ?? p.roofReactionLineDesign),
     extra = lineLoad(p.additionalLineLoad);
   if (finite(p.roofReactionLineService)) roof.service = p.roofReactionLineService;
@@ -174,11 +175,21 @@ export function checkFullHeightWall(input = {}) {
           : roof.service * width;
     const force = roofDesign + extra.design * width + (timberWeight + wallWeight) * p.gammaG,
       serviceForce = roofService + extra.service * width + timberWeight + wallWeight;
-    const eulerWeak = (Math.PI ** 2 * stabilityE * Iweak) / (p.K * L) ** 2 / 1000,
+    const weakLength = Math.min(s.length, weakRestraint ?? s.length),
+      eulerWeak = (Math.PI ** 2 * stabilityE * Iweak) / (p.K * weakLength * 1000) ** 2 / 1000,
       eulerStrong = (Math.PI ** 2 * stabilityE * Istrong) / (p.K * L) ** 2 / 1000,
       euler = Math.min(eulerWeak, eulerStrong),
-      crushing = (p.Fc * A) / 1000,
-      compressionCapacity = Math.min(crushing, euler),
+      buckling = axialCompression({
+        N: Math.max(0, force),
+        b: s.b,
+        h: s.h,
+        l0Strong: p.K * s.length,
+        l0Weak: p.K * weakLength,
+        Fc: p.Fc,
+        kind: "column",
+      }),
+      crushing = buckling.crushing,
+      compressionCapacity = buckling.capacity,
       tensionCapacity = (p.Ft * A) / 1000;
     const compression = Math.max(0, force),
       tension = Math.max(0, -force),
@@ -188,7 +199,19 @@ export function checkFullHeightWall(input = {}) {
       windLineDesign = windLineService * p.gammaQ,
       windMoment = (windLineDesign * s.length ** 2) / 8,
       windShear = (windLineDesign * s.length) / 2;
-    const amplification = compression >= eulerStrong ? Infinity : 1 / (1 - compression / eulerStrong),
+    const beamColumn = compressionBending({
+        N: compression,
+        M: windMoment,
+        b: s.b,
+        h: s.h,
+        l0Bending: p.K * s.length,
+        l0Weak: p.K * weakLength,
+        lp: weakLength,
+        Fc: p.Fc,
+        Fb: p.Fb,
+        kind: "column",
+      }),
+      amplification = beamColumn.xi > 0 ? 1 / beamColumn.xi : Infinity,
       serviceCompression = Math.max(0, serviceForce),
       serviceAmplification =
         serviceCompression >= eulerStrong ? Infinity : 1 / (1 - serviceCompression / eulerStrong);
@@ -201,7 +224,11 @@ export function checkFullHeightWall(input = {}) {
     const bendingUtilization = windStress / p.Fb,
       shearUtilization = windShearStress / p.Fv,
       deflectionUtilization = windDeflection / deflectionAllowed,
-      interactionUtilization = compressionUtilization + tensionUtilization + bendingUtilization;
+      interactionUtilization =
+        compression > 0
+          ? Math.max(beamColumn.utilization, compressionUtilization)
+          : tensionUtilization + (windStressFirstOrder > 0 ? windStressFirstOrder / p.Fb : 0),
+      slendernessUtilization = compression > 0 ? buckling.lambda / buckling.lambdaLimit : 0;
     const utilization = Math.max(
       compressionUtilization,
       tensionUtilization,
@@ -222,8 +249,21 @@ export function checkFullHeightWall(input = {}) {
       Istrong,
       Z,
       stabilityE,
-      unbracedWeakLength: s.length,
+      unbracedWeakLength: weakLength,
       unbracedStrongLength: s.length,
+      weakAxisRestraint: weakRestraint ? "sheathing" : "unbraced",
+      lambdaStrong: buckling.lambdaStrong,
+      lambdaWeak: buckling.lambdaWeak,
+      lambda: buckling.lambda,
+      lambdaLimit: buckling.lambdaLimit,
+      phi: buckling.phi,
+      phiStrong: buckling.phiStrong,
+      phiWeak: buckling.phiWeak,
+      xi: beamColumn.xi,
+      strengthInteraction: beamColumn.strengthUtilization,
+      outOfPlaneInteraction: beamColumn.outOfPlaneUtilization,
+      slendernessUtilization,
+      idealEulerReferenceOnly: true,
       K: p.K,
       force,
       compressionForce: compression,
@@ -263,8 +303,8 @@ export function checkFullHeightWall(input = {}) {
       interactionUtilization,
       utilization,
       stockFits,
-      capacityPass: utilization <= 1 && stockFits && forceKnown,
-      status: utilization > 1 || !stockFits ? "fail" : "unverified",
+      capacityPass: utilization <= 1 && slendernessUtilization <= 1 && stockFits && forceKnown,
+      status: utilization > 1 || slendernessUtilization > 1 || !stockFits ? "fail" : "unverified",
     });
   }
   out.worst = out.studs.reduce((a, b) => (a.utilization > b.utilization ? a : b));
@@ -289,7 +329,7 @@ export function checkFullHeightWall(input = {}) {
   out.checks = [
     row(
       "full-wall-compression",
-      "Цельная стойка: полная длина / Euler",
+      "Цельная стойка: сжатие / устойчивость φ (СП 64)",
       "compressionUtilization",
       "compressionForce",
       "compressionCapacity",
@@ -303,11 +343,19 @@ export function checkFullHeightWall(input = {}) {
       p.Ft,
       "МПа",
     ),
+    row(
+      "full-wall-slenderness",
+      "Цельная стойка: предельная гибкость λ ≤ 120",
+      "slendernessUtilization",
+      "lambda",
+      "lambdaLimit",
+      "",
+    ),
     row("full-wall-bending", "Ветер: изгиб из плоскости", "bendingUtilization", "windStress", p.Fb, "МПа"),
     row("full-wall-shear", "Ветер: сдвиг", "shearUtilization", "windShearStress", p.Fv, "МПа"),
     row(
       "full-wall-interaction",
-      "Сжатие / устойчивость + увеличенный изгиб",
+      "Сжатие с изгибом: N/(A·Rc) + Mд/(W·Rи), Mд = M/ξ (СП 64)",
       "interactionUtilization",
       "interactionUtilization",
       1,
@@ -433,10 +481,19 @@ export function checkFullHeightWalls(project, result, roofModel) {
       reaction = { design: profile.roofReactionLineDesign, service: profile.roofReactionLineService };
     const material = project.material ?? {},
       load = project.loads ?? {};
+    const sheathed =
+      material.studSheathingRestraint !== false &&
+      result?.bracingModel?.method === "sheathing" &&
+      (result.bracingModel.panels ?? []).some(
+        (q) =>
+          q.wallId === profile.wallId &&
+          (profile.level === undefined || q.level === undefined || q.level === profile.level),
+      );
     const wall = checkFullHeightWall({
       wallId: profile.wallId,
       level: profile.level,
       studs,
+      weakAxisRestraint: sheathed ? (project.bracing?.fieldNailSpacing ?? 300) / 1000 : undefined,
       roofReactionLine: reaction,
       additionalLineLoad: profile.additionalLineLoad,
       wind: load.wind ?? 0,

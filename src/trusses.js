@@ -1,4 +1,5 @@
 import { physicalTrussBoards } from "./physical-truss.js";
+import { axialCompression } from "./timber-design.js";
 /**
  * Plane pin-jointed timber trusses. Coordinates m, sections mm, E/F MPa,
  * nodal loads / member forces kN, returned displacements mm. N>0 tension.
@@ -49,6 +50,8 @@ export const trussDefaults = {
   heelHeight: 0,
   ceilingDead: 0,
   ceilingSpacing: null,
+  /** Out-of-plane restraint spacing of chords (roof battens / ceiling lining), m. */
+  chordRestraint: 0.6,
 };
 const g = 9.80665;
 const sum = (a) => a.reduce((s, x) => s + x, 0);
@@ -79,8 +82,8 @@ const assumptions = [
   "Слева неподвижный шарнир (X,Y), справа подвижный шарнир (Y). Выбранные варианты — идеализированные триангулированные схемы. Название типа не означает сертифицированную заводскую конструкцию.",
   "Нагрузка слоёв кровли задана на фактическую площадь ската БЕЗ древесины. Снег s×μ — на горизонтальную проекцию. Нагрузка кровли передаётся в узлы верхнего пояса по грузовым участкам; отдельная ceilingDead — в узлы нижнего пояса. Общая FEM-модель не проверяет изгиб между узлами; отдельный physical-chord screen при наличии не заменяет расчёт рамы.",
   "Собственный вес каждого стержня ρ×b×h×L×g делится поровну на его два узла и учитывается один раз. Шаг spacing задаёт грузовую ширину одной внутренней фермы; для крайней фермы её нужно задать отдельно.",
-  "Знак N: плюс — растяжение, минус — сжатие. Для растяжения σ=N/A сравнивается с введённым Ft. Для сжатия показан минимум Fc×A и идеального Euler π²EImin/L² с K=1 по полной длине стержня. Euler не заменяет нормативную кривую устойчивости реальной древесины.",
-  "Раскрепление из плоскости не засчитывается автоматически. Даже при малых осевых напряжениях требуется отдельная проверка пространственной устойчивости, несовершенств, совместного изгиба, ползучести, влажности и качества древесины.",
+  "Знак N: плюс — растяжение, минус — сжатие. Для растяжения σ=N/A сравнивается с введённым Ft. Для сжатия — СП 64.13330.2017 / СНиП II-25-80 п. 4.2–4.3: N/(φ·Rc·A) ≤ 1 по обеим осям, φ = 1 − 0.8(λ/100)² при λ ≤ 70, φ = 3000/λ² при λ > 70. В плоскости фермы l0 — длина между узлами; из плоскости решётка имеет полную длину, пояса — шаг раскрепления chordRestraint (по умолчанию 0.6 м: обрешётка верхнего пояса и подшивка нижнего, закреплённые к связям). Предельная гибкость: 120 для поясов и опорных элементов, 150 для прочей решётки (СНиП II-25-80 табл. 14). Идеальный Euler показан только для справки.",
+  "Раскрепление поясов из плоскости принято с шагом chordRestraint; связи, к которым крепится обрешётка, и их жёсткость не рассчитаны. Даже при малых осевых напряжениях требуется отдельная проверка пространственной устойчивости, несовершенств, совместного изгиба, ползучести, влажности и качества древесины.",
   "Модель не проверяет крепёж, накладки, зубчатые пластины, врубки, смятие, опорные узлы и крепление фермы к стенам. Ветер, отрыв, заносы и несимметричный снег в данный сценарий не входят.",
   "Длины и углы относятся к осям стержней. В raised-heel physicalReference заданы геометрические подрезки и цельные пояса; они не подтверждают прочность врубок, накладок, зазоров и совместную работу пакетов. Для изготовления нужен проверенный рабочий узел.",
 ];
@@ -349,6 +352,7 @@ export function buildTruss(input = {}) {
     overhangHigh: [0, 2],
     heelHeight: [0, 2],
     ceilingDead: [0, 15],
+    chordRestraint: [0.05, 60],
   };
   for (const [key, [min, max]] of Object.entries(bounds))
     if (!finite(p[key]) || p[key] < min || p[key] > max)
@@ -554,16 +558,39 @@ export function buildTruss(input = {}) {
       loads.map((n) => ({ node: n.node, fy: n.fyCharacteristic })),
       supports,
     );
+    const supportNodes = new Set(["A", "B", "HA", "HB"]);
     result.bars = bars.map((b, i) => {
       const force = Math.abs(design.forces[i]) < 1e-8 ? 0 : design.forces[i],
         forceCharacteristic = service.forces[i],
         area = b.b * b.h,
         Imin = (Math.max(b.b, b.h) * Math.min(b.b, b.h) ** 3) / 12;
+      // Ideal Euler kept for reference only (E, K=1, full length). It is NOT a capacity.
       const euler = (Math.PI ** 2 * p.E * Imin) / (b.length * 1000) ** 2 / 1000;
+      // СП 64 / СНиП II-25-80 п. 4.2–4.3: in-plane l0 = node-to-node length (h in plane);
+      // out of plane (b): chords restrained by battens/ceiling at chordRestraint,
+      // web members unrestrained over their full length.
+      const chord = b.role !== "web",
+        kind = chord
+          ? "chord"
+          : supportNodes.has(b.nodeA) || supportNodes.has(b.nodeB)
+            ? "supportStrut"
+            : "web",
+        l0InPlane = b.length,
+        l0OutOfPlane = chord ? Math.min(b.length, p.chordRestraint) : b.length,
+        buckling = axialCompression({
+          N: Math.max(0, -force),
+          b: b.b,
+          h: b.h,
+          l0Strong: l0InPlane,
+          l0Weak: l0OutOfPlane,
+          Fc: p.compressionDesign,
+          kind,
+        });
       const tensionCapacity = (p.tensionDesign * area) / 1000,
-        compressionCapacity = Math.min((p.compressionDesign * area) / 1000, euler);
+        compressionCapacity = buckling.capacity;
       const capacity = force >= 0 ? tensionCapacity : compressionCapacity,
-        utilization = Math.abs(force) / capacity;
+        utilization = Math.abs(force) / capacity,
+        slendernessFail = force < 0 && buckling.lambda > buckling.lambdaLimit;
       return {
         ...b,
         force,
@@ -572,12 +599,23 @@ export function buildTruss(input = {}) {
         area,
         Imin,
         euler,
+        idealEulerReferenceOnly: true,
+        memberKind: kind,
+        l0InPlane,
+        l0OutOfPlane,
+        lambdaInPlane: buckling.lambdaStrong,
+        lambdaOutOfPlane: buckling.lambdaWeak,
+        lambda: buckling.lambda,
+        lambdaLimit: buckling.lambdaLimit,
+        phi: buckling.phi,
+        phiInPlane: buckling.phiStrong,
+        phiOutOfPlane: buckling.phiWeak,
         tensionCapacity,
         compressionCapacity,
         capacity,
         utilization,
         forceType: force > 0 ? "tension" : force < 0 ? "compression" : "zero",
-        status: utilization > 1 ? "fail" : force < 0 ? "warning" : "pass",
+        status: utilization > 1 || slendernessFail ? "fail" : force < 0 ? "warning" : "pass",
         extension: (forceCharacteristic * 1000 * b.length * 1000) / (p.E * area),
       };
     });
@@ -603,13 +641,26 @@ export function buildTruss(input = {}) {
     result.checks = [
       ...result.bars.map((b) => ({
         id: b.id,
-        label: `${b.id} · ${b.forceType === "compression" ? "сжатие / Euler" : b.forceType === "tension" ? "растяжение" : "нулевое усилие"}`,
+        label: `${b.id} · ${b.forceType === "compression" ? "сжатие / устойчивость φ (СП 64)" : b.forceType === "tension" ? "растяжение" : "нулевое усилие"}`,
         value: Math.abs(b.force),
         limit: b.capacity,
         unit: "кН",
         utilization: b.utilization,
-        status: b.status,
+        status: b.utilization > 1 ? "fail" : b.status === "fail" ? "warning" : b.status,
+        phi: b.phi,
+        lambda: b.lambda,
       })),
+      ...result.bars
+        .filter((b) => b.forceType === "compression")
+        .map((b) => ({
+          id: `${b.id}-slenderness`,
+          label: `${b.id} · предельная гибкость λ ≤ ${b.lambdaLimit} (СНиП II-25-80 табл. 14)`,
+          value: b.lambda,
+          limit: b.lambdaLimit,
+          unit: "",
+          utilization: b.lambda / b.lambdaLimit,
+          status: b.lambda > b.lambdaLimit ? "fail" : "pass",
+        })),
       {
         id: "deflection",
         label: "Вертикальное перемещение узлов",

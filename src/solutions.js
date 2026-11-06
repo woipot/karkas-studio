@@ -147,7 +147,7 @@ const RULES = [
   {
     name: "floor",
     match: (c) =>
-      /^designerJoist(Bending|Deflection|Shear)$/.test(c.id) ||
+      /^designerJoist(Bending|Deflection|FinalDeflection|Shear|Bearing)$/.test(c.id) ||
       /^floor-(stock|supports)-L\d+$/.test(c.id) ||
       c.id === "floorJoistEndConsoles",
     group: (c, ctx) => ({ key: "floor", label: "Балки перекрытия", levels: [floorLevelOf(c, ctx)] }),
@@ -155,7 +155,7 @@ const RULES = [
   },
   {
     name: "studs",
-    match: (c) => c.id === "designerStudCompression",
+    match: (c) => /^designerStud(Compression|PlateBearing|Slenderness)$/.test(c.id),
     group: () => ({ key: "studs", label: "Стойки несущих стен" }),
     candidates: studCandidates,
   },
@@ -183,7 +183,8 @@ const RULES = [
   },
   {
     name: "piles",
-    match: (c) => c.id === "pileCapacity" || c.id === "grillage-spacing",
+    match: (c) =>
+      c.id === "pileCapacity" || c.id === "grillage-spacing" || c.id === "designerGrillagePileBearing",
     group: () => ({ key: "piles", label: "Сваи" }),
     candidates: pileCandidates,
   },

@@ -25,6 +25,8 @@ function fixture() {
     bracing: { method: "none" },
     material: { density: 450, E: 11000, Emin: 7400, Fb: 14.77, Fv: 2.46, Fc: 12.92, Ft: 8.62 },
     loads: { snow: 2.75, gammaG: 1.35, gammaQ: 1.5 },
+    // The fixture places its own stacked bearing walls below; disable the generator's automatic ones.
+    structure: { bearingWalls: false },
   }).project;
   for (const level of [1, 2])
     p.walls.push({

@@ -19,7 +19,7 @@ import { checkDesignerMembers } from "./designer-mechanics.js";
 import { calculateCutting, cuttingRowsToCSV, cuttingToPrintHTML } from "./cutting.js";
 import { calculateEstimate, estimateRowsToCSV } from "./estimate-engine.js";
 import { timberSections, sectionCatalogNote } from "./catalog.js";
-import { generateHouse } from "./house-generator.js";
+import { generateHouse, generateHouseOptions, LAYOUT_STRATEGIES } from "./house-generator.js";
 import { exportPlanSVG, exportBoardsCSV, exportModelOBJ } from "./house-exports.js";
 import {
   buildFabricationGroups,
@@ -475,13 +475,15 @@ export function engineCatalog() {
       },
     },
     templates: ["rectangle", "l-shape", "custom polygon"],
+    layoutStrategies: LAYOUT_STRATEGIES,
     roofShapes: ["mono", "gable", "hip"],
     roofFraming: ["auto", "rafters", "truss", "tiedRafters"],
     bracing: ["sheathing", "letIn", "none"],
     capabilities: [
       "Explicit source roof geometry imported without substituting a truss; strength remains unverified",
       "Polygon footprints and independent 1–2 floors",
-      "Room program with generated partitions and circulation on rectangular floors",
+      "Room program with several layout strategies on rectangular and L floors; bearing corridor/spine walls stacked under upper floors; U-stair opening for two storeys",
+      "Site → SP 20.13330.2016 snow/wind regions and normative frost depth (reference city table)",
       "Double-height rooms with physical U stairs, galleries, guards and upper daylight relationships",
       "Independent open terraces, covered terraces and unheated glazed verandas",
       "Built-up grillage with transverse ties, shared house/annex graph, real piles, ply boards and supported joints",
@@ -503,6 +505,8 @@ export function engineCatalog() {
     ],
     defaults: clone(defaultDesignerProject),
     additionalTools: [
+      "karkas_generate_options",
+      "karkas_site_loads",
       "karkas_add_annex",
       "karkas_update_annex",
       "karkas_remove_annex",
@@ -522,6 +526,8 @@ export function engineCatalog() {
       "fabrication_stocks_csv",
     ],
     workflow: [
+      "karkas_site_loads",
+      "karkas_generate_options",
       "karkas_generate",
       "karkas_report(checks)",
       "karkas_get_project",
@@ -640,7 +646,73 @@ export function createHouseEngine({
     async generate(spec) {
       assertSafeJSON(spec);
       const { project, planning } = generateHouse(spec);
-      return create(project, planning);
+      const meta = await create(project, planning);
+      return {
+        ...meta,
+        strategy: planning.strategy,
+        structure: planning.structure ?? null,
+        site: planning.site
+          ? {
+              ...planning.site,
+              loads: { snow: project.loads.snow, wind: project.loads.wind, terrain: project.loads.terrain },
+              fromSite: Object.entries(planning.site.applied ?? {})
+                .filter(([, origin]) => origin === "site")
+                .map(([k]) => k),
+            }
+          : null,
+        layoutScore: planning.score ?? null,
+      };
+    },
+    /** Generate up to `count` layout strategies and evaluate each without persisting. */
+    async generateOptions(spec, count = 4) {
+      assertSafeJSON(spec);
+      const { options, rejected, rankingBasis } = generateHouseOptions(spec, { count });
+      const rows = options.map((o) => {
+        const report = evaluateHouse(o.project, o.planning),
+          checks = report.result.checks,
+          failed = checks.filter((c) => c.status === "fail"),
+          utilizations = checks.map((c) => c.utilization).filter((u) => Number.isFinite(u));
+        return {
+          strategy: o.strategy,
+          description: o.description,
+          hash: report.engine.hash,
+          failedChecks: failed.length,
+          failedCheckIds: failed.map((c) => c.id),
+          maxUtilization: utilizations.length ? Math.max(...utilizations) : null,
+          excessUtilization: utilizations.reduce((sum, u) => sum + Math.max(0, u - 1), 0),
+          estimateTotal: report.summary.estimateTotal,
+          currency: report.summary.currency,
+          timberVolume: report.summary.timberVolume,
+          area: report.summary.area,
+          rooms: report.summary.rooms,
+          staircases: report.summary.staircases,
+          layout: o.score,
+          warnings: o.planning.warnings,
+        };
+      });
+      rows.sort(
+        (a, b) =>
+          a.failedChecks - b.failedChecks ||
+          a.excessUtilization - b.excessUtilization ||
+          a.layout.roomsWithoutWindow - b.layout.roomsWithoutWindow ||
+          Number(a.layout.stair === false) - Number(b.layout.stair === false) ||
+          a.estimateTotal - b.estimateTotal,
+      );
+      rows.forEach((r, i) => (r.rank = i + 1));
+      return {
+        options: rows,
+        rejected,
+        selectedStrategy: rows[0]?.strategy ?? null,
+        rankingCriteria: [
+          "failedChecks",
+          "excessUtilization",
+          "roomsWithoutWindow",
+          "stair",
+          "estimateTotal",
+        ],
+        layoutRankingBasis: rankingBasis,
+        next: "Сохраните выбранный вариант: karkas_generate с той же спецификацией и strategy из таблицы. Варианты не записаны и не сертифицированы.",
+      };
     },
     async get(id, revision) {
       return read(id, revision);

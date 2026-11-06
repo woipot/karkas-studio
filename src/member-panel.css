@@ -264,3 +264,9 @@
     left: 12px;
   }
 }
+.mp-util.muted strong {
+  color: #a4b294;
+}
+.mp-util.muted i {
+  background: #c5cdb8;
+}

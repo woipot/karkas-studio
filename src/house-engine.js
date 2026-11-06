@@ -16,6 +16,7 @@ import {
 import { normalizeDesignerState } from "./designer-state.js";
 import { calculateRoofZones } from "./roof-zones.js";
 import { memberLoadProject } from "./load-profile.js";
+import { analyzeSourceRoof } from "./source-roof-mechanics.js";
 import { checkDesignerMembers } from "./designer-mechanics.js";
 import { calculateCutting, cuttingRowsToCSV, cuttingToPrintHTML } from "./cutting.js";
 import { calculateEstimate, estimateRowsToCSV } from "./estimate-engine.js";
@@ -189,6 +190,14 @@ export function evaluateHouse(project, planning = {}) {
     assumptions: [...calculated.assumptions, ...mechanics.assumptions],
     planning,
   };
+  // Imported roofs: member forces along the physical contact load path (rafters → plates →
+  // knee-wall studs/posts → beams → main frame).
+  const sourceRoof = analyzeSourceRoof(p, result);
+  if (sourceRoof) {
+    result.sourceRoofMechanics = sourceRoof;
+    result.checks.push(...sourceRoof.checks);
+    result.assumptions.push(...sourceRoof.assumptions);
+  }
   const snowAssessment = analyzeSnowCases(p, result);
   result.snowAssessment = snowAssessment;
   result.checks.push(...snowAssessment.checks);

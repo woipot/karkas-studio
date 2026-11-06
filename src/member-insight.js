@@ -330,6 +330,80 @@ const ROLE_CHECKS = [
   [new Set(["top", "bottom", "web", "rafter", "topChord"]), /^designerRoofHeelBearing$/],
 ];
 
+function sourceRoofAnalysis(r, board) {
+  const m = r.sourceRoofMechanics?.members?.[board.id];
+  if (!m) return null;
+  const nameOf = (id) => {
+    const b = r.timber?.instances?.find((q) => q.id === id);
+    return b ? `${roleLabels[b.role] ?? b.name ?? b.role} ${id}` : id;
+  };
+  const path = [
+    { label: "Нагрузку передают", text: m.from?.length ? `${m.from.length} элем.` : "—" },
+    {
+      label: "Опирается на",
+      text: m.supports?.length
+        ? m.supports.slice(0, 3).map(nameOf).join("; ") +
+          (m.supports.length > 3 ? ` и ещё ${m.supports.length - 3}` : "")
+        : "опора не найдена",
+    },
+  ];
+  if (m.kind === "axial")
+    return {
+      source: "sourceRoof",
+      title: "Сжатый элемент кровли: усилие по пути нагрузки",
+      status: m.status,
+      utilization: m.utilization,
+      rows: [
+        governing([
+          ["устойчивость φ", m.compressionUtilization],
+          ["гибкость λ", m.slendernessUtilization],
+          ["смятие опоры", m.bearingUtilization],
+        ]),
+        row("Сжимающее усилие N", m.N, "кН"),
+        row("N нормативное", m.Ncharacteristic, "кН"),
+        row("Длина", m.length, "м", 3),
+        row("Гибкость λ", m.lambda, "", 0),
+        row("Предельная гибкость", m.lambdaLimit, "", 0),
+        row("Коэффициент φ", m.phi, "", 3),
+        row("Несущая способность φ·Rc·A", m.capacity, "кН"),
+        ...(m.bearingStress !== undefined
+          ? [row("Смятие опоры σ", m.bearingStress, "МПа"), row("Rсм90", m.bearingLimit, "МПа")]
+          : []),
+        ...(m.horizontalThrust > 0.01 ? [row("Горизонтальная составляющая", m.horizontalThrust, "кН")] : []),
+        ...path,
+      ],
+      note: m.note,
+    };
+  return {
+    source: "sourceRoof",
+    title: m.passThrough
+      ? "Элемент кровли: работает вместе с нижней доской"
+      : "Элемент кровли: неразрезная балка по фактическим опорам",
+    status: m.status,
+    utilization: m.utilization,
+    rows: [
+      governing([
+        ["изгиб", m.bendingUtilization],
+        ["срез", m.shearUtilization],
+        ["прогиб", m.deflectionUtilization],
+      ]),
+      ...(m.tributaryWidth ? [row("Грузовая ширина", m.tributaryWidth, "м", 3)] : []),
+      row("Равномерная нагрузка расчётная", m.lineLoadDesign, "кН/м"),
+      row("Сосредоточенных нагрузок", m.pointLoads ?? 0, "шт.", 0),
+      row("Опор", m.supportCount ?? m.supports?.length ?? 0, "шт.", 0),
+      row("Определяющий пролёт", m.governingSpan, "м", 2),
+      row("Момент max", m.maxMoment, "кН·м"),
+      row("Поперечная сила max", m.maxShear, "кН"),
+      row("Напряжение изгиба", m.bendingStress, "МПа"),
+      row("Прогиб", m.deflection, "мм", 1),
+      row("Предел прогиба", m.deflectionLimit, "мм", 1),
+      ...(m.reactions ?? []).slice(0, 4).map((q) => row(`Реакция → ${nameOf(q.support)}`, q.design, "кН")),
+      ...path,
+    ],
+    note: m.note,
+  };
+}
+
 function relatedChecks(r, board) {
   const keys = [board.id, board.memberId].filter(Boolean);
   const roleRules = ROLE_CHECKS.filter(([roles]) => roles.has(board.role)).map(([, re]) => re);
@@ -341,6 +415,26 @@ function relatedChecks(r, board) {
       (board.zoneId && c.zoneId === board.zoneId) ||
       (board.beamId && c.beamId === board.beamId);
     let byId = false;
+    if (!byScope && /^source-roof-members-/.test(c.id)) {
+      const ids = [...(c.failIds ?? []), ...(c.unverifiedIds ?? []), c.worstId];
+      if (ids.includes(board.id) || r.sourceRoofMechanics?.members?.[board.id]) {
+        const m = r.sourceRoofMechanics?.members?.[board.id];
+        const mine =
+          m &&
+          ((c.id.endsWith("axial") && m.kind === "axial") ||
+            (c.id.endsWith("rafters") && /rafter/i.test(m.role)) ||
+            (c.id.endsWith("beams") && m.kind === "beam" && !/rafter/i.test(m.role)));
+        if (mine)
+          out.push({
+            id: c.id,
+            label: c.label,
+            status: m.status,
+            utilization: finite(m.utilization) ? m.utilization : null,
+            direct: true,
+          });
+      }
+      continue;
+    }
     if (!byScope) {
       const s = JSON.stringify(c);
       byId = keys.some((k) => s.includes(`"${k}"`));
@@ -366,6 +460,7 @@ export function memberInsight(report, id) {
   if (!board) return null;
   const role = board.role;
   const analysis =
+    sourceRoofAnalysis(r, board) ||
     (role === "joist" && joistAnalysis(r, board)) ||
     (TRUSS_ROLES.has(role) && trussAnalysis(r, board)) ||
     (board.frameMemberId && frameAnalysis(r, board)) ||

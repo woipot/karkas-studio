@@ -25,11 +25,18 @@ function Rows({ rows }) {
 function Utilization({ value, status }) {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   const pct = Math.min(100, value * 100),
-    tone = status === "fail" || value > 1 ? "fail" : value > 0.85 ? "warn" : "ok";
+    tone =
+      status === "unverified"
+        ? "muted"
+        : status === "fail" || value > 1
+          ? "fail"
+          : value > 0.85
+            ? "warn"
+            : "ok";
   return (
     <div className={`mp-util ${tone}`}>
       <div className="mp-util-head">
-        <span>Загрузка</span>
+        <span>{status === "unverified" ? "Загрузка · справочно, не проверено" : "Загрузка"}</span>
         <strong>{num(value * 100, 0)}%</strong>
       </div>
       <div className="mp-util-bar">

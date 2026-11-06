@@ -486,7 +486,7 @@ export function engineCatalog() {
       "Independent open terraces, covered terraces and unheated glazed verandas",
       "Built-up grillage with transverse ties, shared house/annex graph, real piles, ply boards and supported joints",
       "Inclined rafters / multiple truss schemes and full-height walls",
-      "Density, self weight, bending, shear, Euler stability and deflection checks",
+      "Density, self weight, bending, shear, SP 64 buckling (φ, λmax, Mд = M/ξ), bearing across grain, creep and deflection checks",
       "Stock lengths 6 m, joint geometry, kerf and cut schedules",
       "Procurement estimate from actual cutting, editable prices",
       "Floor rim bands on both platforms, full-depth blocking and real bearing spans",

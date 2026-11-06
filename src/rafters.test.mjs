@@ -106,21 +106,30 @@ test("snow total is independent of slope for a fixed horizontal footprint; trans
   }
 });
 test("combined axial/bending interaction maximizes coincident fields instead of adding unrelated peaks", () => {
-  const r = calculateRafter({ horizontalSpan: 4, pitch: 50, h: 150, Ft: 1, Fc: 2 });
+  const r = calculateRafter({ horizontalSpan: 4, pitch: 50, h: 150, Ft: 1, Fc: 6 });
   let brute = 0;
-  const L = r.slopeLength * 1000;
+  const L = r.slopeLength * 1000,
+    // СП 64 / СНиП II-25-80 п. 4.17: Mд = M/ξ, ξ = 1 − Nmax/(φ·Rc·A), φ in plane over L.
+    lambda = L / (150 / Math.sqrt(12)),
+    phi = 3000 / lambda ** 2,
+    Nmax = (r.loads.axialDesign * L) / 2,
+    xi = 1 - Nmax / (phi * r.Fc * r.A);
+  near(r.lambda, lambda);
+  near(r.xi, xi);
   for (let i = 0; i <= 20000; i++) {
     const s = (L * i) / 20000,
       N = r.loads.axialDesign * (s - L / 2),
       M = (r.loads.normalDesign * s * (L - s)) / 2;
-    brute = Math.max(brute, Math.abs(N) / (r.A * (N < 0 ? r.Fc : r.Ft)) + Math.abs(M) / (r.Z * r.Fb));
+    brute = Math.max(
+      brute,
+      Math.abs(N) / (r.A * (N < 0 ? r.Fc : r.Ft)) + Math.abs(M) / (r.Z * r.Fb * (N < 0 ? xi : 1)),
+    );
   }
   near(r.interactionUtilization, brute, 1e-7);
+  // λ = 143.7 > 120: the long steep 50x150 rafter also fails the slenderness limit.
+  assert.equal(r.checks.find((c) => c.id === "rafter-slenderness").status, "fail");
   assert.ok(r.interactionUtilization >= r.bendingUtilization);
-  assert.ok(
-    r.interactionUtilization <
-      r.bendingUtilization + Math.max(r.compressionUtilization, r.tensionUtilization),
-  );
+  assert.ok(r.interactionUtilization < r.bendingUtilization / xi + Nmax / (r.A * r.Fc));
 });
 test("vertical deflection includes elastic axial shortening projected onto the vertical", () => {
   const r = calculateRafter({ horizontalSpan: 4, rise: 3, h: 200 }),

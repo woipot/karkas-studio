@@ -119,7 +119,7 @@ export function axialCompression({ N = 0, b, h, l0Strong, l0Weak, Fc, kind = "we
  *  out-of-plane stability ф. (33): N/(φy·Rc·Aбр) + (Mд/(φм·Rи·Wбр))ⁿ ≤ 1,
  *    φy about the weak axis (l0Weak), φм = 140·b²/(lp·h)·kф ф. (23) with
  *    kф = 1.13 (parabolic moment of a uniformly loaded simple span, СНиП прил. 4
- *    табл. 2), capped at 1 (conservative); n = 2 without restraint of the
+ *    табл. 2), not capped (strength is checked separately by ф. (28)); n = 2 without restraint of the
  *    tension edge, n = 1 with it.
  * The parabolic/sinusoidal moment of a hinged member is assumed (no kн correction).
  * N ≥ 0 compression kN, M kN·m (design, magnitude).
@@ -147,7 +147,7 @@ export function compressionBending({
     Md = xi > 0 ? moment / xi : Infinity,
     strength = (force * 1000) / (A * Fc) + (Md * 1e6) / (W * Fb),
     lpm = finite(lp) && lp > 0 ? lp : l0Weak,
-    phiM = Math.min(1, ((140 * b * b) / (lpm * 1000 * h)) * kf),
+    phiM = ((140 * b * b) / (lpm * 1000 * h)) * kf,
     n = tensionEdgeRestrained ? 1 : 2,
     outOfPlane = (force * 1000) / (axial.phiWeak * Fc * A) + ((Md * 1e6) / (phiM * Fb * W)) ** n;
   return {

@@ -304,7 +304,7 @@ export function checkDesignerMembers(p, r) {
   const kdef = p.material.kdef ?? creepDefaults.kdef,
     psi2 = p.loads.psi2 ?? creepDefaults.psi2,
     finalRatio = p.material.finalDeflectionRatio ?? creepDefaults.finalDeflectionRatio,
-    Fc90 = p.material.Fc90 ?? 3,
+    Fc90 = finite(p.material.Fc90 ?? 3) && (p.material.Fc90 ?? 3) > 0 ? (p.material.Fc90 ?? 3) : NaN,
     partialBearing = p.material.Fc90PartialLength === true;
   for (const m of joists) {
     if (!m.numericChecksApplicable) continue;

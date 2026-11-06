@@ -8,6 +8,8 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { pathToFileURL } from "node:url";
 import * as z from "zod/v4";
 import { createHouseEngine, engineCatalog, ENGINE_VERSION } from "../src/house-engine.js";
+import { EngineError } from "../src/house-engine.js";
+import { proposeFixes, optimize } from "../src/solutions.js";
 const num = (a, b) => z.number().finite().min(a).max(b);
 const point = z.object({ x: num(-1000, 1000), y: num(-1000, 1000) }).strict();
 const polygon = z.array(point).min(3).max(100);
@@ -193,13 +195,60 @@ const generationSchema = z
       .optional(),
   })
   .strict();
+// --- SOLUTIONS: verified fix proposals and bounded optimizer -------------
+const jsonPointer = z.string().min(1).max(300).regex(/^\//);
+const fixOptions = z
+  .object({
+    includeWarnings: z.boolean().optional(),
+    warningThreshold: num(0.5, 1).optional(),
+    maxEvaluations: z.number().int().min(1).max(60).optional(),
+    perGroup: z.number().int().min(1).max(8).optional(),
+    perCheck: z.number().int().min(1).max(5).optional(),
+    checkIds: z.array(z.string().max(200)).max(100).optional(),
+    keep: z.array(jsonPointer).max(50).optional(),
+    allowAssumptions: z.boolean().optional(),
+  })
+  .strict();
+const solutionsGuide = {
+  tools: ["karkas_propose_fixes", "karkas_optimize"],
+  proposeFixes:
+    "For each failed (optionally near-limit) check: rule-table candidates per member group (floor joists: deeper section, spacing, joist axis, bearing line; studs: section, studStep, restraint; tall walls; rafters/trusses: section, spacing, framing/type; piles: spacing, plies, capacity; grillage: plies/section; bracing: sheathing). Each patch is applied to a copy and the whole house re-evaluated; only patches that lower the target utilization are returned, with before/after, new failed checks, cost delta and side effects.",
+  optimize:
+    "Deterministic coordinate descent: failed checks first, then sum of max(0,u-1), unplaced parts, cost; then one-step cheaper members while nothing new fails. goals.keep lists JSON pointers that must not change. apply=true commits the combined patch as a new revision via expected_revision.",
+  kinds:
+    "structural = physical member change; assumption = adopted value that must be confirmed (pile capacity, stud restraint). optimize excludes assumptions unless goals.allowAssumptions.",
+};
+const catalogWithSolutions = () => {
+  const c = engineCatalog();
+  return {
+    ...c,
+    solutions: solutionsGuide,
+    additionalTools: [...(c.additionalTools ?? []), ...solutionsGuide.tools],
+    workflow: (c.workflow ?? []).flatMap((step) =>
+      step === "karkas_compare_variants"
+        ? ["karkas_propose_fixes", "karkas_optimize(expected_revision, apply)", step]
+        : [step],
+    ),
+  };
+};
+const summarizeFix = (f) => ({
+  id: f.id,
+  title: f.title,
+  kind: f.kind,
+  patch: f.patch,
+  fixesTarget: f.fixesTarget,
+  before: f.before.utilization ?? f.before.status,
+  after: f.after.utilization ?? f.after.status,
+  newFailedChecks: f.newFailedChecks,
+  costDelta: f.costDelta,
+});
 export function createMcpServer({ engine = createHouseEngine() } = {}) {
   const preview = createReadOnlyPreview(engine);
   const server = new McpServer(
     { name: "karkas-engine", version: ENGINE_VERSION },
     {
       instructions:
-        "A deterministic timber-frame house engine. Use the catalog first, generate/import a project, inspect failed AND unverified checks, apply transactional revisions, compare variants, export. Geometry and partial checks do not certify building safety. Never change material strength/density or loads merely to hide failures. All physical timber enters weight, 6 m cutting and procurement once.",
+        "A deterministic timber-frame house engine. Use the catalog first, generate/import a project, inspect failed AND unverified checks, get verified fixes with karkas_propose_fixes / karkas_optimize, apply transactional revisions, compare variants, export. Geometry and partial checks do not certify building safety. Never change material strength/density or loads merely to hide failures. All physical timber enters weight, 6 m cutting and procurement once.",
     },
   );
   const register = (name, description, schema, handler, readOnly = true) =>
@@ -241,7 +290,7 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
     "karkas_catalog",
     "Материалы, единицы, схемы, ограничения, образец полного проекта и последовательность инструментов.",
     z.object({}).strict(),
-    () => engineCatalog(),
+    () => catalogWithSolutions(),
   );
   register(
     "karkas_generate",
@@ -320,11 +369,17 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
   );
   register(
     "karkas_analyze",
-    "Пересчитать точную ревизию: древесина и плотность, нагрузки, стропила/фермы, высокие стены, ростверк/реакции свай, раскрой6м и смета. Для деталей вызовите karkas_report.",
-    z.object(ref).strict(),
+    "Пересчитать точную ревизию: древесина и плотность, нагрузки, стропила/фермы, высокие стены, ростверк/реакции свай, раскрой6м и смета. Для деталей вызовите karkas_report. fixes=true добавляет короткий список проверенных исправлений (до3 на проваленную проверку, не более fix_evaluations пересчётов); полный разбор — karkas_propose_fixes.",
+    z
+      .object({
+        ...ref,
+        fixes: z.boolean().optional(),
+        fix_evaluations: z.number().int().min(1).max(20).optional(),
+      })
+      .strict(),
     async (a) => {
       const report = await engine.analyze(a.project_id, a.revision);
-      return {
+      const out = {
         project_id: a.project_id,
         revision: report.engine.revision,
         hash: report.engine.hash,
@@ -332,6 +387,28 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
         failed: report.result.checks.filter((c) => c.status === "fail"),
         unverifiedCount: report.result.checks.filter((c) => c.status === "unverified").length,
       };
+      if (a.fixes && out.failed.length) {
+        const record = await engine.get(a.project_id, report.engine.revision),
+          proposal = proposeFixes(record.project, report, {
+            planning: record.planning,
+            maxEvaluations: a.fix_evaluations ?? 6,
+            perGroup: 2,
+            perCheck: 3,
+          }),
+          byId = new Map(proposal.fixes.map((f) => [f.id, f]));
+        out.fixes = {
+          byCheck: Object.fromEntries(
+            Object.entries(proposal.byCheck).map(([k, ids]) => [
+              k,
+              ids.map((i) => summarizeFix(byId.get(i))),
+            ]),
+          ),
+          evaluations: proposal.evaluations,
+          budgetExhausted: proposal.budgetExhausted,
+          next: "Примените patch через karkas_apply_patch(expected_revision) или вызовите karkas_optimize.",
+        };
+      }
+      return out;
     },
   );
   register(
@@ -393,6 +470,66 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
       })
       .strict(),
     (a) => engine.variants(a.project_id, a.revision, a.variants),
+  );
+  register(
+    "karkas_propose_fixes",
+    "Предложить проверенные исправления для проваленных (и по желанию близких к пределу) проверок. Для каждой группы элементов (лаги, стойки, высокие стены, стропила/фермы, сваи, ростверк, раскрепление) строятся JSON Patch по таблице правил; каждый применяется к копии и весь дом пересчитывается. Возвращаются только снижающие загрузку цели: title, patch, before/after, newFailedChecks, costDelta, sideEffects. Проект не меняется; выбранный patch примените через karkas_apply_patch.",
+    z.object({ ...ref, options: fixOptions.optional() }).strict(),
+    async (a) => {
+      const record = await engine.get(a.project_id, a.revision),
+        report = await engine.analyze(a.project_id, record.revision);
+      return {
+        project_id: a.project_id,
+        revision: record.revision,
+        hash: report.engine.hash,
+        ...proposeFixes(record.project, report, { ...a.options, planning: record.planning }),
+        next: "Примените выбранный patch через karkas_apply_patch с expected_revision; для комбинации исправлений используйте karkas_optimize.",
+      };
+    },
+  );
+  register(
+    "karkas_optimize",
+    "Детерминированный поиск (покоординатный спуск) по группам элементов: сначала убрать проваленные проверки, затем сумму превышений u>1, недоразмещённые детали и стоимость; затем удешевление на шаг, пока ничего не проваливается. goals.keep — JSON Pointer, которые нельзя менять; goals.maxCost — ориентир стоимости. apply=true создаёт новую ревизию тем же механизмом patch с проверкой expected_revision. Не глобальный оптимум и не сертификация.",
+    z
+      .object({
+        project_id: id,
+        expected_revision: revision,
+        goals: z
+          .object({
+            maxCost: num(0, 1e12).optional(),
+            keep: z.array(jsonPointer).max(50).optional(),
+            allowAssumptions: z.boolean().optional(),
+          })
+          .strict()
+          .optional(),
+        apply: z.boolean().default(false),
+        max_evaluations: z.number().int().min(1).max(120).optional(),
+      })
+      .strict(),
+    async (a) => {
+      const record = await engine.get(a.project_id);
+      if (record.revision !== a.expected_revision)
+        throw new EngineError("REVISION_CONFLICT", "Проект изменился: прочитайте актуальную ревизию.", {
+          expected: a.expected_revision,
+          actual: record.revision,
+        });
+      const report = await engine.analyze(a.project_id, record.revision),
+        result = optimize(record.project, {
+          planning: record.planning,
+          evaluation: report,
+          maxEvaluations: a.max_evaluations ?? 30,
+          maxCost: a.goals?.maxCost,
+          keep: a.goals?.keep,
+          allowAssumptions: a.goals?.allowAssumptions ?? false,
+        });
+      const out = { project_id: a.project_id, revision: record.revision, ...result, applied: null };
+      if (a.apply && result.patch.length && result.verified) {
+        const committed = await engine.patch(a.project_id, a.expected_revision, result.patch);
+        out.applied = { revision: committed.revision, hash: committed.hash, summary: committed.summary };
+      }
+      return out;
+    },
+    false,
   );
   register(
     "karkas_compare_foundations",
@@ -494,7 +631,9 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
     "karkas://engine/capabilities",
     { title: "КАРКАС ENGINE — возможности и единицы", mimeType: "application/json" },
     async (uri) => ({
-      contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(engineCatalog()) }],
+      contents: [
+        { uri: uri.href, mimeType: "application/json", text: JSON.stringify(catalogWithSolutions()) },
+      ],
     }),
   );
   server.registerPrompt(
@@ -509,7 +648,7 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
           role: "user",
           content: {
             type: "text",
-            text: `Спроектируй дом через КАРКАС ENGINE. Задание: ${brief}\n1. Прочитай karkas_catalog. Уточняй недостающие критические исходные данные; свои допущения перечисли.\n2. Создай геометрию/помещения через karkas_generate или импортируй явный проект. Для второго света используй karkas_set_second_light: один проём, нижнее помещение, реальная лестница, проходы галереи и верхние окна. Пристройки добавляй через karkas_add_annex (openTerrace, coveredTerrace, glazedVeranda). Не изображай вычисления словами.\n3. Проверь нагрузки, roof, foundation, annexes, spatial_layout, checks, members и 6 м cutting. Не скрывай failed/unverified. Не подменяй свойства материала или нагрузки ради pass.\n4. Сравни ограниченный набор сечений/шагов через compare_variants, затем примени выбранный patch с expected_revision.\n5. Выпусти report_json, plan_svg, boards_csv, cutting_html, estimate_csv, model_obj. Укажи ревизию, расчётные допущения, нерешённые соединения/грунт/нормативные сочетания. Человеческого редактора нет; изменения выполняются только инструментами.`,
+            text: `Спроектируй дом через КАРКАС ENGINE. Задание: ${brief}\n1. Прочитай karkas_catalog. Уточняй недостающие критические исходные данные; свои допущения перечисли.\n2. Создай геометрию/помещения через karkas_generate или импортируй явный проект. Для второго света используй karkas_set_second_light: один проём, нижнее помещение, реальная лестница, проходы галереи и верхние окна. Пристройки добавляй через karkas_add_annex (openTerrace, coveredTerrace, glazedVeranda). Не изображай вычисления словами.\n3. Проверь нагрузки, roof, foundation, annexes, spatial_layout, checks, members и 6 м cutting. Не скрывай failed/unverified. Не подменяй свойства материала или нагрузки ради pass.\n4. Для проваленных проверок вызови karkas_propose_fixes (или karkas_analyze с fixes=true): движок сам предложит проверенные patch с before/after, новыми отказами и разницей стоимости. Для комбинации исправлений с минимальной стоимостью — karkas_optimize (goals.keep для неизменяемых путей; apply=true создаёт ревизию с expected_revision). Допущения kind=assumption (несущая способность свай, раскрепление стоек) не применяй без подтверждения. Ручные альтернативы сравни через compare_variants, затем примени выбранный patch с expected_revision.\n5. Выпусти report_json, plan_svg, boards_csv, cutting_html, estimate_csv, model_obj. Укажи ревизию, расчётные допущения, нерешённые соединения/грунт/нормативные сочетания. Человеческого редактора нет; изменения выполняются только инструментами.`,
           },
         },
       ],

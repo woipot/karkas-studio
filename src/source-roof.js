@@ -1,3 +1,4 @@
+import { snowShapeMu } from "./load-profile.js";
 /** Imported physical roof geometry. No inferred frame, supports or connection capacity. */
 const EPS = 1e-7,
   finite = Number.isFinite,
@@ -519,7 +520,7 @@ export function validateSourceRoofModel(model, { floors = 1, density = 500, snow
       continue;
     }
     const pitch = (Math.acos(Math.min(1, Math.abs(n[1]))) * 180) / Math.PI,
-      coef = s.snowMu ?? snowMu ?? (pitch <= 30 ? 0.8 : Math.max(0, (0.8 * (60 - pitch)) / 30));
+      coef = s.snowMu ?? snowMu ?? snowShapeMu(pitch); // СП 20.13330.2016 прил. Б, схема Б.1
     if (!finite(coef) || coef < 0 || coef > 3) error(f + ".snowMu", "Коэффициент снега должен быть 0…3.");
     if (s.sourcePage !== undefined && (!Number.isInteger(s.sourcePage) || s.sourcePage <= 0))
       error(f + ".sourcePage", "Positive source page required.");

@@ -15,6 +15,7 @@ import {
 } from "./designer-engine.js";
 import { normalizeDesignerState } from "./designer-state.js";
 import { calculateRoofZones } from "./roof-zones.js";
+import { memberLoadProject } from "./load-profile.js";
 import { checkDesignerMembers } from "./designer-mechanics.js";
 import { calculateCutting, cuttingRowsToCSV, cuttingToPrintHTML } from "./cutting.js";
 import { calculateEstimate, estimateRowsToCSV } from "./estimate-engine.js";
@@ -101,7 +102,8 @@ export function evaluateHouse(project, planning = {}) {
     });
     calculated = calculateDesigner(p, { roofModel });
   }
-  const mechanics = checkDesignerMembers(p, calculated);
+  // Member checks read one γG/γQ pair and w0·k(ze): see memberLoadProject (load-profile.js).
+  const mechanics = checkDesignerMembers(memberLoadProject(p, calculated.loads?.windPressure), calculated);
   if (p.floor.wallSupportFraming)
     calculated.floorPlatform.joistChecks = (mechanics.joist?.members ?? []).map(({ parts, ...m }) => ({
       ...m,

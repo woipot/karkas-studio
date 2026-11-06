@@ -1,6 +1,7 @@
 import { calculateDesigner } from "./designer-engine.js";
 import { calculateRoofZones } from "./roof-zones.js";
 import { checkDesignerMembers } from "./designer-mechanics.js";
+import { memberLoadProject, loadProfile, snowBasis } from "./load-profile.js";
 const clone = (x) => JSON.parse(JSON.stringify(x));
 /** Fixed-section load-case checks. No auto resizing between cases. */
 export function analyzeSnowCases(p, baseline) {
@@ -108,7 +109,7 @@ export function analyzeSnowCases(p, baseline) {
         ceilingExtraDeadByZone: baseline.auxiliaryTimber?.ceilingExtraDeadByZone ?? {},
       }),
       r = calculateDesigner(q, { roofModel: roof }),
-      mechanics = checkDesignerMembers(q, r),
+      mechanics = checkDesignerMembers(memberLoadProject(q, r.loads?.windPressure), r),
       all = [...r.checks, ...mechanics.checks],
       failures = all.filter((c) => c.status === "fail");
     const rafters = roof.zones
@@ -179,10 +180,16 @@ export function analyzeSnowCases(p, baseline) {
   const highest = cases.reduce((a, b) => (!a || b.totalDesign > a.totalDesign ? b : a), null);
   return {
     groundSnow: p.loads.snow,
+    snowCe: snowBasis(p.loads).ce,
+    snowCt: snowBasis(p.loads).ct,
+    profile: loadProfile(p.loads).id,
     coefficientMethod:
       p.roof.snowMu !== undefined
-        ? "s = explicit roof.snowMu × sk × zone factor; no automatic local drift or full code combinations"
-        : "s = mu(alpha) × Ce × Ct × sk; Ce=Ct=1 in this concept model",
+        ? "S0 = ce × ct × explicit roof.snowMu × Sg × zone factor (SP 20.13330.2016 cl. 10.1); no automatic local drift"
+        : "S0 = ce × ct × mu(alpha) × Sg, mu per SP 20.13330.2016 App. B (1 up to 30 deg, 0 at 60 deg); gable trusses also checked for unbalanced variant 2",
+    unbalanced: (baseline.roofModel?.zones ?? [])
+      .filter((z) => z.snowCaseSummary)
+      .map((z) => ({ zoneId: z.id, ...z.snowCaseSummary })),
     basis: p.snowDesign?.basis ?? "User-specified load cases",
     cases,
     checks,
@@ -192,7 +199,7 @@ export function analyzeSnowCases(p, baseline) {
       "Сечения и несущая схема зафиксированы по базовой модели. Нагрузки не приводят к скрытой замене досок между случаями.",
       "annexFactors задаёт независимый множитель базового loads.snow указанной пристройки; без записи её снег не меняется. Для открытой террасы меняется снег на настиле, для крытых вариантов — на крыше. Частные сечения, древесная масса и опоры сохраняются.",
       "Множитель по зоне применяется к её снеговой нагрузке, локальному расчёту стропил/ферм, вертикальным реакциям стены, суммарной нагрузке и реакциям свай.",
-      "Полное совместное действие ветра/снега и понижающие psi-коэффициенты EN1990 не реализованы; текущие gammaG/gammaQ описывают одну заданную огибающую.",
+      "Пользовательские случаи повторяют полный расчёт с теми же сочетаниями СП 20.13330.2016 п. 6.2, 6.4 (ψ 1,0/0,9/0,7, огибающая по основной временной нагрузке). Совместное действие ветра с вертикальными нагрузками в реакциях свай не учитывается.",
     ],
   };
 }

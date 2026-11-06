@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { loadFactors } from "./load-profile.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
@@ -87,7 +88,8 @@ function calculate(p) {
 test("four-metre mono AUTO uses actual 4/cos rafters with explicit supports, no truss web or bottom chord", () => {
   const { zone, roof, result } = calculate(project());
   assert.equal(zone.effectiveFraming, "rafters");
-  assert.equal(zone.selectedSection, "50x200");
+  // µ = 1 (СП 20 прил. Б) and γf by load kind make 50×200 insufficient; next board 50×250.
+  assert.equal(zone.selectedSection, "50x250");
   assert.equal(zone.requestedSection, "50x150");
   assert.equal(zone.rafterAnalysis.capacityPass, true);
   near(zone.rafterAnalysis.horizontalSpan, 4);
@@ -98,7 +100,7 @@ test("four-metre mono AUTO uses actual 4/cos rafters with explicit supports, no 
   for (const b of rafters) {
     near(b.length, 4 / Math.cos((25 * Math.PI) / 180));
     assert.equal(b.b, 50);
-    assert.equal(b.h, 200);
+    assert.equal(b.h, 250);
   }
   assert.equal(
     roof.instances.some((b) => b.role === "web" || b.role === "bottom"),
@@ -178,7 +180,7 @@ test("timber density changes installed rafter/support weight, preserving the sam
   near(a.estimate.total, b.estimate.total);
   near(
     b.result.loads.totalDesign - a.result.loads.totalDesign,
-    (((b.result.timber.mass - a.result.timber.mass) * 9.80665) / 1000) * p.loads.gammaG,
+    (((b.result.timber.mass - a.result.timber.mass) * 9.80665) / 1000) * loadFactors(p.loads).timber,
   );
 });
 

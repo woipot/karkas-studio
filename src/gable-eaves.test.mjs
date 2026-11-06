@@ -1,4 +1,5 @@
 import test from "node:test";
+import { snowShapeMu } from "./load-profile.js";
 import assert from "node:assert/strict";
 import { buildTruss } from "./trusses.js";
 import { physicalTrussBoards } from "./physical-truss.js";
@@ -255,7 +256,9 @@ test("full roof projected area, actual area and snow use all asymmetric and side
   const { roof } = run(fixture());
   near(roof.projectedArea, (7.802 + 1.038) * (5.802 + 0.619 + 0.519));
   near(roof.area, roof.projectedArea / Math.cos((25 * Math.PI) / 180));
-  near(roof.snowEffectiveArea, 0.8 * roof.projectedArea);
+  // СП 20.13330.2016 прил. Б, схема Б.1: µ = 1 for α = 25° ≤ 30°.
+  near(snowShapeMu(25), 1);
+  near(roof.snowEffectiveArea, 1 * roof.projectedArea);
   assert.ok(roof.gableArea > 5.802 * ((5.802 / 2) * Math.tan((25 * Math.PI) / 180)));
 });
 
@@ -288,8 +291,10 @@ test("flat ceiling pressure and actual ceiling battens are applied to bottom nod
 });
 
 test("global real-bearing reactions preserve roof force and both plan moments including tails and real wood", () => {
-  const p = fixture(),
-    { r, z, roof } = run(p),
+  const p = fixture();
+  // No live load: the snow ψ of the governing combination then equals 1 in both runs.
+  p.loads.live = 0;
+  const { r, z, roof } = run(p),
     q = structuredClone(p);
   q.roof.type = "none";
   const base = calculateDesigner(q),
@@ -312,7 +317,7 @@ test("global real-bearing reactions preserve roof force and both plan moments in
         (ceiling * (v0 + v1)) / 2) *
         gammaG +
       p.loads.snow *
-        0.8 *
+        snowShapeMu(25) *
         cover.length *
         (((crest - cover.minV) * (cover.minV + crest)) / 2 +
           ((cover.maxV - crest) * (crest + cover.maxV)) / 2) *
@@ -401,6 +406,7 @@ test("unfabricable continuous bottom stock and unsupported slope choices fail ex
 test("explicit snowMu inherits to all eaves, FEM, local bending and real-bearing pile moments", () => {
   const p = fixture();
   p.loads.snow = 1.5;
+  p.loads.live = 0; // isolate snow: ψ of the single temporary action is 1
   p.roof.snowMu = 1;
   const { r, z, roof } = run(p);
   near(z.analysis.input.muLeft, 1);

@@ -1,3 +1,4 @@
+import { loadFactors } from "./load-profile.js";
 /** Partition gravity -> real floor framing -> real L1 grillage supports.
  * Coordinates m, load kN/kN per m, b/h mm, stresses MPa. No connector capacity. */
 const EPS = 1e-7,
@@ -267,7 +268,9 @@ export function attachFloorWallLoads(p, { geometry, walls = p.walls ?? [], timbe
     U = (q) => (axis === "y" ? q.x : q.y),
     V = (q) => (axis === "y" ? q.y : q.x),
     instances = timber?.instances ?? [],
-    gamma = p.loads?.gammaG ?? 1.1,
+    // Member checks: the larger permanent factor (layers 1,2 / timber 1,1). The
+    // foundation samples are re-factored by kind in designer-engine pileField.
+    gamma = loadFactors(p.loads ?? {}).equivalentG,
     fp = floorPlatform ?? {},
     supports = fp.wallSupports ?? [];
   const groups = new Map();
@@ -493,15 +496,13 @@ export function attachFloorWallLoads(p, { geometry, walls = p.walls ?? [], timbe
                       z,
                       ...js.flatMap((j) => [j.vA, j.vB]).filter((x) => x > a + EPS && x < z - EPS),
                     ]);
-                  return cuts
-                    .slice(1)
-                    .map((v, i) => ({
-                      type: "line",
-                      a: plan(U(center), cuts[i]),
-                      b: plan(U(center), v),
-                      weight: (primitive.weight * (v - cuts[i])) / (z - a),
-                      sourceBoardId: primitive.sourceBoardId,
-                    }));
+                  return cuts.slice(1).map((v, i) => ({
+                    type: "line",
+                    a: plan(U(center), cuts[i]),
+                    b: plan(U(center), v),
+                    weight: (primitive.weight * (v - cuts[i])) / (z - a),
+                    sourceBoardId: primitive.sourceBoardId,
+                  }));
                 })();
           for (const part of parts) {
             const a = part.type === "point" ? V(part.point) : Math.min(V(part.a), V(part.b)),
@@ -555,15 +556,13 @@ export function attachFloorWallLoads(p, { geometry, walls = p.walls ?? [], timbe
                         .concat(bs.flatMap((b) => [b.start[fixed], b.end[fixed]]))
                         .filter((x) => x > a + EPS && x < z - EPS),
                     ]);
-                  return cuts
-                    .slice(1)
-                    .map((u, i) => ({
-                      type: "line",
-                      a: plan(cuts[i], V(center)),
-                      b: plan(u, V(center)),
-                      weight: (primitive.weight * (u - cuts[i])) / (z - a),
-                      sourceBoardId: primitive.sourceBoardId,
-                    }));
+                  return cuts.slice(1).map((u, i) => ({
+                    type: "line",
+                    a: plan(cuts[i], V(center)),
+                    b: plan(u, V(center)),
+                    weight: (primitive.weight * (u - cuts[i])) / (z - a),
+                    sourceBoardId: primitive.sourceBoardId,
+                  }));
                 })();
           for (const part of pieces) {
             const point =

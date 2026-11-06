@@ -1,4 +1,5 @@
 import test from "node:test";
+import { loadFactors } from "./load-profile.js";
 import assert from "node:assert/strict";
 import { generateHouse } from "./house-generator.js";
 import { calculateDesigner, validateDesignerProject } from "./designer-engine.js";
@@ -306,7 +307,13 @@ test("doubling density changes only one copy of every installed timber member an
   const b = calculate(p);
   near(b.timber.mass, 2 * a.timber.mass);
   near(b.loads.dead - a.loads.dead, (a.timber.mass * G) / 1000);
-  near(b.loads.totalDesign - a.loads.totalDesign, ((a.timber.mass * G) / 1000) * p.loads.gammaG);
+  // House wood γf = 1,1; the annex keeps one γG = max(layers 1,2, timber 1,1) of the profile.
+  const annexWood = a.annexes.items.reduce((s, i) => s + i.quantities.woodMass, 0);
+  near(
+    b.loads.totalDesign - a.loads.totalDesign,
+    (((a.timber.mass - annexWood) * G) / 1000) * loadFactors(p.loads).timber +
+      ((annexWood * G) / 1000) * loadFactors(p.loads).equivalentG,
+  );
   near(b.foundation.reactionSum - a.foundation.reactionSum, b.loads.totalDesign - a.loads.totalDesign);
   near(
     b.annexes.items[0].loads.dead - a.annexes.items[0].loads.dead,

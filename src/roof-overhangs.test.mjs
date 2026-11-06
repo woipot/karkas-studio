@@ -1,4 +1,5 @@
 import test from "node:test";
+import { loadFactors } from "./load-profile.js";
 import assert from "node:assert/strict";
 import { defaultDesignerProject, calculateDesigner } from "./designer-engine.js";
 import { calculateRoofZones } from "./roof-zones.js";
@@ -278,9 +279,10 @@ test("larger roof mass, layers and snow enter global loads once and drainage rea
     b = calculate(p);
   assert.ok(b.r.timber.mass > a.r.timber.mass);
   const delta =
-    (((b.r.timber.mass - a.r.timber.mass) * 9.80665) / 1000) * p.loads.gammaG +
-    (b.roof.area - a.roof.area) * p.loads.roofDead * p.loads.gammaG +
-    (b.roof.snowEffectiveArea - a.roof.snowEffectiveArea) * p.loads.snow * p.loads.gammaQ;
+    // γf: timber 1,1, factory layers 1,2, snow 1,4 (leading in both runs, ψ = 1).
+    (((b.r.timber.mass - a.r.timber.mass) * 9.80665) / 1000) * loadFactors(p.loads).timber +
+    (b.roof.area - a.roof.area) * p.loads.roofDead * loadFactors(p.loads).layers +
+    (b.roof.snowEffectiveArea - a.roof.snowEffectiveArea) * p.loads.snow * loadFactors(p.loads).snow;
   near(b.r.loads.totalDesign - a.r.loads.totalDesign, delta);
   near(b.r.foundation.reactionSum, b.r.loads.totalDesign);
   near(b.roof.drainage.quantities.totalResolvedArea, b.roof.projectedArea);

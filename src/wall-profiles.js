@@ -1,3 +1,4 @@
+import { loadFactors, loadProfile, windK, windTerrain } from "./load-profile.js";
 import { checkFullHeightWall } from "./wall-stability.js";
 import { timberSections, parseSection } from "./catalog.js";
 const EPS = 1e-6,
@@ -173,9 +174,16 @@ export function deriveWallProfiles(project, base, roof) {
             tributaryWidth: wall.studStep,
           })),
           roofReactionLine: reaction,
-          wind: project.loads?.wind ?? 0,
-          gammaG: project.loads?.gammaG ?? 1.1,
-          gammaQ: project.loads?.gammaQ ?? 1.4,
+          // w0·k(ze) at the wall top, c = 0,8 + 0,2 (СП 20.13330.2016 п. 11.1.3).
+          wind:
+            (project.loads?.wind ?? 0) *
+            windK(
+              Math.max(...profile.topSamples.map((q) => q.topY)),
+              windTerrain(project.loads),
+              loadProfile(project.loads),
+            ),
+          gammaG: loadFactors(project.loads ?? {}).equivalentG,
+          gammaQ: loadFactors(project.loads ?? {}).equivalentQ,
           E: project.material?.E ?? 10000,
           Emin: project.material?.Emin,
           Fc: project.material?.Fc ?? 12,

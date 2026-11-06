@@ -1,3 +1,4 @@
+import { loadFactors } from "./load-profile.js";
 import { platformInnerFaceStation } from "./floor-platform-contour.js";
 import { solveGrillagePointLoads } from "./grillage-loads.js";
 /** Actual rectangular opening frames; plan m, sections mm, forces kN. */
@@ -134,8 +135,9 @@ export function buildFloorOpenings(project = {}, { geometry = {}, walls = projec
     E = project.material?.E,
     Fb = project.material?.Fb,
     Fv = project.material?.Fv ?? 1.5,
-    gammaG = project.loads?.gammaG,
-    gammaQ = project.loads?.gammaQ;
+    // Partial factors of the code profile (СП 20.13330.2016 табл. 7.1, п. 8.2.2).
+    gammaG = loadFactors(project.loads ?? {}).layers,
+    gammaQ = loadFactors(project.loads ?? {}).live;
   const materials =
     [E, Fb, Fv, density, gammaG, gammaQ].every((q) => finite(q) && q > 0) &&
     finite(project.loads?.floorDead) &&

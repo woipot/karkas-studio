@@ -4,6 +4,7 @@ import { calculateDesigner, defaultDesignerProject } from "./designer-engine.js"
 import { calculateRoofZones } from "./roof-zones.js";
 import { calculateCutting } from "./cutting.js";
 import { checkDesignerMembers } from "./designer-mechanics.js";
+import { memberLoadProject, loadFactors } from "./load-profile.js";
 const near = (a, b, t = 1e-6) =>
   assert.ok(Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < t, `${a} ≠ ${b}`);
 const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -62,7 +63,7 @@ function calculate(p) {
     roof,
     m: r.bracingModel,
     cutting: calculateCutting(p, r),
-    mechanics: checkDesignerMembers(p, r),
+    mechanics: checkDesignerMembers(memberLoadProject(p), r),
   };
 }
 const local = (point, w) => {
@@ -222,14 +223,16 @@ test("physical sheathing excludes windows, shares stock-sheet IDs and adds panel
   const rows = v.r.loads.rows.filter((r) => r.id === "structural-panels");
   assert.equal(rows.length, 1);
   near(rows[0].characteristic, panelWeight);
-  near(rows[0].design, panelWeight * v.p.loads.gammaG);
+  // Wood-based panels and timber: γf = 1,1 (СП 20.13330.2016 табл. 7.1).
+  near(rows[0].design, panelWeight * loadFactors(v.p.loads).timber);
+  near(loadFactors(v.p.loads).timber, 1.1);
   near(
     v.r.loads.totalCharacteristic - none.r.loads.totalCharacteristic,
     ((v.r.timber.mass - none.r.timber.mass) * 9.80665) / 1000 + panelWeight,
   );
   near(
     v.r.loads.totalDesign - none.r.loads.totalDesign,
-    (((v.r.timber.mass - none.r.timber.mass) * 9.80665) / 1000 + panelWeight) * v.p.loads.gammaG,
+    (((v.r.timber.mass - none.r.timber.mass) * 9.80665) / 1000 + panelWeight) * loadFactors(v.p.loads).timber,
   );
   near(v.r.foundation.reactionSum, v.r.loads.totalDesign);
   assert.equal(v.cutting.summary.pieces, v.r.timber.instances.length);

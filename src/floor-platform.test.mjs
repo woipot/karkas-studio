@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { buildFloorPlatform } from "./floor-platform.js";
 import { calculateDesigner, defaultDesignerProject, validateDesignerProject } from "./designer-engine.js";
 import { checkDesignerMembers } from "./designer-mechanics.js";
+import { memberLoadProject, loadFactors } from "./load-profile.js";
 import { calculateCutting } from "./cutting.js";
 import { cutGeometry } from "./board-geometry.js";
 const clone = structuredClone,
@@ -192,7 +193,9 @@ test("physical joist ends meet rim faces while bending uses real support axes", 
   near(j.analyticalSpan, 4);
   near(j.supportStart.point.y, 0);
   near(j.supportEnd.point.y, 4);
-  const m = checkDesignerMembers(p, r).joist.members.find((m) => m.platformSpanId === j.id);
+  const m = checkDesignerMembers(memberLoadProject(p), r).joist.members.find(
+    (m) => m.platformSpanId === j.id,
+  );
   near(m.span, 4);
   near(m.length, 4.051);
   const M = (m.lineLoadDesign * 4 ** 2) / 8;
@@ -227,10 +230,10 @@ test("six-metre stock and blocking do not split a real unsupported eight-metre u
   assert.ok(upper.every((b) => b.analyticalSpan === 8 && b.length > 6 && b.requireSingleStock));
   assert.ok(upper.every((b) => !b.spliceIds?.length));
   assert.ok(r.floorPlatform.checks.find((c) => c.id === "floor-stock-L2").failIds.length);
-  const a = checkDesignerMembers(p, r).joist;
+  const a = checkDesignerMembers(memberLoadProject(p), r).joist;
   p.floor.blockingStep = 0.5;
   const s = calculateDesigner(p),
-    b = checkDesignerMembers(p, s).joist;
+    b = checkDesignerMembers(memberLoadProject(p), s).joist;
   near(a.span, 8);
   near(b.span, 8);
   assert.ok(s.floorPlatform.quantities.blockingLength > r.floorPlatform.quantities.blockingLength);
@@ -432,7 +435,7 @@ test("roof gravity reactions route to real bearings, preserve unequal A/B and tr
       status: "unverified",
     };
   const r = calculateDesigner(p, { roofModel: roof }),
-    W = r.timber.totals.roof.weight * p.loads.gammaG,
+    W = r.timber.totals.roof.weight * loadFactors(p.loads).timber,
     previous = new Map(base.piles.map((q) => [q.id, q])),
     delta = r.piles.map((q) => ({ x: q.x, y: q.y, P: q.reaction - previous.get(q.id).reaction }));
   near(sum(delta.map((q) => q.P)), W);

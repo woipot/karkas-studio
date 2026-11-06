@@ -653,7 +653,8 @@ export default function DesignerApp() {
     exportText(
       "Проект КАРКАС",
       "karkas-project-v2.json",
-      JSON.stringify({ app: "КАРКАС Studio", version: 2, project: p }, null, 2),
+      // Exactly the arguments of the MCP tool karkas_import_project (strict schema).
+      JSON.stringify({ project: p }, null, 2),
       "application/json",
     );
   }

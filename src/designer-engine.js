@@ -1,3 +1,6 @@
+import { isBeamWall, wallFrameSection, resolveBeam } from "./profiled-beam-catalog.js";
+import { buildProfiledBeam, validateBeamWalls, beamOpeningEnvelope } from "./profiled-beam.js";
+import { analyzeProfiledBeam } from "./profiled-beam-mechanics.js";
 import { validateSourceRoofModel } from "./source-roof.js";
 import { buildAuxiliaryTimber } from "./auxiliary-timber.js";
 import { buildAnnexes, validateAnnexes, sharedAnnexGrillageLines } from "./annexes.js";
@@ -169,6 +172,18 @@ export const defaultDesignerProject = {
 function normalized(input) {
   return {
     ...input,
+    // Reuse existing frame defaults for roof extensions above beam walls, reported by profiled-beam.js.
+    walls: Array.isArray(input?.walls)
+      ? input.walls.map((w) =>
+          isBeamWall(w)
+            ? {
+                ...w,
+                section: w.section ?? defaultDesignerProject.walls[0].section,
+                studStep: w.studStep ?? defaultDesignerProject.walls[0].studStep,
+              }
+            : w,
+        )
+      : input?.walls,
     annexes: input?.annexes === undefined ? [] : input.annexes,
     foundation: object(input?.foundation)
       ? {
@@ -300,6 +315,7 @@ export function validateDesignerProject(input) {
         error(f + ".name", "Имя этажа: строка до 100 символов.");
     }
   }
+  validateBeamWalls(p, error);
   const wallMap = new Map();
   if (!Array.isArray(p.walls) || p.walls.length > 300) error("walls", "Стены: массив до 300 элементов.");
   for (const [i, w] of (Array.isArray(p.walls) ? p.walls : []).entries()) {
@@ -412,15 +428,25 @@ export function validateDesignerProject(input) {
     if (w.level !== undefined && o.floor !== undefined && o.floor !== w.level)
       error(f + ".floor", "Этаж проёма должен совпадать с этажом его стены.");
     const margin = 2 * B + 0.02;
-    if (o.offset < margin - EPS || o.offset + o.width > dist(w.a, w.b) - margin + EPS)
+    if (!isBeamWall(w) && (o.offset < margin - EPS || o.offset + o.width > dist(w.a, w.b) - margin + EPS))
       error(f, "До концов стены требуется место для коренных и подперемычечных стоек.");
     const floorHeight =
       w.height ??
       (Array.isArray(p.levels)
         ? (p.levels.find((l) => l?.index === (o.floor ?? w.level ?? 1))?.height ?? p.height)
         : p.height);
-    if (o.sill + o.height > floorHeight - 2 * B - 0.2 + EPS)
+    if (!isBeamWall(w) && o.sill + o.height > floorHeight - 2 * B - 0.2 + EPS)
       error(f, "Над проёмом необходимо место для перемычки 200 мм и двух верхних обвязок.");
+    if (isBeamWall(w)) {
+      const beam = resolveBeam(w),
+        rough = beamOpeningEnvelope(o, beam.moisture);
+      if (
+        rough.roughFrom < -EPS ||
+        rough.roughTo > dist(w.a, w.b) + EPS ||
+        rough.roughTop > floorHeight - beam.courseHeight + EPS
+      )
+        error(f, "Обсада с усадочным зазором не помещается: нужны простенки и цельный верхний венец.");
+    }
     if (o.type === "door" && o.sill > EPS)
       warnings.push(`Дверь ${o.id} имеет порог ${o.sill} м: проём показан по заданным размерам.`);
     for (let j = 0; j < i; j++) {
@@ -608,6 +634,7 @@ export function validateDesignerProject(input) {
       (!finite(p.material.Emin) || p.material.Emin <= 0 || p.material.Emin > p.material.E)
     )
       error("material.Emin", "Emin должен быть положительным и не превышать E.");
+    if (p.material.Fc90Full !== undefined) range(p.material.Fc90Full, 0.1, 20, "material.Fc90Full");
     if (p.material.wallDeflectionRatio !== undefined)
       range(p.material.wallDeflectionRatio, 100, 600, "material.wallDeflectionRatio");
   }
@@ -1450,6 +1477,7 @@ function timberModel(p, graph, corners, bounds, truss, warnings, roofModel) {
     );
   }
   for (const w of p.walls) {
+    if (isBeamWall(w)) continue;
     const profile = p._wallProfiles?.find((q) => q.wallId === w.id && q.mode === "continuous"),
       { b, h } = parseSection(profile?.section ?? w.section),
       B = b / 1000,
@@ -1634,6 +1662,7 @@ function timberModel(p, graph, corners, bounds, truss, warnings, roofModel) {
     }
   }
   for (const c of corners) {
+    if (c.wallIds.some((id) => isBeamWall(wallMap.get(id)))) continue;
     const w = wallMap.get(c.wallIds[0]),
       profiles = (p._wallProfiles ?? []).filter(
         (q) => q.mode === "continuous" && c.wallIds.includes(q.wallId),
@@ -2592,6 +2621,7 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
         "timber",
         0,
         board.category === "foundation" ? board.beamId : undefined,
+        { boardId: board.id, wallId: board.wallId, level: board.level },
       );
     }
   }
@@ -2730,7 +2760,7 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
     const profile = wallProfiles.find(
       (q) => q.wallId === w.id && q.level === l.index && q.mode === "continuous",
     );
-    return profile
+    return !isBeamWall(w) && profile
       ? profile.topSamples
           .slice(1)
           .reduce(
@@ -2744,7 +2774,7 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
   const walls = p.walls.map((w) => ({
     ...w,
     length: dist(w.a, w.b),
-    sectionSize: parseSection(w.section),
+    sectionSize: wallFrameSection(w, parseSection),
     grossArea: sum(
       levelModels.filter((l) => w.level === undefined || w.level === l.index).map((l) => wallGross(w, l)),
     ),
@@ -2882,7 +2912,25 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
     warnings,
     undefined,
   );
-  let timber = mergeTimber([...timberParts, grillageTimber], p);
+  const profiledBeam = buildProfiledBeam(p, geometry.levels);
+  const beamTimber = timberModel(
+    {
+      ...p,
+      walls: [],
+      openings: [],
+      objects: [],
+      roof: { ...p.roof, type: "none" },
+      _extraInstances: profiledBeam.instances,
+    },
+    { closed: false },
+    [],
+    bounds,
+    undefined,
+    warnings,
+    undefined,
+  );
+  beamTimber.splices.push(...profiledBeam.splices);
+  let timber = mergeTimber([...timberParts, grillageTimber, beamTimber], p);
   const checks = [...(grillageModel.checks ?? []), ...partitionHeads.checks];
   warnings.push(...(grillageModel.warnings ?? []));
   const houseWind = houseWindForces(p, geometry, roofModel);
@@ -3126,8 +3174,22 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
     const structuralPanelWeight = ((bracingModel.quantities?.panelMass ?? 0) * G) / 1000;
     const floorLayers = geometry.totalPlatformArea * p.loads.floorDead,
       roofLayers = roofArea * p.loads.roofDead,
-      wallWeight = geometry.netWallArea * p.loads.wallDead,
-      innerWallWeight = geometry.innerWallArea * p.loads.wallDead,
+      wallWeight =
+        (geometry.netWallArea -
+          sum(
+            walls
+              .filter((w) => isBeamWall(w) && w.kind === "exterior")
+              .map((w) => w.grossArea - w.openingArea),
+          )) *
+        p.loads.wallDead,
+      innerWallWeight =
+        (geometry.innerWallArea -
+          sum(
+            walls
+              .filter((w) => isBeamWall(w) && w.kind !== "exterior")
+              .map((w) => w.grossArea - w.openingArea),
+          )) *
+        p.loads.wallDead,
       openingWeight = openingArea * p.loads.openingDead,
       gableWeight = gableArea * p.loads.wallDead,
       live = geometry.totalFloorArea * p.loads.live,
@@ -3137,7 +3199,9 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
           ? 0
           : snowBase.base *
             (finite(roofModel?.snowEffectiveArea) ? roofModel.snowEffectiveArea : projectedRoofArea * mu),
+      beamAccessoryWeight = (profiledBeam.juteMass * G) / 1000,
       dead =
+        beamAccessoryWeight +
         floorLayers +
         roofLayers +
         wallWeight +
@@ -3146,6 +3210,17 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
         timber.weight +
         structuralPanelWeight;
     const rawRows = [
+      ...(profiledBeam.walls.length
+        ? [
+            {
+              id: "beam-jute",
+              label: "Джут брусовых стен",
+              characteristic: beamAccessoryWeight,
+              kind: "dead",
+              loadKind: "layers",
+            },
+          ]
+        : []),
       {
         id: "structural-panels",
         label: "Плиты жёсткости стен",
@@ -3218,7 +3293,11 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
     });
     const wallLineLoads = walls.map((w) => ({
       wallId: w.id,
-      weight: (w.grossArea - w.openingArea) * p.loads.wallDead + w.openingArea * p.loads.openingDead,
+      weight:
+        (isBeamWall(w)
+          ? (sum(profiledBeam.walls.filter((q) => q.wallId === w.id).map((q) => q.juteMass)) * G) / 1000
+          : (w.grossArea - w.openingArea) * p.loads.wallDead) +
+        w.openingArea * p.loads.openingDead,
     }));
     const roofMassIncluded = timber.roofGeometryAvailable || p.roof.type === "none",
       complete = roofMassIncluded && geometry.areaComplete && geometry.platformAreaComplete;
@@ -3283,6 +3362,9 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
       roofMassIncluded,
       missingLoads: [
         ...(!roofMassIncluded ? ["Древесина кровли не сформирована."] : []),
+        ...(profiledBeam.walls.length
+          ? ["Масса нагелей принята замещением древесины; крепёж и гидроизоляция брусовых стен не заданы."]
+          : []),
         ...(!geometry.areaComplete ? ["Не все контуры этажей замкнуты."] : []),
         ...(!geometry.platformAreaComplete
           ? [
@@ -3551,6 +3633,9 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
     warnings.push(...(roofModel.warnings || []));
     assumptions.push(...(roofModel.assumptions || []));
   }
+  analyzeProfiledBeam(p, { timber, loads, roofModel }, profiledBeam, foundationSamples);
+  checks.push(...profiledBeam.checks);
+  assumptions.push(...profiledBeam.assumptions);
   checks.push(
     {
       id: "roofSystem",
@@ -3583,6 +3668,7 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
     partitionHeads,
     auxiliaryTimber,
     fullHeightWalls,
+    profiledBeam,
     bracingModel,
     graph: {
       nodes: levelModels.flatMap((l) =>

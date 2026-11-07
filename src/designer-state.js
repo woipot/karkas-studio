@@ -1,3 +1,4 @@
+import { isBeamWall } from "./profiled-beam-catalog.js";
 import { defaultDesignerProject } from "./designer-engine.js";
 import { defaultPrices } from "./prices.js";
 const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -47,7 +48,15 @@ export function normalizeDesignerState(input = {}) {
   const oldWalls = p.walls,
     all = [],
     openingMap = new Map();
-  for (const w of oldWalls) {
+  for (const original of oldWalls) {
+    // Existing frame defaults are only used by separate roof framing above beam walls.
+    const w = isBeamWall(original)
+      ? {
+          ...original,
+          section: original.section ?? defaultDesignerProject.walls[0].section,
+          studStep: original.studStep ?? defaultDesignerProject.walls[0].studStep,
+        }
+      : original;
     if (w.level !== undefined) {
       all.push(w);
       openingMap.set(w.id, [w]);

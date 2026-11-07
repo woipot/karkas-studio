@@ -1,3 +1,4 @@
+import { wallFrameSection } from "./profiled-beam-catalog.js";
 import { calculateSourceRoof } from "./source-roof.js";
 import { calculateTiedRafters } from "./tied-rafters.js";
 import { physicalTrussBoards, checkPhysicalTrussChords } from "./physical-truss.js";
@@ -971,7 +972,7 @@ export function calculateRoofZones(
                   Math.max(toLocal(w.a).x, toLocal(w.b).x) > u0 + EPS &&
                   Math.min(toLocal(w.a).x, toLocal(w.b).x) < u1 - EPS,
               ),
-              depths = [...new Set(matches.map((w) => sec(w.section)?.h).filter(finite))];
+              depths = [...new Set(matches.map((w) => wallFrameSection(w, sec)?.h).filter(finite))];
             if (depths.length !== 1)
               throw Error(
                 "tiedRafters: нужна реальная наружная опорная стена одной толщины на каждом карнизе.",

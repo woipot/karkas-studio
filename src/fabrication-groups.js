@@ -77,6 +77,8 @@ export function partGeometry(member) {
     cutEnd: machining(member.cutEnd ?? { scheme: "butt", angle: 0 }, frame),
     notches: notches.map((n) => machining(n, frame)).sort((a, b) => json(a).localeCompare(json(b))),
   };
+  if (member.role === "beamCourse")
+    shape.material = { system: "profiledBeam", profile: member.profile, moisture: member.moisture };
   // Preserve new machining attributes automatically; IDs and world placement
   // are never used to merge a shape with different saw planes or grooves.
   for (const key of Object.keys(member).sort())
@@ -217,6 +219,7 @@ export function buildFabricationGroups(report = {}) {
       remainder: stock.remainder,
       reusable: stock.reusable,
     };
+    if (stock.materialKey) identity.materialKey = stock.materialKey;
     // An unknown source is deliberately unique, never a false reusable pattern.
     if (pieces.some((p) => !p.partGroupId)) identity.unresolvedStock = stock.id;
     const key = json(identity);

@@ -223,7 +223,9 @@ export function calculateCutting(project = {}, result = {}) {
     if (occur) id += `-${occur + 1}`;
     const dims = Number.isFinite(b) && Number.isFinite(h) ? [Math.min(b, h), Math.max(b, h)] : null;
     const section = dims ? `${Number(dims[0].toFixed(3))}x${Number(dims[1].toFixed(3))}` : "unknown";
+    const materialKey = board.role === "beamCourse" ? `profiledBeam:${board.profile}:${board.moisture}` : "";
     const piece = {
+      materialKey,
       id,
       sourceId: board.id ?? id,
       name: board.name ?? "Деталь",
@@ -251,9 +253,10 @@ export function calculateCutting(project = {}, result = {}) {
       });
       continue;
     }
-    const group = groupMap.get(section) ?? { section, b: dims[0], h: dims[1], pieces: [] };
+    const groupKey = section + "|" + materialKey;
+    const group = groupMap.get(groupKey) ?? { section, materialKey, b: dims[0], h: dims[1], pieces: [] };
     group.pieces.push(piece);
-    groupMap.set(section, group);
+    groupMap.set(groupKey, group);
   }
   const stocks = [],
     groups = [];
@@ -276,6 +279,7 @@ export function calculateCutting(project = {}, result = {}) {
       const stock = {
         id: `S${String(stocks.length + 1).padStart(4, "0")}`,
         section: group.section,
+        materialKey: group.materialKey,
         b: group.b,
         h: group.h,
         length: STOCK_LENGTH,
@@ -297,6 +301,7 @@ export function calculateCutting(project = {}, result = {}) {
       usedVolume = sum(group.pieces.map((p) => p.length)) * area;
     groups.push({
       section: group.section,
+      materialKey: group.materialKey,
       b: group.b,
       h: group.h,
       pieceCount: group.pieces.length,

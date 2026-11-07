@@ -1,3 +1,4 @@
+import { beamSection } from "./profiled-beam-catalog.js";
 // Pure mapping «Новый дом» wizard form → generateHouse() spec. No React, no DOM:
 // shared by the wizard component, the engine Web Worker and node tests.
 
@@ -18,6 +19,8 @@ export function defaultWizardForm() {
   return {
     name: "Мой каркасный дом",
     shape: "rectangle",
+    wallSystem: "frame",
+    beamSection: "145x145",
     width: 9,
     depth: 7,
     wingWidth: 4,
@@ -68,6 +71,10 @@ export function validateWizardForm(form) {
   if (typeof form.name !== "string" || !form.name.trim()) err("size", "name", "Введите название дома.");
   else if (form.name.length > 160) err("size", "name", "Название не длиннее 160 символов.");
   if (!["rectangle", "l-shape"].includes(form.shape)) err("size", "shape", "Выберите форму контура.");
+  if (form.wallSystem !== undefined && !["frame", "profiledBeam"].includes(form.wallSystem))
+    err("size", "wallSystem", "Выберите систему стен.");
+  if (form.wallSystem === "profiledBeam" && !beamSection(form.beamSection))
+    err("size", "beamSection", "Выберите сечение бруса.");
   const W = range("size", "width", form.width, 2, 60, "Ширина"),
     D = range("size", "depth", form.depth, 2, 60, "Глубина");
   if (form.shape === "l-shape" && finite(W) && finite(D)) {
@@ -134,6 +141,9 @@ export function wizardToGeneratorSpec(form) {
   const floors = toNumber(form.floors),
     spec = {
       name: form.name.trim(),
+      ...(form.wallSystem === "profiledBeam"
+        ? { wallSystem: form.wallSystem, beamSection: form.beamSection }
+        : {}),
       template: form.shape,
       width: round(toNumber(form.width)),
       depth: round(toNumber(form.depth)),

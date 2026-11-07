@@ -1,3 +1,4 @@
+import { beamSection } from "./profiled-beam-catalog.js";
 import { defaultDesignerProject, parseSection, validateDesignerProject } from "./designer-engine.js";
 import { normalizeDesignerState } from "./designer-state.js";
 import { autoRoofZones } from "./roof-zones.js";
@@ -397,8 +398,12 @@ function prepare(spec) {
     for (const k of ["minWidth", "minDepth"])
       if (r[k] !== undefined) number(r[k], 0.2, 100, `rooms.${i}.${k}`);
   });
+  if (spec.wallSystem !== undefined && !["frame", "profiledBeam"].includes(spec.wallSystem))
+    reject("wallSystem", "Система стен: frame или profiledBeam.");
+  if (spec.wallSystem === "profiledBeam" && !beamSection(spec.beamSection))
+    reject("beamSection", "Для брусового дома задайте beamSection из каталога.");
   const wall = parseSection(sections.walls),
-    D = wall.h / 1000,
+    D = spec.wallSystem === "profiledBeam" ? beamSection(spec.beamSection).b / 1000 : wall.h / 1000,
     B = wall.b / 1000;
   return {
     spec,
@@ -1115,6 +1120,9 @@ function build(ctx, strategy) {
         a: { ...levelPolygons[i][j] },
         b: { ...levelPolygons[i][(j + 1) % levelPolygons[i].length] },
         kind: "exterior",
+        ...(spec.wallSystem === "profiledBeam"
+          ? { system: "profiledBeam", beam: { section: spec.beamSection } }
+          : {}),
         section: sections.walls,
         studStep: ctx.studStep,
       });

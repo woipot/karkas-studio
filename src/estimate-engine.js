@@ -31,12 +31,21 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
     bom = result.bom ?? {},
     timber = result.timber ?? {};
   const groups = new Map();
-  function addTimber(b, h, volume, count = 0) {
+  function addTimber(b, h, volume, count = 0, materialKey = "") {
     if (!(numeric(volume) > 0)) return;
     const dims =
       Number.isFinite(b) && Number.isFinite(h) && b > 0 && h > 0 ? [Math.min(b, h), Math.max(b, h)] : null;
-    const id = dims ? `${Number(dims[0].toFixed(3))}x${Number(dims[1].toFixed(3))}` : "other";
-    const group = groups.get(id) ?? { id, b: dims?.[0], h: dims?.[1], netVolume: 0, count: 0 };
+    const section = dims ? `${Number(dims[0].toFixed(3))}x${Number(dims[1].toFixed(3))}` : "other";
+    const id = section + (materialKey ? "|" + materialKey : "");
+    const group = groups.get(id) ?? {
+      id,
+      section,
+      materialKey,
+      b: dims?.[0],
+      h: dims?.[1],
+      netVolume: 0,
+      count: 0,
+    };
     group.netVolume += volume;
     group.count += numeric(count);
     groups.set(id, group);
@@ -53,7 +62,13 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
         h = board.h ?? parsed?.h;
       const count = Array.isArray(timber.instances) ? 1 : numeric(board.count, 1);
       const volume = numeric(board.volume, ((numeric(b) * numeric(h)) / 1e6) * numeric(board.length) * count);
-      addTimber(b, h, volume, count);
+      addTimber(
+        b,
+        h,
+        volume,
+        count,
+        board.role === "beamCourse" ? `profiledBeam:${board.profile}:${board.moisture}` : "",
+      );
     }
   } else {
     // Compatibility for older takeoffs without individual pieces. No new boards
@@ -77,12 +92,19 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
     (a, b) => (a.b ?? Infinity) - (b.b ?? Infinity) || (a.h ?? 0) - (b.h ?? 0),
   );
   for (const group of timberGroups) {
-    const unitPrice = prices.sectionPrices[group.id] ?? prices.timberM3;
-    const layout = cutting?.groups.find((g) => g.section === group.id);
+    const unitPrice =
+      prices.sectionPrices[group.id] ??
+      (group.materialKey ? prices.profiledBeamM3 : (prices.sectionPrices[group.section] ?? prices.timberM3));
+    const layout = cutting?.groups.find(
+      (g) => g.section === group.section && (g.materialKey ?? "") === group.materialKey,
+    );
     const modelVolume = group.netVolume;
     if (cutting) group.netVolume = layout?.usedVolume ?? 0;
     const quantity = cutting ? (layout?.purchasedVolume ?? 0) : group.netVolume * factor;
-    const unplaced = cutting?.overlength.filter((p) => p.section === group.id).length ?? 0;
+    const unplaced =
+      cutting?.overlength.filter(
+        (p) => p.section === group.section && (p.materialKey ?? "") === group.materialKey,
+      ).length ?? 0;
     Object.assign(group, {
       procurementVolume: quantity,
       modelVolume,
@@ -93,7 +115,9 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
     });
     rows.push({
       id: `timber-${group.id}`,
-      name: group.b ? `Пиломатериал ${fmt(group.b)} × ${fmt(group.h)} мм` : "Пиломатериал · прочие сечения",
+      name: group.b
+        ? `${group.materialKey ? "Профилированный брус" : "Пиломатериал"} ${fmt(group.b)} × ${fmt(group.h)} мм`
+        : "Пиломатериал · прочие сечения",
       category: "timber",
       unit: "м³",
       netQuantity: group.netVolume,
@@ -102,7 +126,7 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
       total: group.total,
       wasteQuantity: quantity - group.netVolume,
       wasteCost: money((quantity - group.netVolume) * unitPrice),
-      editableKey: `sectionPrices.${group.id}`,
+      editableKey: group.materialKey ? "profiledBeamM3" : `sectionPrices.${group.id}`,
       sectionId: group.id,
       note: cutting
         ? `${layout?.boards ?? 0} досок × 6 м по карте раскроя; заготовки ${fmt(group.netVolume, 3)} м³.${unplaced ? ` Не размещено деталей: ${unplaced}; их стоимость отсутствует.` : ""} Процентный запас поверх раскроя не добавляется.`
@@ -129,6 +153,26 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
       note,
     });
   }
+  if (result.profiledBeam?.walls.length) {
+    add(
+      "beam-jute",
+      "Межвенцовый джут",
+      "м.п.",
+      result.profiledBeam.juteLength,
+      "juteM",
+      false,
+      "По фактическим венцам, включая окладной. Ширина по стене; расценку уточнить.",
+    );
+    add(
+      "beam-dowels",
+      "Нагели брусовых стен",
+      "шт.",
+      result.profiledBeam.dowelCount,
+      "dowelEach",
+      false,
+      "По раскладке межвенцовых швов и стыков. Диаметр и длину подтвердить проектом узлов.",
+    );
+  }
   const resultWalls = Array.isArray(result.walls) ? result.walls : [];
   const derivedWallArea = sum(
     resultWalls
@@ -141,12 +185,20 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
         ),
       ),
   );
-  const netWall = numeric(geo.netWallArea, derivedWallArea);
+  const beamWallArea = sum(
+    resultWalls
+      .filter((w) => w.system === "profiledBeam" && w.kind === "exterior")
+      .map((w) => Math.max(0, w.grossArea - w.openingArea)),
+  );
+  const netWall = Math.max(0, numeric(geo.netWallArea, derivedWallArea) - beamWallArea);
   const floorArea = numeric(
     geo.totalPlatformArea,
     numeric(geo.totalFloorArea, numeric(geo.area) * numeric(project.floors, 1)),
   );
-  const sheathing = numeric(bom.sheathingArea, netWall + floorArea);
+  const sheathing = Math.max(
+    0,
+    numeric(bom.sheathingArea, netWall + floorArea) - (bom.sheathingArea === undefined ? 0 : beamWallArea),
+  );
   const roofArea = numeric(geo.roofArea, numeric(bom.roofArea));
   const openings = Array.isArray(project.openings) ? project.openings : [];
   const windowArea = sum(
@@ -324,7 +376,9 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
     netTimber,
     "fastenersM3",
     false,
-    "Условная расценка на м³ установленной древесины; состав и расчёт соединений отсутствуют.",
+    result.profiledBeam?.walls.length
+      ? "Условная расценка на крепёж, без отдельно посчитанных деревянных нагелей. Состав металлического и скользящего крепежа не подтверждён."
+      : "Условная расценка на м³ установленной древесины; состав и расчёт соединений отсутствуют.",
   );
   // Explicit envelope allowances, derived from the same geometry. These do
   // not change structural masses: layer loads remain explicit load inputs.
@@ -392,6 +446,11 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
     wasteTotal: money(sum(rows.map((r) => r.wasteCost))),
     assumptions: [
       "Все цены — редактируемый пример, не рыночная котировка и не коммерческое предложение.",
+      ...(result.profiledBeam?.walls.length
+        ? [
+            "Брус: профилированные венцы закупаются отдельно от обычных досок по карте 6 м; 42000/м³, джут 25/м.п., нагель 30/шт. — иллюстративные расценки по умолчанию, без рыночного подтверждения. Крепёж — существующая объёмная расценка, специальный крепёж/скользящие узлы отдельно не оценены.",
+          ]
+        : []),
       cutting
         ? "Древесина закупается по полной карте шестиметровых досок. Остатки и пропилы уже входят в её цену; процентный запас повторно не добавляется."
         : `Запас ${fmt(prices.wastePercent)}% включён в древесину; для старой ведомости без отдельных деталей карта раскроя недоступна.`,

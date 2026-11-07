@@ -1,3 +1,4 @@
+import { wallFrameSection } from "./profiled-beam-catalog.js";
 /** Preliminary member checks for Designer. No hidden stiffness credit for splices. */
 import { solveFloorWallBeam } from "./floor-wall-loads.js";
 import { memberLoadProject } from "./load-profile.js";
@@ -522,7 +523,9 @@ export function checkDesignerMembers(p, r) {
       (w) => w.mode === "continuous" && w.studs?.length,
     ),
     measuredIds = new Set(measuredWalls.map((w) => w.wallId));
-  const bearingWalls = (p.walls ?? []).filter((w) => w.kind !== "partition" && !measuredIds.has(w.id)),
+  const bearingWalls = (p.walls ?? []).filter(
+      (w) => w.kind !== "partition" && w.system !== "profiledBeam" && !measuredIds.has(w.id),
+    ),
     bounds = r?.geometry?.bounds ?? {};
   const supportLength = Math.min(bounds.width ?? 0, bounds.height ?? 0);
   let stud = null;
@@ -738,7 +741,7 @@ export function checkDesignerMembers(p, r) {
   const plateDepth = Math.min(
     ...(p.walls ?? [])
       .filter((w) => w.kind !== "partition")
-      .map((w) => section(w.section)?.h)
+      .map((w) => wallFrameSection(w, section)?.h)
       .filter((h) => finite(h) && h > 0),
   );
   const heels = finite(plateDepth)

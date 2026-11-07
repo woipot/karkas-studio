@@ -42,7 +42,12 @@ export function deriveWallProfiles(project, base, roof) {
     mode = project.roof?.wallFraming ?? "auto";
   for (const level of base.geometry?.levels ?? [])
     for (const wall of project.walls ?? []) {
-      if ((wall.level !== undefined && wall.level !== level.index) || wall.kind === "partition") continue;
+      if (
+        (wall.level !== undefined && wall.level !== level.index) ||
+        wall.kind === "partition" ||
+        wall.system === "profiledBeam"
+      )
+        continue;
       const length = dist(wall.a, wall.b),
         u = { x: (wall.b.x - wall.a.x) / length, y: (wall.b.y - wall.a.y) / length },
         ranges = [];

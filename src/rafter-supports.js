@@ -279,6 +279,7 @@ export function buildRafterSupports(project, base, zone, rawRafters) {
       }
       if (
         !covering &&
+        wall.system !== "profiledBeam" &&
         Array.isArray(base.wallProfiles) &&
         (project.roof?.wallFraming ?? "auto") !== "stacked"
       ) {

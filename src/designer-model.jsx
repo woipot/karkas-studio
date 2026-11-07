@@ -1,3 +1,13 @@
+import { fitExteriorCamera } from "./designer-camera.js";
+import { sheetSeamVertices } from "./sheet-render-geometry.js";
+import {
+  acquireMaterialTextures,
+  materialFamily,
+  sheetMetricUVs,
+  insulationMetricUVs,
+  textureMetres,
+  plywoodPlyCount,
+} from "./material-textures.js";
 import { humanLabel } from "./materials-data.js";
 import { calculateInsulation } from "./insulation.js";
 import { sheetBoundarySegments } from "./sheet-layout.js";
@@ -17,24 +27,38 @@ export default function DesignerModel({
   viewPreset = "structure",
 }) {
   const host = useRef(),
-    cameraMemory = useRef(null);
+    cameraMemory = useRef(null),
+    textureLease = useRef(null);
   const [error, setError] = useState(false);
   const insulation = useMemo(
     () => (layers.insulation ? calculateInsulation(p, r, { includeGeometry: true }) : null),
     [p, r, layers.insulation],
   );
   useEffect(() => {
+    const lease = acquireMaterialTextures();
+    textureLease.current = lease;
+    return () => {
+      lease.release();
+      textureLease.current = null;
+    };
+  }, []);
+  useEffect(() => {
     const el = host.current;
     if (!el) return;
     let renderer, controls, raf, resize;
+    const textureCache = textureLease.current.cache;
     try {
       const scene = new THREE.Scene();
       scene.background = new THREE.Color("#edf1e7");
       const bounds = r.geometry.compositeBounds ?? r.geometry.bounds,
         bx = (bounds.minX + bounds.maxX) / 2 || 0,
         bz = (bounds.minY + bounds.maxY) / 2 || 0;
-      const camera = new THREE.PerspectiveCamera(35, el.clientWidth / el.clientHeight, 0.05, 300);
+      const viewportWidth = Math.max(1, el.clientWidth),
+        viewportHeight = Math.max(1, el.clientHeight);
+      const camera = new THREE.PerspectiveCamera(35, viewportWidth / viewportHeight, 0.05, 300);
       renderer = new THREE.WebGLRenderer({ antialias: true });
+      textureCache.setAnisotropy(renderer.capabilities.getMaxAnisotropy());
+      textureCache.setSheetTransparency(layers.sheetTransparent);
       renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
       renderer.setSize(el.clientWidth, el.clientHeight);
       renderer.shadowMap.enabled = true;
@@ -242,14 +266,7 @@ export default function DesignerModel({
           );
       }
       if (insulation) {
-        const material = new THREE.MeshStandardMaterial({
-          color: "#dbb963",
-          transparent: true,
-          opacity: 0.32,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-          roughness: 1,
-        });
+        const material = textureCache.getMaterial("wool");
         for (const assembly of insulation.assemblies) {
           if (
             layers[
@@ -261,21 +278,33 @@ export default function DesignerModel({
             ] === false
           )
             continue;
-          const vertices = [];
+          const vertices = [],
+            uvs = [],
+            [tileU, tileV] = textureMetres("wool");
           for (const cell of assembly.netCells ?? [])
-            for (const face of cell)
+            for (const face of cell) {
+              const faceUVs = insulationMetricUVs(face);
               for (let i = 2; i < face.length; i++)
-                for (const q of [face[0], face[i - 1], face[i]]) vertices.push(q[0] - bx, q[1], q[2] - bz);
+                for (const j of [0, i - 1, i]) {
+                  const q = face[j];
+                  vertices.push(q[0] - bx, q[1], q[2] - bz);
+                  uvs.push(faceUVs[j][0] / tileU, faceUVs[j][1] / tileV);
+                }
+            }
           const geometry = new THREE.BufferGeometry();
           geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+          geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
           geometry.computeVertexNormals();
           const mesh = new THREE.Mesh(geometry, material);
           scene.add(mesh);
         }
       }
       if (layers.sheathing && (r.sheetModel?.panels || r.bracingModel?.panels)) {
-        let index = 0;
-        const groupColors = new Map();
+        const cuttingPieces = new Map(
+          (r.sheetModel?.cutting?.stocks ?? [])
+            .flatMap((stock) => stock.pieces)
+            .flatMap((piece) => (piece.panelIds ?? []).map((id) => [id, piece])),
+        );
         const visiblePanels = (r.sheetModel?.panels ?? r.bracingModel.panels).filter((panel) => {
           const kind = panel.surfaceKind ?? "walls";
           return layers[kind === "floors" ? "floor" : kind] !== false;
@@ -283,68 +312,96 @@ export default function DesignerModel({
         for (const panel of visiblePanels) {
           const polygon = panel.polygon ?? panel.polygonXYZ ?? [];
           if (polygon.length < 3) continue;
-          const verts = [];
+          for (const q of polygon) points.push(new THREE.Vector3(q[0] - bx, q[1], q[2] - bz));
+          const verts = [],
+            uvs = [];
+          const faceUVs = sheetMetricUVs(panel, cuttingPieces.get(panel.id));
+          const family = materialFamily(panel.product ?? panel.material);
+          const plywood = family.startsWith("plywood");
           const a = new THREE.Vector3(...polygon[0]);
           const normal = new THREE.Vector3(...polygon[1])
             .sub(a)
             .cross(new THREE.Vector3(...polygon[2]).sub(a))
             .normalize();
           const half = panel.thickness / 2000;
-          const put = (q, sign) =>
+          const put = (index, sign, edgeUV) => {
+            const q = polygon[index];
             verts.push(
               q[0] - bx + normal.x * half * sign,
               q[1] + normal.y * half * sign,
               q[2] - bz + normal.z * half * sign,
             );
+            uvs.push(...(edgeUV ?? faceUVs[index]));
+          };
           for (let j = 2; j < polygon.length; j++) {
-            for (const q of [polygon[0], polygon[j - 1], polygon[j]]) put(q, 1);
-            for (const q of [polygon[0], polygon[j], polygon[j - 1]]) put(q, -1);
+            for (const i of [0, j - 1, j]) put(i, 1);
+            for (const i of [0, j, j - 1]) put(i, -1);
           }
+          const faceCount = verts.length / 3;
+          const plyRepeat = plywood ? plywoodPlyCount(panel.thickness) / 2 : 0;
+          let perimeter = 0;
           for (let j = 0; j < polygon.length; j++) {
-            const q = polygon[j],
-              z = polygon[(j + 1) % polygon.length];
-            put(q, 1);
-            put(q, -1);
-            put(z, -1);
-            put(q, 1);
-            put(z, -1);
-            put(z, 1);
+            const k = (j + 1) % polygon.length;
+            const length = new THREE.Vector3(...polygon[j]).distanceTo(new THREE.Vector3(...polygon[k]));
+            const edgeUV = (i, sign) =>
+              plywood ? [i === j ? perimeter : perimeter + length, sign > 0 ? plyRepeat : 0] : undefined;
+            for (const [i, sign] of [
+              [j, 1],
+              [j, -1],
+              [k, -1],
+              [j, 1],
+              [k, -1],
+              [k, 1],
+            ])
+              put(i, sign, edgeUV(i, sign));
+            perimeter += length;
           }
           const geometry = new THREE.BufferGeometry();
           geometry.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+          geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+          geometry.addGroup(0, plywood ? faceCount : verts.length / 3, 0);
+          if (plywood) geometry.addGroup(faceCount, verts.length / 3 - faceCount, 1);
           geometry.computeVertexNormals();
-          const sheetId = panel.stockSheetId ?? panel.id;
-          if (!groupColors.has(sheetId)) groupColors.set(sheetId, index++);
-          const material = new THREE.MeshStandardMaterial({
-            color:
-              selected?.type === "sheet" && selected.id === panel.id
-                ? "#e39a5f"
-                : groupColors.get(sheetId) % 2
-                  ? "#b8ab89"
-                  : "#c7b995",
-            transparent: true,
-            opacity: 0.6,
-            roughness: 1,
-            side: THREE.DoubleSide,
-            depthWrite: false,
-          });
+          const active = selected?.type === "sheet" && selected.id === panel.id;
+          const material = [textureCache.getMaterial(family, active)];
+          if (plywood) material.push(textureCache.getMaterial("plywood-edge", active));
           const mesh = new THREE.Mesh(geometry, material);
           mesh.userData = {
             type: "sheet",
             id: panel.id,
             label: `${humanLabel(panel, { project: p, model: r.sheetModel })} · ${humanLabel(panel, { type: "product" })} · ${panel.thickness} мм`,
           };
+          mesh.castShadow = !layers.sheetTransparent;
+          mesh.receiveShadow = true;
           clickable.push(mesh);
           scene.add(mesh);
         }
-        const boundaryPoints = sheetBoundarySegments(visiblePanels)
-          .flatMap((edge) => [edge.a, edge.b])
-          .map((q) => new THREE.Vector3(q[0] - bx, q[1], q[2] - bz));
-        const outlines = new THREE.LineSegments(
-          new THREE.BufferGeometry().setFromPoints(boundaryPoints),
-          new THREE.LineBasicMaterial({ color: "#65573e", transparent: true, opacity: 0.65 }),
+        const seam = sheetSeamVertices(visiblePanels, sheetBoundarySegments(visiblePanels));
+        const seamGeometry = new THREE.BufferGeometry();
+        seamGeometry.setAttribute("position", new THREE.Float32BufferAttribute(seam.positions, 3));
+        // Seam geometry is in world coordinates; panels are drawn shifted by (−bx, 0, −bz).
+        const seamBands = new THREE.Mesh(
+          seamGeometry,
+          new THREE.MeshBasicMaterial({
+            color: "#46301d",
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1,
+          }),
         );
-        scene.add(outlines);
+        const seamLines = new THREE.LineSegments(
+          new THREE.BufferGeometry().setAttribute(
+            "position",
+            new THREE.Float32BufferAttribute(seam.lines, 3),
+          ),
+          new THREE.LineBasicMaterial({ color: "#46301d", depthWrite: false }),
+        );
+        for (const object of [seamBands, seamLines]) {
+          object.position.set(-bx, 0, -bz);
+          scene.add(object);
+        }
       }
       if (layers.piles !== false) {
         const mat = new THREE.MeshStandardMaterial({ color: "#607255", roughness: 0.8 });
@@ -524,6 +581,14 @@ export default function DesignerModel({
         focusPolygon = focus?.polygon ?? [],
         lowLevel = r.geometry.levels?.find((l) => l.index === (focus?.level ?? 2) - 1),
         highLevel = r.geometry.levels?.find((l) => l.index === (focus?.level ?? 2));
+      const inspectionView =
+        frameInspection || floorInspection || headInspection || edgeInspection || gableInspection;
+      const exteriorPoints = points.length
+        ? points
+        : [
+            new THREE.Vector3(bounds.minX - bx, 0, bounds.minY - bz),
+            new THREE.Vector3(bounds.maxX - bx, highest, bounds.maxY - bz),
+          ];
       const target =
           (frameInspection || floorInspection || headInspection || edgeInspection || gableInspection) &&
           points.length
@@ -556,7 +621,13 @@ export default function DesignerModel({
                     ? [0.55, 1.5, 0.9]
                     : cutaway
                       ? [-0.8, 0.65, -1.2]
-                      : [1, 0.8, 1.05]),
+                      : [
+                          1,
+                          layers.roof === false && p.sheathing?.floors?.product?.startsWith("plywood")
+                            ? 1.3
+                            : 0.8,
+                          1.05,
+                        ]),
         ).normalize(),
         right = new THREE.Vector3(0, 1, 0).cross(direction).normalize(),
         up = direction.clone().cross(right),
@@ -572,13 +643,24 @@ export default function DesignerModel({
         );
       }
       camera.position.copy(target).addScaledVector(direction, d * 1.1);
+      if (!inspectionView && !cutaway) {
+        const fit = fitExteriorCamera(exteriorPoints, camera.aspect, direction, camera.fov);
+        target.copy(fit.target);
+        camera.position.copy(fit.position);
+      }
       controls = new OrbitControls(camera, renderer.domElement);
       controls.target.copy(target);
       controls.enableDamping = true;
       controls.minDistance = 3;
       controls.maxDistance = 130;
       controls.maxPolarAngle = Math.PI * 0.49;
-      if (cameraMemory.current?.fitKey === fitKey && cameraMemory.current?.viewPreset === viewPreset) {
+      if (
+        cameraMemory.current?.project === p &&
+        cameraMemory.current?.fitKey === fitKey &&
+        cameraMemory.current?.viewPreset === viewPreset &&
+        cameraMemory.current?.width === viewportWidth &&
+        cameraMemory.current?.height === viewportHeight
+      ) {
         camera.position.fromArray(cameraMemory.current.position);
         controls.target.fromArray(cameraMemory.current.target);
       }
@@ -611,10 +693,24 @@ export default function DesignerModel({
         const hit = ray.intersectObjects(clickable, false)[0];
         if (hit) onSelect(hit.object.userData);
       });
+      let lastAspect = camera.aspect;
       resize = new ResizeObserver(() => {
         if (el.clientWidth && el.clientHeight) {
           camera.aspect = el.clientWidth / el.clientHeight;
           camera.updateProjectionMatrix();
+          // Fit after layout settles too: an early zero/narrow host must not leave
+          // the initial camera cropped or inside the house once the canvas resizes.
+          if (!inspectionView && !cutaway && Math.abs(lastAspect - camera.aspect) > 0.001) {
+            const fit = fitExteriorCamera(
+              exteriorPoints,
+              camera.aspect,
+              camera.position.clone().sub(controls.target),
+              camera.fov,
+            );
+            camera.position.copy(fit.position);
+            controls.target.copy(fit.target);
+          }
+          lastAspect = camera.aspect;
           renderer.setSize(el.clientWidth, el.clientHeight);
         }
       });
@@ -627,6 +723,9 @@ export default function DesignerModel({
       frame();
       return () => {
         cameraMemory.current = {
+          project: p,
+          width: el.clientWidth,
+          height: el.clientHeight,
           fitKey,
           viewPreset,
           position: camera.position.toArray(),
@@ -637,7 +736,9 @@ export default function DesignerModel({
         controls.dispose();
         scene.traverse((o) => {
           o.geometry?.dispose();
-          if (o.material) for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.dispose();
+          if (o.material)
+            for (const m of Array.isArray(o.material) ? o.material : [o.material])
+              if (!m.userData.proceduralTexture) m.dispose();
         });
         renderer.dispose();
         renderer.domElement.remove();

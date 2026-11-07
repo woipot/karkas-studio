@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useId, useState } from "react";
+import { acquireMaterialTextures, materialFamily, textureMetres } from "./material-textures.js";
 import {
   sheetMapData,
   sheetFormat,
@@ -10,10 +11,12 @@ import {
 const fmt = (n, d = 2) =>
   Number.isFinite(n) ? n.toLocaleString("ru-RU", { maximumFractionDigits: d }) : "—";
 
-export function SheetStock({ group, report, focus }) {
+export function SheetStock({ group, report, focus, textureImages = {} }) {
+  const textureId = `surface-${useId().replaceAll(":", "")}`;
   const model = report.result.sheetModel,
     context = { project: report.project, model };
   const stock = group.stocks.find((s) => s.id === focus) ?? group.stocks[0];
+  const [tileWidth, tileHeight] = textureMetres(materialFamily(stock.product));
   const hatch = `offcut-${group.id}`,
     waste = `waste-${group.id}`;
   const cutoutArea = stock.pieces.reduce((sum, p) => sum + sheetPieceGeometry(p).cutoutArea, 0);
@@ -29,14 +32,30 @@ export function SheetStock({ group, report, focus }) {
         </h3>
         <span>{group.full ? "Листы используются целиком" : `Деталей на листе: ${stock.pieces.length}`}</span>
       </div>
-      {!group.full && (
+      {stock.pieces.length > 0 && (
         <>
           <svg
             viewBox={`0 0 ${stock.width} ${stock.height}`}
             role="img"
             aria-label={`${group.label}: ${humanLabel(stock, { ...context, type: "stock" })}`}
+            colorInterpolation="sRGB"
           >
             <defs>
+              <pattern id={textureId} patternUnits="userSpaceOnUse" width={tileWidth} height={tileHeight}>
+                <rect
+                  width={tileWidth}
+                  height={tileHeight}
+                  fill={materialFamily(stock.product) === "osb3" ? "#c9a46a" : "#e9dcc0"}
+                />
+                {textureImages[materialFamily(stock.product)] && (
+                  <image
+                    href={textureImages[materialFamily(stock.product)]}
+                    width={tileWidth}
+                    height={tileHeight}
+                    preserveAspectRatio="none"
+                  />
+                )}
+              </pattern>
               <pattern
                 id={hatch}
                 patternUnits="userSpaceOnUse"
@@ -78,7 +97,7 @@ export function SheetStock({ group, report, focus }) {
                     <polygon
                       key={j}
                       points={poly.map((q) => `${q.x},${q.y}`).join(" ")}
-                      fill={i % 2 ? "#dde7cc" : "#c5d5ac"}
+                      fill={`url(#${textureId})`}
                     />
                   ))}
                   {geometry.edges.map((edge, j) => (
@@ -98,21 +117,32 @@ export function SheetStock({ group, report, focus }) {
                     {p.id}
                   </title>
                   {p.width > 0.25 && p.height > 0.12 && (
-                    <text
-                      x={p.x + p.width / 2}
-                      y={p.y + p.height / 2}
-                      textAnchor="middle"
-                      fontSize={Math.min(0.032, p.width / Math.max(16, label.length * 0.65))}
-                      fill="#465c39"
-                    >
-                      <tspan x={p.x + p.width / 2}>
-                        {i + 1}. {label}
-                        {p.rotated ? " ↻" : ""}
-                      </tspan>
-                      <tspan x={p.x + p.width / 2} dy="0.045">
-                        {fmt(p.sourceWidth * 1000, 0)}×{fmt(p.sourceHeight * 1000, 0)}
-                      </tspan>
-                    </text>
+                    <g>
+                      <rect
+                        x={p.x + p.width * 0.05}
+                        y={p.y + p.height / 2 - 0.035}
+                        width={p.width * 0.9}
+                        height="0.10"
+                        rx="0.012"
+                        fill="#fffdf2"
+                        fillOpacity="0.85"
+                      />
+                      <text
+                        x={p.x + p.width / 2}
+                        y={p.y + p.height / 2}
+                        textAnchor="middle"
+                        fontSize={Math.min(0.032, p.width / Math.max(16, label.length * 0.65))}
+                        fill="#465c39"
+                      >
+                        <tspan x={p.x + p.width / 2}>
+                          {i + 1}. {label}
+                          {p.rotated ? " ↻" : ""}
+                        </tspan>
+                        <tspan x={p.x + p.width / 2} dy="0.045">
+                          {fmt(p.sourceWidth * 1000, 0)}×{fmt(p.sourceHeight * 1000, 0)}
+                        </tspan>
+                      </text>
+                    </g>
                   )}
                 </g>
               );
@@ -200,14 +230,29 @@ export function SheetMaterials({ report }) {
   const model = report.result.sheetModel ?? {},
     data = sheetMapData(model),
     groups = groupSheetStocks(model);
+  const [textureImages, setTextureImages] = useState({});
+  useEffect(() => {
+    const lease = acquireMaterialTextures();
+    const families = [
+      ...new Set((report.result.sheetModel?.cutting?.stocks ?? []).map((s) => materialFamily(s.product))),
+    ];
+    setTextureImages(
+      Object.fromEntries(families.map((family) => [family, lease.cache.getPatternImage(family)])),
+    );
+    return () => lease.release();
+  }, [report]);
   const focus = new URLSearchParams(window.location.search).get("sheet");
   const focusIndex = groups.findIndex((g) => g.stocks.some((s) => s.id === focus));
   const [page, setPage] = useState(() =>
     focusIndex >= 0 ? Math.floor(focusIndex / SHEETS_PER_PAGE) + 1 : 1,
   );
   useEffect(() => {
-    if (!focus) return;
-    document.getElementById(`sheet-${focus}`)?.scrollIntoView({ block: "start" });
+    const target = focus
+      ? `sheet-${focus}`
+      : window.location.hash === "#sheet-cutting"
+        ? "sheet-cutting"
+        : null;
+    if (target) document.getElementById(target)?.scrollIntoView({ block: "start" });
   }, [focus]);
   const pages = Math.max(1, Math.ceil(groups.length / SHEETS_PER_PAGE)),
     current = Math.min(page, pages);
@@ -320,11 +365,18 @@ export function SheetMaterials({ report }) {
         </p>
       </div>
       <p className="engine-table-note">
-        Зелёная штриховка — пригодные остатки, коричневая — отход, сплошные коричневые линии — пропил, ↻ —
-        поворот. Внутренние линии триангуляции скрыты. Размеры в мм. Эвристика не доказывает оптимум.
+        Зелёная штриховка — пригодные остатки, коричневая — отход, сплошные коричневые линии — пропил,
+        текстура — установленные детали, ↻ — поворот. Внутренние линии триангуляции скрыты. Размеры в мм.
+        Эвристика не доказывает оптимум.
       </p>
       {groups.slice((current - 1) * SHEETS_PER_PAGE, current * SHEETS_PER_PAGE).map((group) => (
-        <SheetStock key={group.id} group={group} report={report} focus={focus} />
+        <SheetStock
+          key={group.id}
+          group={group}
+          report={report}
+          focus={focus}
+          textureImages={textureImages}
+        />
       ))}
       {!!data.stocks.length && (
         <div className="engine-pager">

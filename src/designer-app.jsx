@@ -255,6 +255,7 @@ export default function DesignerApp() {
       surfaces: true,
       drainage: true,
       sheathing: true,
+      sheetTransparent: false,
     }),
     [toast, setToast] = useState(""),
     [modal, setModal] = useState(null),
@@ -1310,6 +1311,13 @@ export default function DesignerApp() {
                         onClick={() => setLayers((v) => ({ ...v, sheathing: !v.sheathing }))}
                       >
                         Обшивка
+                      </button>
+                      <button
+                        className={layers.sheetTransparent ? "on" : ""}
+                        aria-pressed={layers.sheetTransparent}
+                        onClick={() => setLayers((v) => ({ ...v, sheetTransparent: !v.sheetTransparent }))}
+                      >
+                        Листы: прозрачно
                       </button>
                       <button
                         className={layers.roof ? "on" : ""}

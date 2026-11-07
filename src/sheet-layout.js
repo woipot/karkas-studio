@@ -423,6 +423,22 @@ export function buildSheetBracing(project, context) {
       alternatives: variants.map((v) => v.alternative),
     });
   }
+  // Let-in braces + sheet cladding is a common combination: the brace sits flush in notches cut
+  // into the studs and the sheet goes over it. Keep the braces (geometry, notches, checks) instead of
+  // silently replacing the chosen bracing scheme by the sheets.
+  if (project.bracing?.method === "letIn") {
+    const braced = buildWallBracing(project, { ...context, skipSheetCutting: true });
+    out.letInBraces = true;
+    out.braces = braced.braces ?? [];
+    out.notches = braced.notches ?? [];
+    out.instances.push(...braced.instances.filter((b) => b.role === "letInBrace"));
+    out.checks.push(...braced.checks.filter((c) => /let-in/.test(c.id)));
+    out.warnings.push(...(braced.warnings ?? []).filter((w) => /укосин|раскос/i.test(w)));
+    out.assumptions = [
+      ...(out.assumptions ?? []),
+      "Схема жёсткости — врезные укосины; листы обшивки выполняют роль ветрозащиты и дополнительной жёсткости и ложатся поверх укосин, утопленных в пропилы стоек.",
+    ];
+  }
   out.quantities = {
     ...out.quantities,
     sheetArea: sum(out.panels.map((p) => p.area)),

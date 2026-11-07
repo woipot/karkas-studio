@@ -450,3 +450,19 @@ test("real MCP generates, reports and atomically patches sheet fields without a 
   const after = await call("report", { project_id, topic: "sheets" });
   near(sum(after.data.surfaces.filter((s) => s.kind === "floors").map((s) => s.mass)), 119.25855);
 });
+
+test("let-in braces survive wall sheathing: braces, stud notches and sheets coexist", async () => {
+  const { generateHouse } = await import("./house-generator.js");
+  const { evaluateHouse } = await import("./house-engine.js");
+  const { project, planning } = generateHouse({ width: 10, depth: 6, bracing: { method: "letIn" } });
+  project.sheathing = { walls: { product: "osb3", thickness: 12, side: "exterior" } };
+  const r = evaluateHouse(project, planning).result;
+  assert.ok(r.timber.instances.filter((b) => b.role === "letInBrace").length > 0, "braces kept");
+  assert.ok(
+    r.timber.instances.some((b) => (b.notches ?? []).length),
+    "studs notched for braces",
+  );
+  assert.ok(r.sheetModel.panels.length > 0, "sheets present");
+  const ids = r.checks.map((c) => c.id);
+  assert.equal(ids.length, new Set(ids).size, "no duplicate check ids");
+});

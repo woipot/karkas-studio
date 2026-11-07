@@ -188,6 +188,13 @@ p.annexes = [
     loads: { floorDead: 0.25, live: 2.0, roofDead: 0.3, snow: 1.5, wind: 0.3, snowMu: 1, deckSnowFactor: 1 },
   },
 ];
+// Sheets: OSB-3 12 mm on the outside of the walls (wind barrier / stiffness in addition to the let-in braces),
+// moisture-resistant birch plywood ФСФ 21 mm floor deck on joists @600 mm. No continuous roof deck
+// (needed only under soft roofing).
+p.sheathing = {
+  walls: { product: "osb3", thickness: 12, side: "exterior" },
+  floors: { product: "plywood-fsf", thickness: 21 },
+};
 // Let-in braces give no weak-axis restraint: one row of horizontal blocking (ригели) at mid-height.
 p.material = { ...p.material, studRestraint: 1.35 };
 p.site = {

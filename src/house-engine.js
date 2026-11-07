@@ -1,4 +1,5 @@
 import { resolveDressedProject } from "./lumber-standards.js";
+import { calculateInsulation, insulationProducts } from "./insulation.js";
 import { analyzeSnowCases } from "./snow-envelope.js";
 import { analyzeEnvelope } from "./hygrothermal.js";
 import { compareFoundationOptions } from "./foundation-options.js";
@@ -285,6 +286,9 @@ export function evaluateHouse(project, planning = {}) {
     result.loads.complete = false;
     result.loads.missingLoads.push(...sourceMissing.map((s) => "Не включено в массу импорта: " + s));
   }
+  result.insulation = calculateInsulation(p, result);
+  result.checks.push(...result.insulation.checks);
+  result.assumptions.push(...result.insulation.assumptions);
   const cutting = calculateCutting(p, result),
     estimate = calculateEstimate(p, result, cutting);
   if (sourceMissing.length) {
@@ -319,6 +323,7 @@ export function evaluateHouse(project, planning = {}) {
     currency: estimate.currency,
     status:
       !result.geometry.areaComplete ||
+      !result.insulation.complete ||
       result.geometry.platformAreaComplete === false ||
       !cutting.summary.complete ||
       sourceMissing.length
@@ -384,6 +389,7 @@ const allowedRoots = new Set([
   "site",
   "staircase",
   "envelope",
+  "insulation",
   "snowDesign",
   "roomSchedule",
   "auxiliaryTimber",
@@ -451,10 +457,21 @@ export function engineCatalog() {
       forces: "kN",
       E: "MPa",
     },
+    insulationProducts,
     sections: timberSections,
     note: sectionCatalogNote,
     stockLength: 6,
     parameterGuide: {
+      insulation: {
+        input:
+          "insulation.walls/floor/roof/partitions: {thickness (м), product: wool-50|wool-100, enabled}; roof.boundary: ceiling|slopes; wasteFactor по умолчанию 0,05 (пример). Перегородки включаются явно.",
+        calculation:
+          "Из объёма слоя вычитаются проёмы и объединение реальных досок. Толщина: явная → первый подходящий утепляющий слой envelope → глубина полости. Все допущения — в теме отчёта insulation.",
+        purchase:
+          "Полные слои плит и округление упаковок один раз на продукт. prices.insulationPack — за упаковку; прежняя insulationM2 пересчитывается через условную бюджетную толщину 150 мм.",
+        loads:
+          "Масса сравнивается с существующими нагрузками слоёв и повторно не добавляется. envelope.assemblies[].layers[].density позволяет сравнить полный вес слоёв; недостаточная нагрузка даёт предупреждение.",
+      },
       sourceRoof: {
         input:
           "roof.sourceModel replaces automatic roof zones; do not supply zones or type none. source requires title and pageRefs.",
@@ -1026,6 +1043,9 @@ export function createHouseEngine({
           break;
         case "snow":
           data = r.snowAssessment;
+          break;
+        case "insulation":
+          data = r.insulation;
           break;
         case "envelope":
           data = r.envelope;

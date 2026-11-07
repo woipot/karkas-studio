@@ -1,3 +1,4 @@
+import { humanLabel } from "./materials-data.js";
 import React, { useMemo } from "react";
 import { calculateInsulation } from "./insulation.js";
 const fmt = (n) => n.toLocaleString("ru-RU", { maximumFractionDigits: 3 });
@@ -7,11 +8,11 @@ export function useInsulation(report) {
     [report],
   );
 }
-export default function InsulationTable({ insulation }) {
+export default function InsulationTable({ insulation, project }) {
   const t = insulation.totals;
   const warnings = insulation.checks.filter((c) => c.status === "warning");
   return (
-    <section className="insulation-panel" aria-label="Объём утепления">
+    <section className="insulation-panel" id="insulation" aria-label="Объём утепления">
       <style>{`
         .insulation-panel{margin:20px 0 28px;color:#41533c}
         .insulation-panel h3{font-size:20px;margin:0 0 8px;font-weight:500}
@@ -25,19 +26,8 @@ export default function InsulationTable({ insulation }) {
         .insulation-table th:first-child,.insulation-table td:first-child{text-align:left}
         .insulation-table td small{display:block;color:#76846c;margin-top:5px}
         .insulation-pack-list{font-size:12px;line-height:1.8;padding:12px 0}
-        @media(max-width:650px){
-          .insulation-table thead{display:none}
-          .insulation-table,.insulation-table tbody,.insulation-table tr{display:block;width:100%}
-          .insulation-table tr{padding:12px;border-bottom:1px solid #dce5d4}
-          .insulation-table td{display:flex;justify-content:space-between;gap:10px;border:0;padding:5px 0;text-align:right;font-size:12px}
-          .insulation-table td:first-child{display:block;font-weight:500;font-size:14px;padding-bottom:10px}
-          .insulation-table td::before{content:attr(data-label);text-align:left;color:#788570}
-          .insulation-table td:first-child::before{display:none}
-          .insulation-summary{gap:16px 24px;padding:14px}
-          .insulation-panel h3{font-size:20px}
-        }
       `}</style>
-      <h3>Утепление · объём по каркасу</h3>
+      <h3>Утеплитель · объём по каркасу</h3>
       <p>Из слоя вычтены проёмы и пересечения с реальными досками. Чистый объём — установленный материал.</p>
       {!insulation.complete && (
         <p role="status">Учтённая часть: геометрия утепления неполная. Ограничения указаны в допущениях.</p>
@@ -61,33 +51,35 @@ export default function InsulationTable({ insulation }) {
           Нагрузка слоёв ниже расчётного веса: ограждений {warnings.length}. Уточните нагрузки в проекте.
         </p>
       )}
-      <table className="insulation-table">
-        <thead>
-          <tr>
-            <th>Ограждение</th>
-            <th>Брутто, м³</th>
-            <th>Проёмы, м³</th>
-            <th>Древесина, м³</th>
-            <th>Чистый, м³</th>
-            <th>Упаковки*</th>
-          </tr>
-        </thead>
-        <tbody>
-          {insulation.assemblies.map((a) => (
-            <tr key={a.id}>
-              <td>
-                {a.name}
-                <small>{fmt(a.thickness * 1000)} мм</small>
-              </td>
-              <td data-label="Брутто, м³">{fmt(a.grossVolume)}</td>
-              <td data-label="Проёмы, м³">{fmt(a.openingVolume)}</td>
-              <td data-label="Древесина, м³">{fmt(a.timberVolume)}</td>
-              <td data-label="Чистый, м³">{fmt(a.netVolume)}</td>
-              <td data-label="Упаковки*">{a.packs.map((p) => p.packs).join(" + ") || 0}</td>
+      <div className="engine-table-card">
+        <table className="insulation-table">
+          <thead>
+            <tr>
+              <th>Ограждение</th>
+              <th>Брутто, м³</th>
+              <th>Проёмы, м³</th>
+              <th>Древесина, м³</th>
+              <th>Чистый, м³</th>
+              <th>Упаковки*</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {insulation.assemblies.map((a) => (
+              <tr key={a.id}>
+                <td>
+                  {humanLabel(a, { type: "assembly", project })}
+                  <small>{fmt(a.thickness * 1000)} мм</small>
+                </td>
+                <td data-label="Брутто, м³">{fmt(a.grossVolume)}</td>
+                <td data-label="Проёмы, м³">{fmt(a.openingVolume)}</td>
+                <td data-label="Древесина, м³">{fmt(a.timberVolume)}</td>
+                <td data-label="Чистый, м³">{fmt(a.netVolume)}</td>
+                <td data-label="Упаковки*">{a.packs.map((p) => p.packs).join(" + ") || 0}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <div className="insulation-pack-list">
         {t.packs.map((p) => (
           <div key={p.product}>

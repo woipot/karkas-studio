@@ -1,3 +1,5 @@
+import { memberStatus } from "./member-status.js";
+import { sheetPanelInfo, humanLabel, sheetFormat, sheetMapURL } from "./materials-data.js";
 import React, { useMemo, useState } from "react";
 import { memberInsight } from "./member-insight.js";
 import "./member-panel.css";
@@ -22,25 +24,20 @@ function Rows({ rows }) {
   ));
 }
 
-function Utilization({ value, status }) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  const pct = Math.min(100, value * 100),
-    tone =
-      status === "unverified"
-        ? "muted"
-        : status === "fail" || value > 1
-          ? "fail"
-          : value > 0.85
-            ? "warn"
-            : "ok";
+function Utilization({ value, status, unloaded }) {
+  const display = memberStatus({ utilization: value, status, unloaded });
   return (
-    <div className={`mp-util ${tone}`}>
+    <div className={`mp-util ${display.tone}`}>
       <div className="mp-util-head">
-        <span>{status === "unverified" ? "Загрузка · справочно, не проверено" : "Загрузка"}</span>
-        <strong>{num(value * 100, 0)}%</strong>
+        <span>{display.label}</span>
+        <strong>{display.percent === null ? "—" : `${num(display.percent, 0)}%`}</strong>
       </div>
       <div className="mp-util-bar">
-        <i style={{ width: pct + "%" }} />
+        <i
+          style={{
+            width: display.percent === null ? "0%" : `${Math.max(0, Math.min(100, display.percent))}%`,
+          }}
+        />
       </div>
     </div>
   );
@@ -83,6 +80,8 @@ function StockBar({ cutting }) {
 export function MemberPanel({ report, id, onClose, side = false }) {
   const insight = useMemo(() => memberInsight(report, id), [report, id]);
   const [tab, setTab] = useState("loads");
+  const sheet = useMemo(() => sheetPanelInfo(report.result.sheetModel, id), [report, id]);
+  if (sheet) return <SheetMemberPanel report={report} info={sheet} onClose={onClose} side={side} />;
   if (!insight) return null;
   const { board, facts, cutting, analysis, checks } = insight;
   const failed = checks.filter((c) => c.status === "fail").length;
@@ -90,7 +89,9 @@ export function MemberPanel({ report, id, onClose, side = false }) {
     <aside className={"mp-panel" + (side ? " side" : "")} aria-label="Параметры доски">
       <header className="mp-head">
         <div>
-          <div className="mp-eyebrow">ДОСКА · {board.id}</div>
+          <div className="mp-eyebrow" title={board.id}>
+            ДОСКА
+          </div>
           <h3>{board.name ?? "Элемент каркаса"}</h3>
           <small>
             {board.b} × {board.h} мм
@@ -118,7 +119,11 @@ export function MemberPanel({ report, id, onClose, side = false }) {
             {analysis ? (
               <section>
                 <div className="mp-eyebrow">{analysis.title}</div>
-                <Utilization value={analysis.utilization} status={analysis.status} />
+                <Utilization
+                  value={analysis.utilization}
+                  status={analysis.status}
+                  unloaded={analysis.unloaded}
+                />
                 <Rows rows={analysis.rows} />
                 {analysis.note && <p className="mp-note">{analysis.note}</p>}
               </section>
@@ -219,6 +224,72 @@ export function MemberPanel({ report, id, onClose, side = false }) {
           ) : (
             <p className="mp-note">Проверок, ссылающихся на эту доску, её стену или зону, нет.</p>
           ))}
+      </div>
+    </aside>
+  );
+}
+
+function SheetMemberPanel({ report, info: { panel, stock, piece }, onClose, side }) {
+  const context = { project: report.project, model: report.result.sheetModel };
+  return (
+    <aside className={"mp-panel" + (side ? " side" : "")} aria-label="Параметры листовой панели">
+      <header className="mp-head">
+        <div>
+          <div className="mp-eyebrow" title={panel.id}>
+            ЛИСТОВАЯ ПАНЕЛЬ
+          </div>
+          <h3>{humanLabel(panel, context)}</h3>
+          <small>
+            {humanLabel(panel, { type: "product" })} · {panel.thickness} мм
+          </small>
+        </div>
+        <button className="mp-close" onClick={onClose} aria-label="Закрыть панель">
+          ×
+        </button>
+      </header>
+      <div className="mp-body">
+        <Rows
+          rows={[
+            { label: "Продукт", text: humanLabel(panel, { type: "product" }) },
+            { label: "Формат закупки, мм", text: sheetFormat(panel.product, stock?.width, stock?.height) },
+            { label: "Толщина", value: panel.thickness, unit: "мм" },
+            { label: "Чистая площадь панели", value: panel.area, unit: "м²", digits: 3 },
+            { label: "Масса панели", value: panel.mass, unit: "кг", digits: 3 },
+            { label: "Монтажная деталь", text: humanLabel(piece ?? panel, context) },
+            {
+              label: "Заготовка детали, мм",
+              text: piece
+                ? `${num(piece.sourceWidth * 1000, 0)} × ${num(piece.sourceHeight * 1000, 0)}`
+                : "—",
+            },
+            {
+              label: "Закупочный лист",
+              text: stock ? humanLabel(stock, { ...context, type: "stock" }) : "Не определён",
+            },
+            {
+              label: "Позиция X / Y, мм",
+              text: piece ? `${num(piece.x * 1000, 0)} / ${num(piece.y * 1000, 0)}` : "—",
+            },
+            { label: "Поворот на карте", text: piece?.rotated ? "90°" : "Нет" },
+          ]}
+        />
+        {stock && (
+          <a
+            className="engine-button"
+            href={sheetMapURL(stock.id)}
+            onClick={(event) => {
+              event.preventDefault();
+              window.history.replaceState(null, "", sheetMapURL(stock.id));
+              window.dispatchEvent(new CustomEvent("karkas:sheet-cutting"));
+            }}
+          >
+            Открыть карту раскроя этого листа →
+          </a>
+        )}
+        <p className="mp-note">
+          Площадь и масса относятся к выбранному установленному полигону. Прямоугольная монтажная заготовка
+          может содержать несколько таких полигонов.
+        </p>
       </div>
     </aside>
   );

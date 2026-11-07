@@ -1,4 +1,12 @@
-import { beamSection } from "./profiled-beam-catalog.js";
+import { sheetProducts, validateSheathing } from "./sheet-catalog.js";
+import { validateInsulation } from "./insulation.js";
+import {
+  beamSection,
+  beamDefaults,
+  beamProfiles,
+  beamMoistures,
+  beamCornerJoints,
+} from "./profiled-beam-catalog.js";
 // Pure mapping «Новый дом» wizard form → generateHouse() spec. No React, no DOM:
 // shared by the wizard component, the engine Web Worker and node tests.
 
@@ -15,12 +23,40 @@ export const footprintShapes = [
 export const DEFAULT_SNOW = 1.5;
 export const DEFAULT_WIND = 0.3;
 
-export function defaultWizardForm() {
+// Acceptance-task starting choices, NOT verified structural minima; thicknesses are
+// available in sheet-catalog (Kalevala/Kronospan). Confirm the deck design for actual loads.
+export function wizardSheathingDefaults(wallSystem = "frame", joistSpacing = 0.6) {
+  return {
+    ...(wallSystem === "frame" ? { walls: { product: "osb3", thickness: 12, side: "exterior" } } : {}),
+    floors: { product: "osb3", thickness: joistSpacing <= 0.4 ? 18 : 22 },
+  };
+}
+export function wizardWallSystemChange(form, wallSystem) {
+  const sheathing = structuredClone(form.sheathing ?? {});
+  if (wallSystem === "profiledBeam") delete sheathing.walls;
+  else if (form.wallSystem === "profiledBeam") sheathing.walls = wizardSheathingDefaults().walls;
+  return { wallSystem, sheathing };
+}
+export function wizardJoistSpacingChange(form, joistSpacing) {
+  const sheathing = structuredClone(form.sheathing ?? {});
+  const previous = wizardSheathingDefaults("frame", form.joistSpacing).floors.thickness;
+  if (sheathing.floors?.product.startsWith("osb3") && sheathing.floors.thickness === previous)
+    sheathing.floors.thickness = wizardSheathingDefaults("frame", joistSpacing).floors.thickness;
+  return { joistSpacing, sheathing };
+}
+export function defaultWizardForm({ wallSystem = "frame", joistSpacing = 0.6 } = {}) {
   return {
     name: "Мой каркасный дом",
     shape: "rectangle",
-    wallSystem: "frame",
+    wallSystem,
+    joistSpacing,
+    // Editable task example from the supplier catalog; not a GOST-prescribed beam section.
     beamSection: "145x145",
+    beamProfile: beamDefaults.profile,
+    beamMoisture: beamDefaults.moisture,
+    beamCornerJoint: beamDefaults.cornerJoint,
+    sheathing: wizardSheathingDefaults(wallSystem, joistSpacing),
+    insulation: {},
     width: 9,
     depth: 7,
     wingWidth: 4,
@@ -72,9 +108,20 @@ export function validateWizardForm(form) {
   else if (form.name.length > 160) err("size", "name", "Название не длиннее 160 символов.");
   if (!["rectangle", "l-shape"].includes(form.shape)) err("size", "shape", "Выберите форму контура.");
   if (form.wallSystem !== undefined && !["frame", "profiledBeam"].includes(form.wallSystem))
-    err("size", "wallSystem", "Выберите систему стен.");
+    err("materials", "wallSystem", "Выберите систему стен.");
   if (form.wallSystem === "profiledBeam" && !beamSection(form.beamSection))
-    err("size", "beamSection", "Выберите сечение бруса.");
+    err("materials", "beamSection", "Выберите сечение бруса.");
+  for (const [key, choices] of Object.entries({
+    beamProfile: beamProfiles,
+    beamMoisture: beamMoistures,
+    beamCornerJoint: beamCornerJoints,
+  }))
+    if (form[key] !== undefined && !Object.hasOwn(choices, form[key]))
+      err("materials", key, "Выберите параметр бруса из каталога.");
+  for (const e of validateSheathing(form.sheathing)) err("materials", e.field, e.message);
+  validateInsulation({ insulation: form.insulation }, (field, message) => err("materials", field, message));
+  if (form.joistSpacing !== undefined)
+    range("materials", "joistSpacing", form.joistSpacing, 0.2, 1.2, "Шаг лаг");
   const W = range("size", "width", form.width, 2, 60, "Ширина"),
     D = range("size", "depth", form.depth, 2, 60, "Глубина");
   if (form.shape === "l-shape" && finite(W) && finite(D)) {
@@ -138,11 +185,24 @@ export function wizardToGeneratorSpec(form) {
     e.errors = errors;
     throw e;
   }
+  const sheathing = structuredClone(form.sheathing ?? {});
+  if (form.wallSystem === "profiledBeam") delete sheathing.walls;
   const floors = toNumber(form.floors),
     spec = {
       name: form.name.trim(),
       ...(form.wallSystem === "profiledBeam"
-        ? { wallSystem: form.wallSystem, beamSection: form.beamSection }
+        ? {
+            wallSystem: form.wallSystem,
+            beamSection: form.beamSection,
+            beamProfile: form.beamProfile ?? beamDefaults.profile,
+            beamMoisture: form.beamMoisture ?? beamDefaults.moisture,
+            beamCornerJoint: form.beamCornerJoint ?? beamDefaults.cornerJoint,
+          }
+        : {}),
+      ...(Object.keys(sheathing).length ? { sheathing } : {}),
+      ...(form.joistSpacing !== undefined ? { joistSpacing: toNumber(form.joistSpacing) } : {}),
+      ...(form.insulation && Object.keys(form.insulation).length
+        ? { insulation: structuredClone(form.insulation) }
         : {}),
       template: form.shape,
       width: round(toNumber(form.width)),
@@ -209,5 +269,38 @@ export function readSiteLoads(result) {
         : typeof result.site?.source === "string"
           ? result.site.source
           : null,
+  };
+}
+
+// Catalog-driven choices shared by the form and tests.
+export function wizardSheetProducts(material) {
+  return sheetProducts.filter((p) => p.material === material);
+}
+export function wizardSheetChange(current, patch, kind, joistSpacing = 0.6) {
+  const next = { ...current, ...patch };
+  if (patch.material === "none") return null;
+  const material =
+    patch.material ??
+    sheetProducts.find((p) => p.id === current?.product)?.material ??
+    current?.product ??
+    "osb3";
+  const choices = wizardSheetProducts(material);
+  const product = patch.product ?? (patch.material ? material : (current?.product ?? material));
+  const catalog = choices.find((p) => p.id === product) ?? choices[0];
+  if (!catalog) return null;
+  // Editable acceptance-task choices, not code-prescribed minima (see wizardSheathingDefaults).
+  const suggestedThickness =
+    kind === "floors" ? wizardSheathingDefaults("frame", joistSpacing).floors.thickness : 12;
+  // If that thickness is absent (e.g. plywood 22 mm), propose the largest catalog
+  // thickness explicitly in the form; adequacy of this fallback is NOT verified.
+  const thickness = Number(next.thickness ?? suggestedThickness);
+  return {
+    product,
+    thickness: catalog.thicknesses.includes(thickness)
+      ? thickness
+      : catalog.thicknesses.includes(suggestedThickness)
+        ? suggestedThickness
+        : catalog.thicknesses.at(-1),
+    ...(kind === "walls" ? { side: next.side ?? "exterior" } : {}),
   };
 }

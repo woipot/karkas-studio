@@ -248,7 +248,14 @@ test("wizard forwards requested beam system and explicit section", () => {
   const s = wizardToGeneratorSpec(f);
   assert.equal(s.wallSystem, "profiledBeam");
   assert.equal(s.beamSection, "90x140");
-  assert.throws(() => generateHouse({ wallSystem: "profiledBeam" }), /beamSection/);
+  const implicit = generateHouse({ wallSystem: "profiledBeam" }).project;
+  assert.ok(implicit.walls.filter((w) => w.kind === "exterior").every((w) => w.beam.section === "145x145"));
+  // Hand reference: a 145×145 stock has A=21025 mm², not 150×150=22500.
+  assert.equal(
+    beamSection(implicit.walls[0].beam.section).b * beamSection(implicit.walls[0].beam.section).h,
+    21025,
+  );
+  assert.throws(() => generateHouse({ wallSystem: "profiledBeam", beamSection: "invalid" }), /beamSection/);
 });
 test("existing published Orion and example projects still evaluate", async () => {
   for (const filename of ["public/projects/orion/project.json", "public/engine-report.json"]) {

@@ -158,7 +158,7 @@ function thermalBoundary(project, zone, envelope) {
         (["truss", "tiedRafters"].includes(zone.effectiveFraming) ? "ceiling" : "slopes")))
   );
 }
-export function calculateInsulation(project, result) {
+export function calculateInsulation(project, result, { includeGeometry = false } = {}) {
   const errors = [];
   validateInsulation(project, (field, message) => errors.push({ field, message }));
   if (errors.length) throw Error(errors.map((e) => e.message).join("\n"));
@@ -277,6 +277,8 @@ export function calculateInsulation(project, result) {
       assumedLayerLoad: assumedLoad,
       fullLayersLoad,
       packs: insulationPacks([{ product, thickness, netVolume }], project.insulation?.wasteFactor),
+      // On-demand viewer geometry uses the same cavities and actual cut timber. No new load or purchase.
+      ...(includeGeometry ? { netCells: subtractAll(cavities, boardCells.flat()).map((c) => c.faces) } : {}),
     });
   }
   for (const w of result.walls ?? project.walls ?? []) {

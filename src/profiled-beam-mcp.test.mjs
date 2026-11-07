@@ -39,7 +39,10 @@ test(
       depth: 4,
       levels: [{ height: 3 }],
       wallSystem: "profiledBeam",
-      beamSection: "145x145",
+      // Missing beamSection exercises the generator's documented 145×145 task default.
+      beamProfile: "doubleTongue",
+      beamMoisture: "natural",
+      beamCornerJoint: "lap",
       material: { Fc90Full: 1.8 },
       rooms: [],
     });
@@ -50,6 +53,14 @@ test(
     assert.equal(r.data.walls[0].settlementMM, 180);
     const stored = await call("get_project", ref);
     assert.equal(stored.project.walls[0].beam.section, "145x145");
+    assert.equal(stored.project.walls[0].beam.profile, "doubleTongue");
+    assert.equal(stored.project.walls[0].beam.moisture, "natural");
+    assert.equal(stored.project.walls[0].beam.cornerJoint, "lap");
+    const badProfile = await client.callTool({
+      name: "karkas_generate",
+      arguments: { wallSystem: "profiledBeam", beamProfile: "unknown" },
+    });
+    assert.equal(badProfile.isError, true);
     const members = await call("report", {
       ...ref,
       topic: "members",

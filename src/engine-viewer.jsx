@@ -1,3 +1,7 @@
+import { runEngine } from "./engine-client.js";
+import { SheetMaterials, ProfiledBeamMaterials } from "./sheet-materials-view.jsx";
+import { sheetMapData } from "./materials-data.js";
+import { classifySection } from "./lumber-standards.js";
 import InsulationTable, { useInsulation } from "./insulation-table.jsx";
 import { calculateEstimate } from "./estimate-engine.js";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -10,6 +14,7 @@ import { formatEndCut, cuttingToPrintHTML } from "./cutting.js";
 import { planAnnotations, planLabelLines } from "./house-exports.js";
 import { MemberPanel } from "./member-panel.jsx";
 import "./engine-viewer.css";
+import "./materials-ui.css";
 
 const finite = (n) => typeof n === "number" && Number.isFinite(n);
 const fmt = (n, d = 1) => (finite(n) ? n.toLocaleString("ru-RU", { maximumFractionDigits: d }) : "—");
@@ -45,6 +50,7 @@ const defaultLayers = {
   piles: true,
   surfaces: false,
   sheathing: false,
+  insulation: false,
   drainage: false,
   stairs: true,
   guards: true,
@@ -928,9 +934,20 @@ export function Overview({ report }) {
     hasArchitecture = (report.planning?.rooms ?? p.roomSchedule ?? []).some((q) => q.fixtures?.length > 0);
   const [view, setView] = useState(hasArchitecture ? "plan" : "3d"),
     [planMode, setPlanMode] = useState("architecture"),
-    [layers, setLayers] = useState(() => ({ ...defaultLayers, space: hasSpaces })),
+    [layers, setLayers] = useState(() => {
+      const query = new URLSearchParams(window.location.search).get("layers")?.split(",") ?? [];
+      return {
+        ...defaultLayers,
+        space: hasSpaces,
+        sheathing: query.includes("sheets"),
+        insulation: query.includes("insulation"),
+      };
+    }),
     [fitKey, setFitKey] = useState(0),
-    [selected, setSelected] = useState(null),
+    [selected, setSelected] = useState(() => {
+      const id = new URLSearchParams(window.location.search).get("member");
+      return id ? { type: r.sheetModel?.panels?.some((p) => p.id === id) ? "sheet" : "member", id } : null;
+    }),
     [level, setLevel] = useState(1),
     [preset, setPreset] = useState(hasSpaces ? "secondLight" : "structure");
   const counts = useMemo(
@@ -950,7 +967,8 @@ export function Overview({ report }) {
     ["grillage", "Ростверк"],
     ["piles", "Сваи"],
     ["bracing", "Связи"],
-    ["sheathing", "Плиты"],
+    ["sheathing", "Листы"],
+    ["insulation", "Утеплитель"],
     ["surfaces", "Скаты"],
     ["space", "Объём второго света"],
     ["drainage", "Сток"],
@@ -1301,7 +1319,8 @@ export function Overview({ report }) {
                 масса не включена в расчёт.
               </p>
             </div>
-          ) : selected?.type === "member" && r.timber?.instances?.some((b) => b.id === selected.id) ? (
+          ) : (selected?.type === "member" && r.timber?.instances?.some((b) => b.id === selected.id)) ||
+            (selected?.type === "sheet" && r.sheetModel?.panels?.some((p) => p.id === selected.id)) ? (
             <MemberPanel report={report} id={selected.id} onClose={() => setSelected(null)} side />
           ) : (
             <SelectionFacts selected={selected} p={p} r={r} />
@@ -1447,40 +1466,43 @@ export function ChecksView({ report }) {
   );
 }
 
+function SectionStandard({ section }) {
+  const standard = classifySection(section);
+  return (
+    <span
+      className={`section-standard ${standard.market}`}
+      title={`${standard.note} ${standard.source ?? ""}`}
+    >
+      {standard.gost ? "ГОСТ 24454" : "рынок, не ГОСТ"}
+      {standard.market === "rare" ? " · редкий" : standard.market === "none" ? " · не подтверждён" : ""}
+    </span>
+  );
+}
+
 export function MaterialsView({ report }) {
   const [category, setCategory] = useState("all"),
-    [page, setPage] = useState(1),
-    [subtab, setSubtab] = useState("boards"),
-    [sheetPage, setSheetPage] = useState(1);
+    [page, setPage] = useState(1);
   const insulation = useInsulation(report);
+  useEffect(() => {
+    const id = window.location.hash.slice(1);
+    if (
+      ["sheet-materials", "sheet-cutting", "insulation", "profiled-beam", "boards"].includes(id) &&
+      !new URLSearchParams(window.location.search).has("sheet")
+    )
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+  }, [report]);
   const r = report.result,
     rows = r.timber.schedule ?? [],
     types = [...new Set(rows.map((row) => row.category))];
   const filtered = rows.filter((row) => category === "all" || row.category === category),
     pages = Math.max(1, Math.ceil(filtered.length / 20)),
     current = Math.min(page, pages);
-  const sheets = useMemo(() => {
-    const map = new Map();
-    for (const panel of r.sheetModel?.panels ?? r.bracingModel?.panels ?? []) {
-      const id = panel.stockSheetId ?? panel.id,
-        group = map.get(id) ?? {
-          id,
-          wallId: panel.wallId,
-          level: panel.level,
-          area: 0,
-          mass: 0,
-          product: panel.product,
-          thickness: panel.thickness,
-          kind: panel.surfaceKind ?? "walls",
-        };
-      group.area += panel.area ?? 0;
-      group.mass += panel.mass ?? 0;
-      map.set(id, group);
-    }
-    return [...map.values()];
-  }, [r]);
-  const sheetPages = Math.max(1, Math.ceil(sheets.length / 20)),
-    sheetCurrent = Math.min(sheetPage, sheetPages);
+  const sheetCount = sheetMapData(r.sheetModel).count;
+  const unusual = [
+    ...new Set(
+      rows.filter((row) => row.role !== "beamCourse").map((row) => row.section ?? `${row.b}x${row.h}`),
+    ),
+  ].filter((id) => classifySection(id).market !== "common");
   return (
     <div className="engine-report-section">
       <div className="engine-section-heading">
@@ -1488,136 +1510,85 @@ export function MaterialsView({ report }) {
           <div className="engine-eyebrow">ФАКТИЧЕСКИЕ ОБЪЁМЫ</div>
           <h2>Материалы и элементы</h2>
           <p>
-            Доски сгруппированы по назначению, сечению и длине. Листовые материалы показаны по исходным
-            листам.
+            Доски сгруппированы по назначению, сечению и длине. Листовые материалы показаны по исходным листам
+            закупки.
           </p>
         </div>
       </div>
       <div className="engine-mini-counters">
         <Counter label="Древесина в модели" value={fmt(r.timber.volume, 3)} unit="м³" />
         <Counter label="Масса древесины" value={fmt(r.timber.mass, 0)} unit="кг" />
-        <Counter label="Плиты к закупке" value={sheets.length} unit="листов" />
+        <Counter label="Плиты к закупке" value={sheetCount} unit="листов" />
         <Counter
           label="Масса плит"
           value={fmt(r.sheetModel?.mass ?? r.bracingModel?.quantities?.panelMass, 0)}
           unit="кг"
         />
       </div>
-      <InsulationTable insulation={insulation} />
-      <div className="engine-filter-tabs">
-        <button className={subtab === "boards" ? "active" : ""} onClick={() => setSubtab("boards")}>
-          Доски
-        </button>
-        <button className={subtab === "sheets" ? "active" : ""} onClick={() => setSubtab("sheets")}>
-          Листовые материалы
-        </button>
-      </div>
-      {subtab === "boards" ? (
-        <>
-          <div className="engine-category-chips">
-            {["all", ...types].map((key) => (
-              <button
-                key={key}
-                className={category === key ? "active" : ""}
-                onClick={() => {
-                  setCategory(key);
-                  setPage(1);
-                }}
-              >
-                {key === "all" ? "Все элементы" : (categories[key] ?? key)}
-              </button>
-            ))}
-          </div>
-          <div className="engine-table-card">
-            <table>
-              <thead>
-                <tr>
-                  <th>Элемент</th>
-                  <th>Сечение</th>
-                  <th>Длина</th>
-                  <th>Количество</th>
-                  <th>Объём</th>
-                  <th>Масса</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.slice((current - 1) * 20, current * 20).map((row, i) => (
-                  <tr key={`${row.id}-${i}`}>
-                    <td>
-                      {row.name}
-                      <small>{categories[row.category] ?? row.category}</small>
-                    </td>
-                    <td>{row.b && row.h ? `${row.b} × ${row.h}` : row.section} мм</td>
-                    <td>{fmt(row.length, 3)} м</td>
-                    <td>{row.count} шт.</td>
-                    <td>{fmt(row.volume, 4)} м³</td>
-                    <td>{fmt(row.mass ?? row.totalMass)} кг</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pager page={current} pages={pages} total={filtered.length} onChange={setPage} />
-        </>
-      ) : (
-        <div className="engine-table-card">
-          {(r.sheetModel?.purchases ?? []).map((item) => (
-            <p key={item.id} style={{ padding: "0 14px" }}>
-              <strong>
-                {item.product} · {item.thickness} мм
-              </strong>
-              : {item.count} листов (целых {item.fullCount}, с подрезкой {item.cutCount}) · {fmt(item.mass)}{" "}
-              кг · отход {fmt(item.wastePercent)}%
-            </p>
-          ))}
-          <table>
-            <thead>
-              <tr>
-                <th>Лист</th>
-                <th>Поверхность</th>
-                <th>Материал / толщина</th>
-                <th>Чистая площадь / масса</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sheets.slice((sheetCurrent - 1) * 20, sheetCurrent * 20).map((sheet, i) => (
-                <tr key={sheet.id}>
-                  <td title={sheet.id}>Лист {(sheetCurrent - 1) * 20 + i + 1}</td>
-                  <td>
-                    {sheet.kind === "walls"
-                      ? `Стена ${report.project.walls.findIndex((w) => w.id === sheet.wallId) + 1}`
-                      : sheet.kind === "roof"
-                        ? "Кровля"
-                        : `Перекрытие ${sheet.level}`}
-                  </td>
-                  <td>
-                    {sheet.product?.startsWith("osb3")
-                      ? "ОСП-3"
-                      : sheet.product?.startsWith("plywood-fk")
-                        ? "Фанера ФК"
-                        : sheet.product
-                          ? "Фанера ФСФ"
-                          : "Прежняя обшивка"}{" "}
-                    · {sheet.thickness} мм<small>{sheet.product}</small>
-                  </td>
-                  <td>
-                    {fmt(sheet.area, 3)} м² / {fmt(sheet.mass)} кг
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div style={{ padding: "0 14px 14px" }}>
-            <Pager
-              page={sheetCurrent}
-              pages={sheetPages}
-              total={sheets.length}
-              onChange={setSheetPage}
-              label="листов"
-            />
-          </div>
+      <nav className="materials-navigation" aria-label="Разделы материалов">
+        <a href="#sheet-materials">Листовые материалы</a>
+        <a href="#sheet-cutting">Раскрой листов</a>
+        <a href="#insulation">Утеплитель</a>
+        {r.profiledBeam?.walls?.length > 0 && <a href="#profiled-beam">Профилированный брус</a>}
+        <a href="#boards">Доски</a>
+      </nav>
+      <SheetMaterials report={report} />
+      <InsulationTable insulation={insulation} project={report.project} />
+      <ProfiledBeamMaterials report={report} />
+      <h3 id="boards">Доски</h3>
+      {unusual.length > 0 && (
+        <div className="engine-alert" role="status">
+          Редкие или неподтверждённые сечения: {unusual.join(", ")}. Проверьте поставку.{" "}
+          {unusual.map((id) => classifySection(id).note).join(" ")}
         </div>
       )}
+      <div className="engine-category-chips">
+        {["all", ...types].map((key) => (
+          <button
+            key={key}
+            className={category === key ? "active" : ""}
+            onClick={() => {
+              setCategory(key);
+              setPage(1);
+            }}
+          >
+            {key === "all" ? "Все элементы" : (categories[key] ?? key)}
+          </button>
+        ))}
+      </div>
+      <div className="engine-table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>Элемент</th>
+              <th>Сечение</th>
+              <th>Длина</th>
+              <th>Количество</th>
+              <th>Объём</th>
+              <th>Масса</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.slice((current - 1) * 20, current * 20).map((row, i) => (
+              <tr key={`${row.id}-${i}`}>
+                <td>
+                  {row.name}
+                  <small>{categories[row.category] ?? row.category}</small>
+                </td>
+                <td>
+                  {row.b && row.h ? `${row.b} × ${row.h}` : row.section} мм
+                  <SectionStandard section={row.section ?? `${row.b}x${row.h}`} />
+                </td>
+                <td>{fmt(row.length, 3)} м</td>
+                <td>{row.count} шт.</td>
+                <td>{fmt(row.volume, 4)} м³</td>
+                <td>{fmt(row.mass ?? row.totalMass)} кг</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <Pager page={current} pages={pages} total={filtered.length} onChange={setPage} />
     </div>
   );
 }
@@ -1963,7 +1934,7 @@ export function EstimateView({ report }) {
       {!report.result.insulation && (
         <p>Утепление и смета пересчитаны из геометрии сохранённого отчёта; исходная ревизия не изменена.</p>
       )}
-      <InsulationTable insulation={insulation} />
+      <InsulationTable insulation={insulation} project={report.project} />
       <div className="engine-table-card">
         <table>
           <thead>
@@ -2041,13 +2012,90 @@ export function readReport(data) {
 }
 
 export function EngineViewer() {
+  const demo = new URLSearchParams(window.location.search).get("demo");
+  return demo ? <MaterialDemo demo={demo} /> : <PublishedEngineViewer />;
+}
+function useSheetNavigation(setTab) {
+  useEffect(() => {
+    const open = () => setTab("materials");
+    window.addEventListener("karkas:sheet-cutting", open);
+    return () => window.removeEventListener("karkas:sheet-cutting", open);
+  }, [setTab]);
+}
+function initialReportTab() {
+  const requested = new URLSearchParams(window.location.search).get("tab");
+  return tabs.some(([id]) => id === requested)
+    ? requested
+    : ["#appearance", "#source"].includes(window.location.hash)
+      ? window.location.hash.slice(1)
+      : "overview";
+}
+function MaterialDemo({ demo }) {
+  const [state, setState] = useState({ loading: true });
+  useEffect(() => {
+    let active = true;
+    Promise.resolve()
+      .then(() => runEngine("demo", { demo }))
+      .then(({ report }) => {
+        if (active) setState({ report: readReport(report) });
+      })
+      .catch((error) => {
+        if (active) setState({ error: error.message });
+      });
+    return () => {
+      active = false;
+    };
+  }, [demo]);
+  return (
+    <div className="engine-viewer">
+      <header className="engine-topbar">
+        <div className="engine-brand">
+          КАРКАС <strong>ENGINE</strong>
+        </div>
+        <div className="engine-project-title">
+          {state.report?.project.name ?? "Демонстрационный дом"}
+          <small>Расчёт в браузере · демонстрационные исходные данные</small>
+        </div>
+        <div className="engine-top-actions">
+          <a className="engine-top-button" href="/?demo=frame-osb&tab=materials">
+            Каркас + ОСП
+          </a>
+          <a className="engine-top-button" href="/?demo=beam&tab=materials">
+            Брус + ОСП
+          </a>
+          <a className="engine-top-button" href="/?mode=new&step=materials">
+            Мастер
+          </a>
+        </div>
+      </header>
+      {state.report ? (
+        <>
+          {demo === "beam" && (
+            <div className="engine-alert">
+              Фронтоны над брусом пока не закрыты: ядро не создаёт для этого демо их каркас и обшивку. Дверь,
+              три окна, обсада и усадочные зазоры построены.
+            </div>
+          )}
+          <ReportSections report={state.report} />
+        </>
+      ) : (
+        <main className="engine-start-screen">
+          <div role={state.error ? "alert" : "status"}>
+            <h1>{state.error ? "Не удалось рассчитать демо" : "Считаю демонстрационный дом…"}</h1>
+            <p>{state.error ?? "Геометрия, листовой раскрой, утепление, нагрузки и смета."}</p>
+          </div>
+        </main>
+      )}
+    </div>
+  );
+}
+function PublishedEngineViewer() {
   const [report, setReport] = useState(null),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [revision, setRevision] = useState(0),
-    [tab, setTab] = useState(() =>
-      ["#appearance", "#source"].includes(window.location.hash) ? window.location.hash.slice(1) : "overview",
-    );
+    [tab, setTab] = useState(initialReportTab);
+  useSheetNavigation(setTab);
   const [projectIndex, setProjectIndex] = useState(null),
     [source, setSource] = useState(null);
   const projectKey = new URLSearchParams(window.location.search).get("project") ?? "noginsk";
@@ -2362,7 +2410,8 @@ export function EngineViewer() {
 // «Новый дом» wizard and the JSON import. The published-project viewer above keeps
 // its own layout with catalog, release files and source tabs.
 export function ReportSections({ report, extraTabs = [], renderExtra, stateLabel = "Расчёт в браузере" }) {
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState(initialReportTab);
+  useSheetNavigation(setTab);
   const p = report.project,
     r = report.result;
   const failed = (r?.checks ?? []).filter((c) => c.status === "fail").length;

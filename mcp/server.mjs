@@ -127,7 +127,10 @@ const generationSchema = z
     beamSection: z
       .enum(["90x140", "140x140", "140x190", "145x145", "145x195", "190x190", "195x195", "200x200"])
       .optional()
-      .describe("Обязательно для profiledBeam; ширина × высота, мм. Рабочую высоту подтвердить."),
+      .describe("Для profiledBeam по умолчанию 145×145; допущение задания. Рабочую высоту подтвердить."),
+    beamProfile: z.enum(["comb", "doubleTongue", "finnish"]).optional(),
+    beamMoisture: z.enum(["natural", "kilnDried"]).optional(),
+    beamCornerJoint: z.enum(["warmCorner", "lap", "dovetail", "overhang"]).optional(),
     strategy: z
       .enum(Object.keys(LAYOUT_STRATEGIES))
       .optional()

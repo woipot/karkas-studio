@@ -1,4 +1,4 @@
-import { profiledBeamSections } from "./profiled-beam-catalog.js";
+import WizardMaterials from "./wizard-materials.jsx";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./icons.jsx";
 import { ReportSections, readReport, download } from "./engine-viewer.jsx";
@@ -19,12 +19,14 @@ import {
 } from "./wizard-spec.js";
 import "./engine-viewer.css";
 import "./new-house.css";
+import "./materials-ui.css";
 
-const FORM_KEY = "karkas.wizard.form.v1",
+const FORM_KEY = "karkas.wizard.form.v2",
   LAST_KEY = "karkas.wizard.last.v1";
 const steps = [
   ["size", "home", "Размеры и контур"],
   ["floors", "layers", "Этажи и высота"],
+  ["materials", "layers", "Стены и обшивка"],
   ["rooms", "table", "Комнаты"],
   ["site", "snow", "Город и нагрузки"],
   ["roof", "home", "Крыша"],
@@ -155,7 +157,9 @@ function FootprintPreview({ form }) {
 }
 
 function Wizard({ form, setForm, onRun, siteLoads, busy, lastSaved, onRestore }) {
-  const [step, setStep] = useState("size");
+  const [step, setStep] = useState(() =>
+    new URLSearchParams(window.location.search).get("step") === "materials" ? "materials" : "size",
+  );
   const [cityState, setCityState] = useState({ status: "idle", message: "" });
   const { errors, warnings } = useMemo(() => validateWizardForm(form), [form]);
   const errorFor = (field) => errors.find((e) => e.field === field)?.message;
@@ -242,34 +246,6 @@ function Wizard({ form, setForm, onRun, siteLoads, busy, lastSaved, onRestore })
               {errorFor("name") && <small className="nh-error-text">{errorFor("name")}</small>}
             </label>
             <Choice
-              label="Система наружных стен"
-              value={form.wallSystem ?? "frame"}
-              options={[
-                ["frame", "Каркас"],
-                ["profiledBeam", "Профилированный брус"],
-              ]}
-              onChange={(wallSystem) => set({ wallSystem, beamSection: form.beamSection ?? "145x145" })}
-            />
-            {form.wallSystem === "profiledBeam" && (
-              <label className="nh-field">
-                <span>Сечение бруса · ширина × высота</span>
-                <select
-                  value={form.beamSection ?? "145x145"}
-                  onChange={(e) => set({ beamSection: e.target.value })}
-                >
-                  {profiledBeamSections.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-                <small>
-                  Допущения: естественная влажность, гребёнка, усадка 6%; рабочую высоту и узлы подтвердите у
-                  поставщика.
-                </small>
-              </label>
-            )}
-            <Choice
               label="Форма контура"
               value={form.shape}
               options={footprintShapes}
@@ -317,6 +293,7 @@ function Wizard({ form, setForm, onRun, siteLoads, busy, lastSaved, onRestore })
             </div>
           </>
         )}
+        {step === "materials" && <WizardMaterials form={form} set={set} />}
         {step === "floors" && (
           <>
             <h2>Этажи и высота</h2>

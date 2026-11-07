@@ -1,3 +1,4 @@
+import { humanLabel } from "./materials-data.js";
 /**
  * Member insight: everything the report knows about one physical board, gathered for the
  * viewer's side panel. Pure function over an evaluateHouse() report; no recalculation.
@@ -500,6 +501,32 @@ function beamCourseAnalysis(r, board) {
     rows: [
       row("Венец", board.course, "", 0),
       row("Всего венцов", w.courseCount, "", 0),
+      {
+        label: "Стыки венца от начала стены, м",
+        text:
+          w.courses
+            .find((c) => c.course === board.course)
+            ?.splices.map((s) => s.toLocaleString("ru-RU", { maximumFractionDigits: 3 }))
+            .join("; ") || "Нет",
+      },
+      row(
+        "Нагелей по венцу стены",
+        r.profiledBeam.dowels.filter(
+          (d) => d.wallId === board.wallId && d.level === board.level && d.course === board.course,
+        ).length,
+        "шт.",
+        0,
+      ),
+      // Settlement ratio is the existing engine supplier assumption; do not divide a cropped top course equally.
+      row(
+        "Доля усадки этого венца · допущение",
+        ((w.courses.find((c) => c.course === board.course)?.top ?? 0) -
+          (w.courses.find((c) => c.course === board.course)?.bottom ?? 0)) *
+          w.settlementRatio *
+          1000,
+        "мм",
+        2,
+      ),
       row("Рабочая высота", w.courseHeight * 1000, "мм", 0),
       row("Масса венцов дома", r.profiledBeam.mass, "кг", 1),
       row("Сила у основания стены", w.designCompression, "кН"),
@@ -585,7 +612,17 @@ export function memberInsight(report, id) {
     row("Масса", board.mass, "кг", 1),
     row("Собственный вес", finite(board.mass) ? (board.mass * G) / 1000 : null, "кН", 3),
     ...((board.level ?? board.floor) ? [row("Этаж", board.level ?? board.floor, "", 0)] : []),
-    ...(board.wallId ? [{ label: "Стена", text: board.wallId }] : []),
+    ...(board.wallId
+      ? [
+          {
+            label: "Стена",
+            text: humanLabel(
+              { wallId: board.wallId },
+              { type: "wall", project: r.project ?? report.project },
+            ),
+          },
+        ]
+      : []),
     ...(board.zoneId ? [{ label: "Зона кровли", text: board.zoneId }] : []),
     ...(board.beamId ? [{ label: "Балка ростверка", text: board.beamId }] : []),
   ];

@@ -1,7 +1,9 @@
+import { humanLabel } from "./materials-data.js";
+import { calculateInsulation } from "./insulation.js";
 import { sheetBoundarySegments } from "./sheet-layout.js";
 import { cutGeometry } from "./board-geometry.js";
 import { addDrainageToScene } from "./roof-drainage-three.js";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 export default function DesignerModel({
@@ -17,6 +19,10 @@ export default function DesignerModel({
   const host = useRef(),
     cameraMemory = useRef(null);
   const [error, setError] = useState(false);
+  const insulation = useMemo(
+    () => (layers.insulation ? calculateInsulation(p, r, { includeGeometry: true }) : null),
+    [p, r, layers.insulation],
+  );
   useEffect(() => {
     const el = host.current;
     if (!el) return;
@@ -216,6 +222,13 @@ export default function DesignerModel({
         mesh.castShadow = !faded;
         mesh.receiveShadow = true;
         mesh.userData = { type: "member", id: board.id };
+        if (board.role === "beamCourse") {
+          const outline = new THREE.LineSegments(
+            new THREE.EdgesGeometry(mesh.geometry),
+            new THREE.LineBasicMaterial({ color: "#7b6547", transparent: true, opacity: 0.55 }),
+          );
+          mesh.add(outline);
+        }
         scene.add(mesh);
         clickable.push(mesh);
         highest = Math.max(highest, a.y, b.y);
@@ -227,6 +240,38 @@ export default function DesignerModel({
               pt.z - bz,
             ),
           );
+      }
+      if (insulation) {
+        const material = new THREE.MeshStandardMaterial({
+          color: "#dbb963",
+          transparent: true,
+          opacity: 0.32,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          roughness: 1,
+        });
+        for (const assembly of insulation.assemblies) {
+          if (
+            layers[
+              assembly.type === "walls" || assembly.type === "partitions"
+                ? "walls"
+                : assembly.type === "floor"
+                  ? "floor"
+                  : "roof"
+            ] === false
+          )
+            continue;
+          const vertices = [];
+          for (const cell of assembly.netCells ?? [])
+            for (const face of cell)
+              for (let i = 2; i < face.length; i++)
+                for (const q of [face[0], face[i - 1], face[i]]) vertices.push(q[0] - bx, q[1], q[2] - bz);
+          const geometry = new THREE.BufferGeometry();
+          geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+          geometry.computeVertexNormals();
+          const mesh = new THREE.Mesh(geometry, material);
+          scene.add(mesh);
+        }
       }
       if (layers.sheathing && (r.sheetModel?.panels || r.bracingModel?.panels)) {
         let index = 0;
@@ -271,7 +316,12 @@ export default function DesignerModel({
           const sheetId = panel.stockSheetId ?? panel.id;
           if (!groupColors.has(sheetId)) groupColors.set(sheetId, index++);
           const material = new THREE.MeshStandardMaterial({
-            color: groupColors.get(sheetId) % 2 ? "#b8ab89" : "#c7b995",
+            color:
+              selected?.type === "sheet" && selected.id === panel.id
+                ? "#e39a5f"
+                : groupColors.get(sheetId) % 2
+                  ? "#b8ab89"
+                  : "#c7b995",
             transparent: true,
             opacity: 0.6,
             roughness: 1,
@@ -279,6 +329,12 @@ export default function DesignerModel({
             depthWrite: false,
           });
           const mesh = new THREE.Mesh(geometry, material);
+          mesh.userData = {
+            type: "sheet",
+            id: panel.id,
+            label: `${humanLabel(panel, { project: p, model: r.sheetModel })} · ${humanLabel(panel, { type: "product" })} · ${panel.thickness} мм`,
+          };
+          clickable.push(mesh);
           scene.add(mesh);
         }
         const boundaryPoints = sheetBoundarySegments(visiblePanels)
@@ -526,6 +582,19 @@ export default function DesignerModel({
         camera.position.fromArray(cameraMemory.current.position);
         controls.target.fromArray(cameraMemory.current.target);
       }
+      renderer.domElement.addEventListener("pointermove", (e) => {
+        const rect = renderer.domElement.getBoundingClientRect(),
+          ray = new THREE.Raycaster();
+        ray.setFromCamera(
+          new THREE.Vector2(
+            ((e.clientX - rect.left) / rect.width) * 2 - 1,
+            1 - ((e.clientY - rect.top) / rect.height) * 2,
+          ),
+          camera,
+        );
+        const label = ray.intersectObjects(clickable, false)[0]?.object.userData.label ?? "";
+        if (renderer.domElement.title !== label) renderer.domElement.title = label;
+      });
       let down;
       renderer.domElement.addEventListener("pointerdown", (e) => (down = [e.clientX, e.clientY]));
       renderer.domElement.addEventListener("pointerup", (e) => {
@@ -539,7 +608,7 @@ export default function DesignerModel({
           ),
           camera,
         );
-        const hit = ray.intersectObjects(clickable)[0];
+        const hit = ray.intersectObjects(clickable, false)[0];
         if (hit) onSelect(hit.object.userData);
       });
       resize = new ResizeObserver(() => {
@@ -582,7 +651,7 @@ export default function DesignerModel({
         resize?.disconnect();
       };
     }
-  }, [p, r, roofModel, selected, layers, fitKey, viewPreset]);
+  }, [p, r, roofModel, selected, layers, fitKey, viewPreset, insulation]);
   return (
     <div className="three-host" ref={host}>
       {error && <div className="webgl-error">Не удалось включить 3D. План и расчёты доступны.</div>}

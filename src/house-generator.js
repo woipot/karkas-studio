@@ -1,5 +1,5 @@
 import { resolveDressedProject } from "./lumber-standards.js";
-import { beamSection } from "./profiled-beam-catalog.js";
+import { beamSection, beamProfiles, beamMoistures, beamCornerJoints } from "./profiled-beam-catalog.js";
 import { floorDeckThickness } from "./sheet-catalog.js";
 import { defaultDesignerProject, parseSection, validateDesignerProject } from "./designer-engine.js";
 import { normalizeDesignerState } from "./designer-state.js";
@@ -268,6 +268,16 @@ function ridgeFor(polygons, defaults) {
 
 function prepare(spec) {
   if (!object(spec)) reject("spec", "Параметры генерации должны быть объектом.");
+  // Task assumption, catalog supplier dimensions (profiled-beam-catalog.js), not GOST sizing.
+  if (spec.wallSystem === "profiledBeam" && spec.beamSection === undefined)
+    spec = { ...spec, beamSection: "145x145" };
+  for (const [key, choices] of Object.entries({
+    beamProfile: beamProfiles,
+    beamMoisture: beamMoistures,
+    beamCornerJoint: beamCornerJoints,
+  }))
+    if (spec[key] !== undefined && !Object.hasOwn(choices, spec[key]))
+      reject(key, "Выберите параметр бруса из каталога.");
   for (const k of [
     "sections",
     "roof",
@@ -1135,7 +1145,15 @@ function build(ctx, strategy) {
         b: { ...levelPolygons[i][(j + 1) % levelPolygons[i].length] },
         kind: "exterior",
         ...(spec.wallSystem === "profiledBeam"
-          ? { system: "profiledBeam", beam: { section: spec.beamSection } }
+          ? {
+              system: "profiledBeam",
+              beam: {
+                section: spec.beamSection,
+                ...(spec.beamProfile ? { profile: spec.beamProfile } : {}),
+                ...(spec.beamMoisture ? { moisture: spec.beamMoisture } : {}),
+                ...(spec.beamCornerJoint ? { cornerJoint: spec.beamCornerJoint } : {}),
+              },
+            }
           : {}),
         section: sections.walls,
         studStep: ctx.studStep,

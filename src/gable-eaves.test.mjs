@@ -482,3 +482,38 @@ test("small edge tributaries are exact loads, never clamped to the requested lay
     r.loads.roofWeight,
   );
 });
+
+test("default standard heel: top chord rests on the bottom chord and runs on into the eave tail, no heel stubs", () => {
+  const p = fixture();
+  delete p.roof.heelClearance; // no explicit raised-heel request
+  const { roof, z } = run(p);
+  assert.equal(z.heelMode, "standard");
+  // Only chords and webs: no heel verticals, no support struts, no separate tail stubs.
+  assert.deepEqual([...new Set(roof.instances.map((b) => b.role))].sort(), [
+    "bottomChord",
+    "topChord",
+    "web",
+  ]);
+  for (let row = 0; row < z.trussRows.length; row++) {
+    const boards = roof.instances.filter((b) => b.trussRow === row),
+      bottom = boards.filter((b) => b.role === "bottomChord"),
+      top = boards.filter((b) => b.role === "topChord");
+    assert.equal(bottom.length, 1);
+    assert.equal(top.length, 2, "one continuous top chord per slope");
+    const [b] = bottom,
+      axisY = b.start[1];
+    near(Math.min(b.start[2], b.end[2]), 0.099, 1e-3);
+    near(Math.max(b.start[2], b.end[2]), 5.901, 1e-3);
+    for (const t of top) {
+      const [tail, ridge] =
+          Math.abs(t.start[2] - 2.95) > Math.abs(t.end[2] - 2.95) ? [t.start, t.end] : [t.end, t.start],
+        wallZ = tail[2] < 2.95 ? 0.099 : 5.901,
+        eave = tail[2] < 2.95 ? 0.619 : 0.519;
+      // the same board reaches the full eave overhang beyond the wall line…
+      near(Math.abs(tail[2] - wallZ), eave, 0.02);
+      // …and over the wall line its axis sits exactly one seat offset above the bottom chord axis
+      const y = tail[1] + ((ridge[1] - tail[1]) * (wallZ - tail[2])) / (ridge[2] - tail[2]);
+      near(y - axisY, z.heelHeight, 1e-3);
+    }
+  }
+});

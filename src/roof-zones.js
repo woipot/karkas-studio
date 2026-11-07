@@ -3,6 +3,30 @@ import { wallFrameSection } from "./profiled-beam-catalog.js";
 import { calculateSourceRoof } from "./source-roof.js";
 import { calculateTiedRafters } from "./tied-rafters.js";
 import { physicalTrussBoards, checkPhysicalTrussChords } from "./physical-truss.js";
+
+/**
+ * Physical geometry of a standard-heel truss: the analysis nodes (axes meeting at the supports) with
+ * every top-chord node lifted by the seat offset e = h_bottom/2 + h_top/(2·cos α), so the top chord
+ * rests on the end of the bottom chord and runs on as one board into the eave tail. No heel vertical,
+ * no extra support strut.
+ */
+function standardHeelGeometry(truss, e) {
+  const lift = new Map(),
+    nodes = truss.nodes.map((n) => {
+      const top = n.y > 1e-9;
+      if (top) lift.set(n.id, true);
+      return top ? { ...n, y: n.y + e } : { ...n };
+    });
+  const A = nodes.find((n) => n.id === "A"),
+    B = nodes.find((n) => n.id === "B");
+  nodes.push({ id: "HA", x: A.x, y: A.y + e }, { id: "HB", x: B.x, y: B.y + e });
+  const bars = truss.bars.map((b) =>
+    b.role === "top"
+      ? { ...b, nodeA: b.nodeA === "A" ? "HA" : b.nodeA, nodeB: b.nodeB === "B" ? "HB" : b.nodeB }
+      : { ...b },
+  );
+  return { ...truss, input: { ...truss.input, heelHeight: e, heelMode: "standard" }, nodes, bars };
+}
 import { deriveWallProfiles } from "./wall-profiles.js";
 import { calculateRafter } from "./rafters.js";
 import { buildRafterSupports } from "./rafter-supports.js";
@@ -790,7 +814,11 @@ export function calculateRoofZones(
       if (physicalGable && Math.abs(z.pitchLeft - z.pitchRight) > 0.001)
         throw Error("Свесы физической двускатной фермы пока требуют одинаковых уклонов слева и справа.");
       if (physicalGable) {
-        z.heelClearance = z.heelClearance ?? p.roof?.heelClearance ?? 0.2;
+        // Default: standard heel — the top chord bears directly on the end of the bottom chord and
+        // continues as one piece into the eave tail. A raised (energy) heel with a heel vertical and
+        // a support strut is built only when an explicit heelClearance > 0 is requested.
+        z.heelClearance = z.heelClearance ?? p.roof?.heelClearance ?? 0;
+        z.heelMode = z.heelClearance > 0 ? "raised" : "standard";
         if (!finite(z.heelClearance) || z.heelClearance < 0 || z.heelClearance > 1)
           throw Error("heelClearance: высота свободного пяточного зазора0…1м.");
         z.heelHeight =
@@ -1406,7 +1434,9 @@ export function calculateRoofZones(
               webB: web.b,
               webH: web.h,
               spacing: physicalGable ? z.analysisSpacing : z.actualSpacing,
-              heelHeight: physicalGable ? z.heelHeight : 0,
+              // Standard heel: chord axes meet at the support node (usual truss idealisation);
+              // the physical seat offset is applied to the boards below.
+              heelHeight: physicalGable && z.heelMode === "raised" ? z.heelHeight : 0,
               overhangLow: physicalGable ? overhangs.low : 0,
               overhangHigh: physicalGable ? overhangs.high : 0,
               ceilingDead: physicalGable ? z.ceilingLoadSplit.flatPressure : 0,
@@ -1557,7 +1587,11 @@ export function calculateRoofZones(
               spacing: widths[row],
               ceilingSpacing: ceilingWidths[row],
             }),
-            physical = rowAnalysis.physicalReference ?? physicalTrussBoards(rowAnalysis),
+            physical =
+              rowAnalysis.physicalReference ??
+              physicalTrussBoards(
+                z.heelMode === "standard" ? standardHeelGeometry(rowAnalysis, z.heelHeight) : rowAnalysis,
+              ),
             forceMap = new Map(rowAnalysis.bars.map((b) => [b.id, b.force]));
           for (const board of physical) {
             const a = toWorld(u, v0 + board.start.x, board.start.y + chord.h / 2000),

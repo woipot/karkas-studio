@@ -1,3 +1,4 @@
+import { floorDeckThickness } from "./sheet-catalog.js";
 import { prepareFloorContours } from "./floor-platform-contour.js";
 /** Physical platform framing. m / mm / kg. Transfer blocks can carry walls;
  * no transverse block is an extra vertical prop for a joist. */
@@ -1103,14 +1104,18 @@ export function buildFloorPlatform(
           coverageRatio: area > EPS ? Math.max(0, 1 - gap / area) : 0,
           uncoveredArea: gap,
           geometryComplete: gap < 1e-7,
-          deckThickness: 0.035,
+          deckThickness: floorDeckThickness(project),
           layerBasis: {
-            thickness: 0.035,
-            source: "legacy-platform-offset",
-            material: null,
+            thickness: floorDeckThickness(project),
+            source: project.sheathing?.floors ? "sheathing.floors" : "legacy-platform-offset",
+            material: project.sheathing?.floors?.product ?? null,
             structuralVerified: false,
-            visualRepresentation: "nominal deck solid; not fabricated timber",
-            massBasis: "included in supplied floorDead; no extra self weight",
+            visualRepresentation: project.sheathing?.floors
+              ? "sheetModel polygons"
+              : "nominal deck solid; not fabricated timber",
+            massBasis: project.sheathing?.floors
+              ? "sheetModel self weight; floorDead excludes deck"
+              : "included in supplied floorDead; no extra self weight",
           },
           wallBaseY: level.wallBaseY,
           framingTopY: level.baseY + section.h / 1000,

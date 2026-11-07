@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { annexSchema, doubleHeightConfigurationSchema } from "./project-features.mjs";
+import { annexSchema, doubleHeightConfigurationSchema, sheathingSchema } from "./project-features.mjs";
 import { analyzeEnvelope } from "../src/hygrothermal.js";
 import { compareFoundationOptions } from "../src/foundation-options.js";
 import { createReadOnlyPreview } from "./preview.mjs";
@@ -206,6 +206,7 @@ const generationSchema = z
       })
       .strict()
       .optional(),
+    sheathing: sheathingSchema.optional(),
     bracing: z
       .object({
         method: z.enum(["sheathing", "letIn", "none"]).optional(),
@@ -375,7 +376,19 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
   register(
     "karkas_import_project",
     "Импортировать полный проект schema version=2, включая произвольные стены, проёмы, объекты, этажи и зоны. Вход валидируется; расчёты выполняются до сохранения.",
-    z.object({ project: z.record(z.string(), z.unknown()) }).strict(),
+    z
+      .object({
+        project: z
+          .object({
+            sheathing: sheathingSchema.optional(),
+            prices: z
+              .object({ sheetPrices: z.record(z.string(), num(0, 1e9)).optional() })
+              .catchall(z.unknown())
+              .optional(),
+          })
+          .catchall(z.unknown()),
+      })
+      .strict(),
     (a) => engine.create(a.project),
     false,
   );
@@ -498,6 +511,7 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
             "foundation",
             "roof",
             "bracing",
+            "sheets",
             "rooms",
             "checks",
             "members",

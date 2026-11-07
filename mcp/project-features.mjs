@@ -1,3 +1,4 @@
+import { resolveSheet } from "../src/sheet-catalog.js";
 import * as z from "zod/v4";
 const num = (lo, hi) => z.number().finite().min(lo).max(hi);
 const id = z.string().min(1).max(120);
@@ -168,5 +169,29 @@ export const doubleHeightConfigurationSchema = z
     staircase: staircaseSchema.optional(),
     spatialLayout: spatialLayoutSchema.optional(),
     replaceVoidIds: z.array(id).max(100).optional(),
+  })
+  .strict();
+
+const sheetSelectionSchema = z.object({ product: id, thickness: num(0.1, 100) }).strict();
+export const sheathingSchema = z
+  .object({
+    cutting: z
+      .object({
+        kerf: z.number().finite().nonnegative().optional(),
+        minReusable: z.number().finite().nonnegative().optional(),
+      })
+      .strict()
+      .optional(),
+    walls: sheetSelectionSchema
+      .extend({ side: z.enum(["exterior", "interior", "both"]) })
+      .strict()
+      .refine((s) => !!resolveSheet(s), "Выберите продукт и толщину из каталога листов.")
+      .optional(),
+    floors: sheetSelectionSchema
+      .refine((s) => !!resolveSheet(s), "Выберите продукт и толщину из каталога листов.")
+      .optional(),
+    roof: sheetSelectionSchema
+      .refine((s) => !!resolveSheet(s), "Выберите продукт и толщину из каталога листов.")
+      .optional(),
   })
   .strict();

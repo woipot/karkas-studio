@@ -1458,10 +1458,20 @@ export function MaterialsView({ report }) {
     current = Math.min(page, pages);
   const sheets = useMemo(() => {
     const map = new Map();
-    for (const panel of r.bracingModel?.panels ?? []) {
+    for (const panel of r.sheetModel?.panels ?? r.bracingModel?.panels ?? []) {
       const id = panel.stockSheetId ?? panel.id,
-        group = map.get(id) ?? { id, wallId: panel.wallId, level: panel.level, area: 0 };
+        group = map.get(id) ?? {
+          id,
+          wallId: panel.wallId,
+          level: panel.level,
+          area: 0,
+          mass: 0,
+          product: panel.product,
+          thickness: panel.thickness,
+          kind: panel.surfaceKind ?? "walls",
+        };
       group.area += panel.area ?? 0;
+      group.mass += panel.mass ?? 0;
       map.set(id, group);
     }
     return [...map.values()];
@@ -1484,7 +1494,11 @@ export function MaterialsView({ report }) {
         <Counter label="Древесина в модели" value={fmt(r.timber.volume, 3)} unit="м³" />
         <Counter label="Масса древесины" value={fmt(r.timber.mass, 0)} unit="кг" />
         <Counter label="Плиты к закупке" value={sheets.length} unit="листов" />
-        <Counter label="Масса плит" value={fmt(r.bracingModel?.quantities?.panelMass, 0)} unit="кг" />
+        <Counter
+          label="Масса плит"
+          value={fmt(r.sheetModel?.mass ?? r.bracingModel?.quantities?.panelMass, 0)}
+          unit="кг"
+        />
       </div>
       <div className="engine-filter-tabs">
         <button className={subtab === "boards" ? "active" : ""} onClick={() => setSubtab("boards")}>
@@ -1543,22 +1557,48 @@ export function MaterialsView({ report }) {
         </>
       ) : (
         <div className="engine-table-card">
+          {(r.sheetModel?.purchases ?? []).map((item) => (
+            <p key={item.id} style={{ padding: "0 14px" }}>
+              <strong>
+                {item.product} · {item.thickness} мм
+              </strong>
+              : {item.count} листов (целых {item.fullCount}, с подрезкой {item.cutCount}) · {fmt(item.mass)}{" "}
+              кг · отход {fmt(item.wastePercent)}%
+            </p>
+          ))}
           <table>
             <thead>
               <tr>
                 <th>Лист</th>
-                <th>Стена</th>
-                <th>Этаж</th>
-                <th>Чистая площадь</th>
+                <th>Поверхность</th>
+                <th>Материал / толщина</th>
+                <th>Чистая площадь / масса</th>
               </tr>
             </thead>
             <tbody>
               {sheets.slice((sheetCurrent - 1) * 20, sheetCurrent * 20).map((sheet, i) => (
                 <tr key={sheet.id}>
                   <td title={sheet.id}>Лист {(sheetCurrent - 1) * 20 + i + 1}</td>
-                  <td>Стена {report.project.walls.findIndex((w) => w.id === sheet.wallId) + 1}</td>
-                  <td>{sheet.level}</td>
-                  <td>{fmt(sheet.area, 3)} м²</td>
+                  <td>
+                    {sheet.kind === "walls"
+                      ? `Стена ${report.project.walls.findIndex((w) => w.id === sheet.wallId) + 1}`
+                      : sheet.kind === "roof"
+                        ? "Кровля"
+                        : `Перекрытие ${sheet.level}`}
+                  </td>
+                  <td>
+                    {sheet.product?.startsWith("osb3")
+                      ? "ОСП-3"
+                      : sheet.product?.startsWith("plywood-fk")
+                        ? "Фанера ФК"
+                        : sheet.product
+                          ? "Фанера ФСФ"
+                          : "Прежняя обшивка"}{" "}
+                    · {sheet.thickness} мм<small>{sheet.product}</small>
+                  </td>
+                  <td>
+                    {fmt(sheet.area, 3)} м² / {fmt(sheet.mass)} кг
+                  </td>
                 </tr>
               ))}
             </tbody>

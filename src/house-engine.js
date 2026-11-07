@@ -1,3 +1,4 @@
+import { sheetProducts, sheetSources } from "./sheet-catalog.js";
 import { analyzeSnowCases } from "./snow-envelope.js";
 import { analyzeEnvelope } from "./hygrothermal.js";
 import { compareFoundationOptions } from "./foundation-options.js";
@@ -93,12 +94,12 @@ export function evaluateHouse(project, planning = {}) {
     base = calculateDesigner(p);
   let roofModel = calculateRoofZones(p, base);
   let calculated = calculateDesigner(p, { roofModel });
-  if (
-    p.auxiliaryTimber?.enabled &&
-    Object.keys(calculated.auxiliaryTimber?.roofExtraDeadByZone ?? {}).length
-  ) {
+  const extraRoofDead = { ...calculated.auxiliaryTimber?.roofExtraDeadByZone };
+  for (const [id, pressure] of Object.entries(calculated.sheetModel?.roofExtraDeadByZone ?? {}))
+    extraRoofDead[id] = (extraRoofDead[id] ?? 0) + pressure;
+  if (Object.keys(extraRoofDead).length) {
     roofModel = calculateRoofZones(p, base, {
-      roofExtraDeadByZone: calculated.auxiliaryTimber.roofExtraDeadByZone,
+      roofExtraDeadByZone: extraRoofDead,
       ceilingExtraDeadByZone: calculated.auxiliaryTimber.ceilingExtraDeadByZone,
     });
     calculated = calculateDesigner(p, { roofModel });
@@ -375,6 +376,7 @@ const allowedRoots = new Set([
   "loads",
   "foundation",
   "bracing",
+  "sheathing",
   "joints",
   "boardCuts",
   "cutting",
@@ -451,6 +453,8 @@ export function engineCatalog() {
     },
     sections: timberSections,
     note: sectionCatalogNote,
+    sheetProducts,
+    sheetSources,
     stockLength: 6,
     parameterGuide: {
       sourceRoof: {
@@ -991,6 +995,9 @@ export function createHouseEngine({
           break;
         case "checks":
           data = r.checks;
+          break;
+        case "sheets":
+          data = r.sheetModel;
           break;
         case "members":
           data = r.timber.instances;

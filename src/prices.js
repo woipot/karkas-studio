@@ -1,3 +1,4 @@
+import { sheetProducts } from "./sheet-catalog.js";
 // Editable demonstration inputs, not market quotes.
 export const defaultPrices = Object.freeze({
   timberM3: 34000,
@@ -18,3 +19,15 @@ export const defaultPrices = Object.freeze({
   contingencyPercent: 10,
   sectionPrices: Object.freeze({}),
 });
+
+// Illustrative RUB/sheet inputs, not verified market prices or normative constants.
+// Reference budget: OSB 2500×1250×12 = 1500 RUB, plywood = 2500 RUB per same
+// volume; linear scaling is solely a replaceable estimating assumption.
+export const defaultSheetPrices = Object.fromEntries(
+  sheetProducts.flatMap((p) =>
+    p.thicknesses.map((t) => [
+      `${p.id}-${t}`,
+      Math.round(((((p.material === "osb3" ? 1500 : 2500) * p.width * p.length) / 3.125) * t) / 12),
+    ]),
+  ),
+);

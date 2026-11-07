@@ -123,13 +123,24 @@ test("physical sheathing area excludes a window, sheet identity is not fragment 
     m = buildWallBracing(p, result);
   near(m.quantities.sheetArea, 6 * 2.8 - 1.2 * 1.2);
   near(m.quantities.panelMass, m.quantities.sheetArea * 0.012 * 650);
-  assert.equal(m.quantities.sheets, new Set(m.panels.map((x) => x.stockSheetId)).size);
+  // Five 1.2×2.5 blanks need 5 sheets; five 1.2×0.3 top strips fit sheet 6:
+  // 5×0.3 + 5×0.003 = 1.515 m, leaving 0.985×1.25 = 1.23125 m².
+  // The 1.2×1.2 opening changes net mass, not the six rectangular stock blanks.
+  assert.equal(m.quantities.sheets, 6);
+  assert.equal(m.quantities.installationParts, 10);
+  assert.equal(m.quantities.sheets, new Set(m.panels.map((x) => x.purchaseSheetId)).size);
+  near(m.quantities.purchasedSheetArea, 18.75);
+  near(m.quantities.reusableArea, 1.23125);
+  near(m.quantities.wasteArea, 2.15875);
   assert.ok(m.panels.length > m.quantities.sheets);
   for (const panel of m.panels)
     for (const q of panel.localPolygon)
       assert.ok(!(q.x > 2.4 + 1e-7 && q.x < 3.6 - 1e-7 && q.y > 1.805 + 1e-7 && q.y < 3.005 - 1e-7));
   near(m.quantities.purchasedSheetArea, m.quantities.sheets * 1.25 * 2.5);
-  near(m.quantities.wasteArea, m.quantities.purchasedSheetArea - m.quantities.sheetArea);
+  near(
+    m.quantities.wasteArea + m.quantities.reusableArea,
+    m.quantities.purchasedSheetArea - m.quantities.sheetArea,
+  );
 });
 
 test("real horizontal panel seams receive blocking cut between existing stud faces", () => {

@@ -1,3 +1,4 @@
+import { sheetBoundarySegments } from "./sheet-layout.js";
 import { cutGeometry } from "./board-geometry.js";
 import { addDrainageToScene } from "./roof-drainage-three.js";
 import React, { useEffect, useRef, useState } from "react";
@@ -227,15 +228,43 @@ export default function DesignerModel({
             ),
           );
       }
-      if (layers.sheathing && layers.walls !== false && r.bracingModel?.panels) {
+      if (layers.sheathing && (r.sheetModel?.panels || r.bracingModel?.panels)) {
         let index = 0;
         const groupColors = new Map();
-        for (const panel of r.bracingModel.panels) {
+        const visiblePanels = (r.sheetModel?.panels ?? r.bracingModel.panels).filter((panel) => {
+          const kind = panel.surfaceKind ?? "walls";
+          return layers[kind === "floors" ? "floor" : kind] !== false;
+        });
+        for (const panel of visiblePanels) {
           const polygon = panel.polygon ?? panel.polygonXYZ ?? [];
           if (polygon.length < 3) continue;
           const verts = [];
-          for (let j = 2; j < polygon.length; j++)
-            for (const q of [polygon[0], polygon[j - 1], polygon[j]]) verts.push(q[0] - bx, q[1], q[2] - bz);
+          const a = new THREE.Vector3(...polygon[0]);
+          const normal = new THREE.Vector3(...polygon[1])
+            .sub(a)
+            .cross(new THREE.Vector3(...polygon[2]).sub(a))
+            .normalize();
+          const half = panel.thickness / 2000;
+          const put = (q, sign) =>
+            verts.push(
+              q[0] - bx + normal.x * half * sign,
+              q[1] + normal.y * half * sign,
+              q[2] - bz + normal.z * half * sign,
+            );
+          for (let j = 2; j < polygon.length; j++) {
+            for (const q of [polygon[0], polygon[j - 1], polygon[j]]) put(q, 1);
+            for (const q of [polygon[0], polygon[j], polygon[j - 1]]) put(q, -1);
+          }
+          for (let j = 0; j < polygon.length; j++) {
+            const q = polygon[j],
+              z = polygon[(j + 1) % polygon.length];
+            put(q, 1);
+            put(q, -1);
+            put(z, -1);
+            put(q, 1);
+            put(z, -1);
+            put(z, 1);
+          }
           const geometry = new THREE.BufferGeometry();
           geometry.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
           geometry.computeVertexNormals();
@@ -244,7 +273,7 @@ export default function DesignerModel({
           const material = new THREE.MeshStandardMaterial({
             color: groupColors.get(sheetId) % 2 ? "#b8ab89" : "#c7b995",
             transparent: true,
-            opacity: 0.34,
+            opacity: 0.6,
             roughness: 1,
             side: THREE.DoubleSide,
             depthWrite: false,
@@ -252,6 +281,14 @@ export default function DesignerModel({
           const mesh = new THREE.Mesh(geometry, material);
           scene.add(mesh);
         }
+        const boundaryPoints = sheetBoundarySegments(visiblePanels)
+          .flatMap((edge) => [edge.a, edge.b])
+          .map((q) => new THREE.Vector3(q[0] - bx, q[1], q[2] - bz));
+        const outlines = new THREE.LineSegments(
+          new THREE.BufferGeometry().setFromPoints(boundaryPoints),
+          new THREE.LineBasicMaterial({ color: "#65573e", transparent: true, opacity: 0.65 }),
+        );
+        scene.add(outlines);
       }
       if (layers.piles !== false) {
         const mat = new THREE.MeshStandardMaterial({ color: "#607255", roughness: 0.8 });
@@ -319,7 +356,7 @@ export default function DesignerModel({
         for (const level of r.geometry.levels || [
           { closed: true, polygon: r.geometry.polygon, wallBaseY: 0.72 + r.timber.platformHeight, index: 1 },
         ]) {
-          if (!level.closed) continue;
+          if (!level.closed || p.sheathing?.floors) continue;
           const shape = new THREE.Shape(
             (level.platformPolygon ?? level.polygon).map((pt) => new THREE.Vector2(pt.x - bx, -pt.y + bz)),
           );

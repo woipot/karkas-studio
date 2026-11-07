@@ -8,7 +8,7 @@
   <img alt="MCP SDK 2.4" src="https://img.shields.io/badge/MCP_SDK-2.4-252d28?style=flat-square">
   <img alt="React 19" src="https://img.shields.io/badge/React-19-149eca?style=flat-square&logo=react&logoColor=white">
   <img alt="three.js" src="https://img.shields.io/badge/three.js-0.180-000000?style=flat-square&logo=threedotjs&logoColor=white">
-  <img alt="tests" src="https://img.shields.io/badge/tests-581_passing-4c9a2a?style=flat-square">
+  <img alt="tests" src="https://img.shields.io/badge/tests-697_passing-4c9a2a?style=flat-square">
 </p>
 
 <p align="center">
@@ -91,7 +91,7 @@ flowchart LR
 git clone https://github.com/woipot/karkas-studio.git
 cd karkas-studio
 npm ci
-npm test          # 581 тест: аналитические эталоны, геометрия, раскрой, MCP-клиент
+npm test          # 697 тестов: аналитические эталоны, геометрия, раскрой, MCP-клиент
 npm run dev       # веб-просмотрщик с примерами проектов
 ```
 
@@ -218,6 +218,15 @@ npm run demo
 При конфликте возвращается `REVISION_CONFLICT` с актуальным номером ревизии.
 
 </details>
+
+## Материалы: листы, утеплитель, профилированный брус
+
+- **Листовая обшивка.** ОСП-3 (2500×1250, 2440×1220, 2800×1250; 9–22 мм) и берёзовая фанера ФК/ФСФ (1525×1525 и большие форматы). Листы раскладываются на стены, пол и кровлю со швами на элементах каркаса. Раскрой листов идёт по всему дому с пропилом и переиспользованием обрезков, формат выбирается по стоимости для каждой пары «материал + толщина».
+- **Утеплитель.** Чистый объём: брутто − проёмы − древесина каркаса внутри слоя. Закупка упаковками.
+- **Профилированный брус** (`walls[].system = "profiledBeam"`). Венцы, нагели, джут, обсада и усадочные зазоры, проверки смятия и перемычек, раскрой, смета.
+- **Сечения пиломатериалов** сверены с ГОСТ 24454-80. Нестандартные и редкие размеры дают предупреждение.
+
+<p align="center"><img src="docs/assets/frame-vs-profiled-beam.svg" alt="Дом 10×8: каркас + ОСП против профилированного бруса" width="100%"></p>
 
 ## Примеры проектов
 

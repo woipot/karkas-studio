@@ -1,3 +1,4 @@
+import { materialTextureAssumptions } from "./material-textures.js";
 import { runEngine } from "./engine-client.js";
 import { SheetMaterials, ProfiledBeamMaterials } from "./sheet-materials-view.jsx";
 import { sheetMapData } from "./materials-data.js";
@@ -50,6 +51,7 @@ const defaultLayers = {
   piles: true,
   surfaces: false,
   sheathing: false,
+  sheetTransparent: false,
   insulation: false,
   drainage: false,
   stairs: true,
@@ -938,6 +940,8 @@ export function Overview({ report }) {
       const query = new URLSearchParams(window.location.search).get("layers")?.split(",") ?? [];
       return {
         ...defaultLayers,
+        // Plywood demo opens the roof in the viewer so its floor face is visible.
+        roof: new URLSearchParams(window.location.search).get("demo") !== "frame-plywood",
         space: hasSpaces,
         sheathing: query.includes("sheets"),
         insulation: query.includes("insulation"),
@@ -968,6 +972,7 @@ export function Overview({ report }) {
     ["piles", "Сваи"],
     ["bracing", "Связи"],
     ["sheathing", "Листы"],
+    ["sheetTransparent", "Листы: прозрачно"],
     ["insulation", "Утеплитель"],
     ["surfaces", "Скаты"],
     ["space", "Объём второго света"],
@@ -2008,7 +2013,14 @@ export function readReport(data) {
     foundation: data.project.foundation ?? {},
     roof: data.project.roof ?? {},
   };
-  return { ...data, project: p };
+  return {
+    ...data,
+    project: p,
+    result: {
+      ...data.result,
+      assumptions: [...new Set([...(data.result.assumptions ?? []), ...materialTextureAssumptions])],
+    },
+  };
 }
 
 export function EngineViewer() {
@@ -2059,6 +2071,9 @@ function MaterialDemo({ demo }) {
         <div className="engine-top-actions">
           <a className="engine-top-button" href="/?demo=frame-osb&tab=materials">
             Каркас + ОСП
+          </a>
+          <a className="engine-top-button" href="/?demo=frame-plywood&tab=overview&layers=sheets,insulation">
+            Каркас + фанера
           </a>
           <a className="engine-top-button" href="/?demo=beam&tab=materials">
             Брус + ОСП

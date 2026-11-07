@@ -1,3 +1,4 @@
+import { resolveDressedProject } from "./lumber-standards.js";
 import { loadFactors, loadProfile, snowBasis, snowShapeMu } from "./load-profile.js";
 import { solveUniformOverhangBeam } from "./rafters.js";
 import { adaptCeilingToPartitions } from "./ceiling-partitions.js";
@@ -76,7 +77,10 @@ export function buildAuxiliaryTimber(project, result = {}) {
   const supplied = project?.auxiliaryTimber;
   if (supplied !== undefined && !object(supplied))
     invalid("auxiliaryTimber", "Нужен объект параметров вспомогательной древесины.");
-  const p = { ...auxiliaryTimberDefaults, ...supplied },
+  const p = resolveDressedProject({
+      material: project.material,
+      auxiliaryTimber: { ...auxiliaryTimberDefaults, ...supplied },
+    }).auxiliaryTimber,
     out = {
       enabled: p.enabled,
       instances: [],

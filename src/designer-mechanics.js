@@ -1,3 +1,4 @@
+import { resolveDressedProject } from "./lumber-standards.js";
 /** Preliminary member checks for Designer. No hidden stiffness credit for splices. */
 import { solveFloorWallBeam } from "./floor-wall-loads.js";
 import { memberLoadProject } from "./load-profile.js";
@@ -71,6 +72,7 @@ export function logicalMembers(instances, role) {
 }
 
 export function checkDesignerMembers(p, r) {
+  p = resolveDressedProject(p);
   // Without explicit γG/γQ overrides the SP 20 load profile supplies equivalent factors and w0·k(ze).
   if (
     p?.loads &&

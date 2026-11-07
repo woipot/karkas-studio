@@ -50,6 +50,12 @@ const loads = z
   .strict();
 const material = z
   .object({
+    dressed: z
+      .boolean()
+      .optional()
+      .describe(
+        "Профиль готовых размеров: 50×100/150/200/250 → 45×95/145/195/240; прочие размеры уже фактические.",
+      ),
     density: num(100, 1500).optional(),
     E: num(1000, 30000).optional(),
     Emin: num(500, 30000).optional(),

@@ -1,3 +1,9 @@
+import {
+  classifySection,
+  projectSections,
+  resolveDressedProject,
+  lumberAssumptions,
+} from "./lumber-standards.js";
 import { validateSourceRoofModel } from "./source-roof.js";
 import { buildAuxiliaryTimber } from "./auxiliary-timber.js";
 import { buildAnnexes, validateAnnexes, sharedAnnexGrillageLines } from "./annexes.js";
@@ -257,6 +263,12 @@ export function validateDesignerProject(input) {
       warnings,
     };
   const p = normalized(input);
+  if (p.material?.dressed !== undefined && typeof p.material.dressed !== "boolean")
+    error("material.dressed", "material.dressed: требуется логическое значение.");
+  for (const { field, id } of projectSections(p)) {
+    const standard = classifySection(id);
+    if (!standard.gost) warnings.push(`${field}: ${id}. ${standard.note} ${standard.source}`);
+  }
   const range = (v, min, max, key) => {
     if (!finite(v) || v < min || v > max) error(key, `${key}: требуется конечное число от ${min} до ${max}.`);
   };
@@ -2711,7 +2723,7 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
     e.validation = validation;
     throw e;
   }
-  const p = normalized(clone(input)),
+  const p = resolveDressedProject(normalized(clone(input))),
     warnings = [...validation.warnings],
     levelModels = deriveLevels(p),
     base = levelModels[0],
@@ -3067,6 +3079,7 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
         `Контур ${level.index} этажа выходит за основание: консоли и передаточные конструкции не рассчитаны.`,
       );
   const assumptions = [
+    ...lumberAssumptions(input),
     "Концептуальная геометрия и распределение нагрузок, не нормативный рабочий проект и не метод конечных элементов.",
     "Стены заданы осями. Площадь по осям внешнего контура — общая геометрическая площадь, не чистая полезная площадь.",
     "height/levels[].height — высота стенового каркаса. baseY — низ платформы, wallBaseY — верх настила, topY — верх стен; следующий этаж начинается на topY предыдущего. Стены с level заданы независимо, без level — миграционно повторяются по этажам.",

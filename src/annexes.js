@@ -1,3 +1,4 @@
+import { resolveDressedProject } from "./lumber-standards.js";
 import {
   loadFactors,
   loadProfile,
@@ -101,7 +102,7 @@ export function annexDefaults(project = {}) {
       beamSection: "98x248",
       beamPlies: 1,
       postSection: "98x98",
-      battenSection: "50x100",
+      battenSection: resolveDressedProject({ material: project.material, section: "50x100" }).section,
       battenStep: 0.6,
       overhangs: { low: 0.3, high: 0, start: 0.2, end: 0.2 },
     },

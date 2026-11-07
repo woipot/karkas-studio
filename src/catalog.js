@@ -1,3 +1,5 @@
+import { classifySection } from "./lumber-standards.js";
+
 /**
  * Assortment of nominal timber sizes, mm. This is not a universal standard,
  * grading specification, availability guarantee or strength classification.
@@ -34,6 +36,7 @@ export const timberSections = sizes.map(([b, h, category, usage]) =>
     label: `${b} × ${h} мм`,
     usage,
     category,
+    standard: Object.freeze(classifySection(`${b}x${h}`)),
     volumePerMeter: (b * h) / 1e6,
   }),
 );

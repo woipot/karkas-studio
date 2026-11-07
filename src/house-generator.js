@@ -1,3 +1,4 @@
+import { resolveDressedProject } from "./lumber-standards.js";
 import { defaultDesignerProject, parseSection, validateDesignerProject } from "./designer-engine.js";
 import { normalizeDesignerState } from "./designer-state.js";
 import { autoRoofZones } from "./roof-zones.js";
@@ -239,7 +240,7 @@ function joistAxisFor(poly) {
 }
 /** Joist span target from serviceability L/300 of a simply supported joist; a pre-sizing screen only. */
 function joistSpanTarget(sectionName, spacing, loads, material) {
-  const s = parseSection(sectionName),
+  const s = parseSection(resolveDressedProject({ material, section: sectionName }).section),
     q = ((loads.floorDead ?? 0.6) + (loads.live ?? 1.5)) * spacing, // kN/m = N/mm
     E = material.E ?? 10000,
     I = (s.b * s.h ** 3) / 12,

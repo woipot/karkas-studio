@@ -1,3 +1,4 @@
+import { resolveDressedProject } from "./lumber-standards.js";
 import { calculateSourceRoof } from "./source-roof.js";
 import { calculateTiedRafters } from "./tied-rafters.js";
 import { physicalTrussBoards, checkPhysicalTrussChords } from "./physical-truss.js";
@@ -511,6 +512,7 @@ export function calculateRoofZones(
   baseResult,
   { autoOrient = true, roofExtraDeadByZone = {}, ceilingExtraDeadByZone = {} } = {},
 ) {
+  p = resolveDressedProject(p);
   if (p.roof?.sourceModel !== undefined) return calculateSourceRoof(p);
   const r = baseResult ?? {},
     geometry = r.geometry ?? {},
@@ -1292,6 +1294,12 @@ export function calculateRoofZones(
         const candidates = [
           { id: z.chordSection, b: chord.b, h: chord.h },
           ...timberSections
+            .filter((q) => q.standard.gost || q.standard.market === "common")
+            .map((q) => {
+              const actual = resolveDressedProject({ material: p.material, section: q.id }).section;
+              const size = sec(actual);
+              return { ...q, id: actual, ...size };
+            })
             .filter((q) => q.category === "board" && q.b === chord.b && q.h > chord.h && q.h <= 250)
             .sort((a, b) => a.h - b.h),
         ];

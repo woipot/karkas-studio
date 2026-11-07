@@ -1,3 +1,4 @@
+import { resolveDressedProject } from "./lumber-standards.js";
 import { analyzeSnowCases } from "./snow-envelope.js";
 import { analyzeEnvelope } from "./hygrothermal.js";
 import { compareFoundationOptions } from "./foundation-options.js";
@@ -89,7 +90,8 @@ function validated(project) {
 }
 export function evaluateHouse(project, planning = {}) {
   const sourcePlanning = planning;
-  const p = validated(project),
+  const revisionProject = validated(project),
+    p = resolveDressedProject(revisionProject),
     base = calculateDesigner(p);
   let roofModel = calculateRoofZones(p, base);
   let calculated = calculateDesigner(p, { roofModel });
@@ -333,7 +335,7 @@ export function evaluateHouse(project, planning = {}) {
       name: "КАРКАС ENGINE",
       version: ENGINE_VERSION,
       schemaVersion: "1.0",
-      hash: modelHash({ project: p, planning: sourcePlanning }),
+      hash: modelHash({ project: revisionProject, planning: sourcePlanning }),
       hashBasis:
         "SHA256 of canonical {project, planning: sourcePlanning}; derived planning and calculation outputs are not revision inputs.",
       units: {
@@ -346,7 +348,7 @@ export function evaluateHouse(project, planning = {}) {
       },
       generatedAt: new Date().toISOString(),
     },
-    project: p,
+    project: revisionProject,
     sourcePlanning: clone(sourcePlanning),
     planning,
     result,

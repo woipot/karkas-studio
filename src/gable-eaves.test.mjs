@@ -1,34 +1,519 @@
-import test from'node:test';import assert from'node:assert/strict';
-import{buildTruss}from'./trusses.js';import{physicalTrussBoards}from'./physical-truss.js';import{calculateRoofZones}from'./roof-zones.js';import{calculateDesigner,defaultDesignerProject}from'./designer-engine.js';import{calculateCutting}from'./cutting.js';import{cutGeometry}from'./board-geometry.js';
-const sum=a=>a.reduce((s,x)=>s+x,0),G=9.80665,near=(a,b,t=1e-6)=>assert.ok(Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<t,`${a} != ${b}`),cross=(a,b,c)=>(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x),signed=p=>sum(p.map((a,i)=>a.x*p[(i+1)%p.length].y-p[(i+1)%p.length].x*a.y))/2;
-function fixture(){const p=structuredClone(defaultDesignerProject),poly=[{x:.099,y:.099},{x:7.901,y:.099},{x:7.901,y:5.901},{x:.099,y:5.901}];p.walls=poly.map((a,i)=>({id:'W'+i,a,b:poly[(i+1)%4],level:1,kind:'exterior',section:'48x198',studStep:.6}));p.openings=[];p.bracing.method='none';p.floor.section='48x248';p.foundation={spacing:1.8,capacity:80,grillage:{section:'75x248',plies:3,capSize:250,deflectionRatio:300}};p.auxiliaryTimber={enabled:true,roofInterior:false,ceilingBattens:true,ceilingSection:'45x45',roofBattens:'50x100',roofAboveRafterGap:0};p.roof={type:'fink',pitch:25,spacing:.6,chordSection:'50x200',webSection:'50x100',heelClearance:.3,ceilingDead:.26,zones:[{id:'G',name:'Gable',polygon:poly,shape:'gable',ridgeAngle:0,pitchLeft:25,pitchRight:25,framing:'truss',trussType:'fink',spacing:.6,chordSection:'50x200',webSection:'50x100',overhangs:{low:.619,high:.519,start:.519,end:.519}}]};p.loads={...p.loads,snow:2.75,roofDead:.55,gammaG:1.35,gammaQ:1.5,wallDead:0,openingDead:0};p.material={...p.material,E:11000,Emin:7400,density:450,Fb:14.77,Fv:2.46,Ft:8.62,Fc:12.92};return p;}
-function run(p){const base=calculateDesigner(p),roof0=calculateRoofZones(p,base),r0=calculateDesigner(p,{roofModel:roof0}),roof=calculateRoofZones(p,base,{roofExtraDeadByZone:r0.auxiliaryTimber.roofExtraDeadByZone,ceilingExtraDeadByZone:r0.auxiliaryTimber.ceilingExtraDeadByZone}),r=calculateDesigner(p,{roofModel:roof});return{base,roof,r,z:roof.zones[0]};}
-function hull(points){const p=points.sort((a,b)=>a.x-b.x||a.y-b.y),half=p=>{const h=[];for(const q of p){while(h.length>1&&cross(h.at(-2),h.at(-1),q)<=1e-9)h.pop();h.push(q);}return h;};return half(p).slice(0,-1).concat(half([...p].reverse()).slice(0,-1));}
-function overlap(A,B){let p=A;for(let j=0;j<B.length&&p.length>=3;j++){const a=B[j],b=B[(j+1)%B.length],next=[];for(let i=0;i<p.length;i++){const q=p[i],r=p[(i+1)%p.length],f=cross(a,b,q),g=cross(a,b,r);if(f>=0)next.push(q);if((f>=0)!==(g>=0)){const t=f/(f-g);next.push({x:q.x+(r.x-q.x)*t,y:q.y+(r.y-q.y)*t});}}p=next;}return p.length>=3?Math.abs(signed(p)):0;}
-function projectedMesh(b){const geo=cutGeometry(b),pos=geo.attributes.position,d=b.end.map((x,i)=>(x-b.start[i])/b.length),x=b.crossAxis,z=[x[1]*d[2]-x[2]*d[1],x[2]*d[0]-x[0]*d[2],x[0]*d[1]-x[1]*d[0]],points=[];for(let i=0;i<pos.count;i++){const q=b.start.map((v,j)=>(v+b.end[j])/2+x[j]*pos.getX(i)+d[j]*pos.getY(i)+z[j]*pos.getZ(i));points.push({x:q[2],y:q[1]});}geo.dispose();return hull(points);}
+import test from "node:test";
+import { snowShapeMu } from "./load-profile.js";
+import assert from "node:assert/strict";
+import { buildTruss } from "./trusses.js";
+import { physicalTrussBoards } from "./physical-truss.js";
+import { calculateRoofZones } from "./roof-zones.js";
+import { calculateDesigner, defaultDesignerProject } from "./designer-engine.js";
+import { calculateCutting } from "./cutting.js";
+import { cutGeometry } from "./board-geometry.js";
+const sum = (a) => a.reduce((s, x) => s + x, 0),
+  G = 9.80665,
+  near = (a, b, t = 1e-6) =>
+    assert.ok(Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < t, `${a} != ${b}`),
+  cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x),
+  signed = (p) => sum(p.map((a, i) => a.x * p[(i + 1) % p.length].y - p[(i + 1) % p.length].x * a.y)) / 2;
+function fixture() {
+  const p = structuredClone(defaultDesignerProject),
+    poly = [
+      { x: 0.099, y: 0.099 },
+      { x: 7.901, y: 0.099 },
+      { x: 7.901, y: 5.901 },
+      { x: 0.099, y: 5.901 },
+    ];
+  p.walls = poly.map((a, i) => ({
+    id: "W" + i,
+    a,
+    b: poly[(i + 1) % 4],
+    level: 1,
+    kind: "exterior",
+    section: "48x198",
+    studStep: 0.6,
+  }));
+  p.openings = [];
+  p.bracing.method = "none";
+  p.floor.section = "48x248";
+  p.foundation = {
+    spacing: 1.8,
+    capacity: 80,
+    grillage: { section: "75x248", plies: 3, capSize: 250, deflectionRatio: 300 },
+  };
+  p.auxiliaryTimber = {
+    enabled: true,
+    roofInterior: false,
+    ceilingBattens: true,
+    ceilingSection: "45x45",
+    roofBattens: "50x100",
+    roofAboveRafterGap: 0,
+  };
+  p.roof = {
+    type: "fink",
+    pitch: 25,
+    spacing: 0.6,
+    chordSection: "50x200",
+    webSection: "50x100",
+    heelClearance: 0.3,
+    ceilingDead: 0.26,
+    zones: [
+      {
+        id: "G",
+        name: "Gable",
+        polygon: poly,
+        shape: "gable",
+        ridgeAngle: 0,
+        pitchLeft: 25,
+        pitchRight: 25,
+        framing: "truss",
+        trussType: "fink",
+        spacing: 0.6,
+        chordSection: "50x200",
+        webSection: "50x100",
+        overhangs: { low: 0.619, high: 0.519, start: 0.519, end: 0.519 },
+      },
+    ],
+  };
+  p.loads = {
+    ...p.loads,
+    snow: 2.75,
+    roofDead: 0.55,
+    gammaG: 1.35,
+    gammaQ: 1.5,
+    wallDead: 0,
+    openingDead: 0,
+  };
+  p.material = {
+    ...p.material,
+    E: 11000,
+    Emin: 7400,
+    density: 450,
+    Fb: 14.77,
+    Fv: 2.46,
+    Ft: 8.62,
+    Fc: 12.92,
+  };
+  return p;
+}
+function run(p) {
+  const base = calculateDesigner(p),
+    roof0 = calculateRoofZones(p, base),
+    r0 = calculateDesigner(p, { roofModel: roof0 }),
+    roof = calculateRoofZones(p, base, {
+      roofExtraDeadByZone: r0.auxiliaryTimber.roofExtraDeadByZone,
+      ceilingExtraDeadByZone: r0.auxiliaryTimber.ceilingExtraDeadByZone,
+    }),
+    r = calculateDesigner(p, { roofModel: roof });
+  return { base, roof, r, z: roof.zones[0] };
+}
+function hull(points) {
+  const p = points.sort((a, b) => a.x - b.x || a.y - b.y),
+    half = (p) => {
+      const h = [];
+      for (const q of p) {
+        while (h.length > 1 && cross(h.at(-2), h.at(-1), q) <= 1e-9) h.pop();
+        h.push(q);
+      }
+      return h;
+    };
+  return half(p)
+    .slice(0, -1)
+    .concat(half([...p].reverse()).slice(0, -1));
+}
+function overlap(A, B) {
+  let p = A;
+  for (let j = 0; j < B.length && p.length >= 3; j++) {
+    const a = B[j],
+      b = B[(j + 1) % B.length],
+      next = [];
+    for (let i = 0; i < p.length; i++) {
+      const q = p[i],
+        r = p[(i + 1) % p.length],
+        f = cross(a, b, q),
+        g = cross(a, b, r);
+      if (f >= 0) next.push(q);
+      if (f >= 0 !== g >= 0) {
+        const t = f / (f - g);
+        next.push({ x: q.x + (r.x - q.x) * t, y: q.y + (r.y - q.y) * t });
+      }
+    }
+    p = next;
+  }
+  return p.length >= 3 ? Math.abs(signed(p)) : 0;
+}
+function projectedMesh(b) {
+  const geo = cutGeometry(b),
+    pos = geo.attributes.position,
+    d = b.end.map((x, i) => (x - b.start[i]) / b.length),
+    x = b.crossAxis,
+    z = [x[1] * d[2] - x[2] * d[1], x[2] * d[0] - x[0] * d[2], x[0] * d[1] - x[1] * d[0]],
+    points = [];
+  for (let i = 0; i < pos.count; i++) {
+    const q = b.start.map(
+      (v, j) => (v + b.end[j]) / 2 + x[j] * pos.getX(i) + d[j] * pos.getY(i) + z[j] * pos.getZ(i),
+    );
+    points.push({ x: q[2], y: q[1] });
+  }
+  geo.dispose();
+  return hull(points);
+}
 
-test('tail nodal force pairs preserve actual resultant and moment with raised heels and asymmetric eaves',()=>{const t=buildTruss({span:5.802,rise:1.3527585,chordB:50,chordH:200,webB:50,webH:100,heelHeight:.51,overhangLow:.619,overhangHigh:.519,ceilingDead:.26,ceilingSpacing:.55,spacing:1.05,roofDead:.37,snow:2.75,mu:.8,gammaG:1.35,gammaQ:1.5,E:11000,timberDensity:450});assert.equal(t.stable,true);assert.equal(t.nodes.length,9);assert.equal(t.bars.length,15);const map=new Map(t.nodes.map(n=>[n.id,n]));let moment=0,total=0;for(const b of t.bars){const a=map.get(b.nodeA),z=map.get(b.nodeB),W=b.mass*G/1000*1.35;moment+=W*(a.x+z.x)/2;total+=W;if(b.role==='top'){const W=.37*1.05*b.length*1.35+2.75*.8*1.05*Math.abs(z.x-a.x)*1.5;moment+=W*(a.x+z.x)/2;total+=W;}}for(const tail of t.tails){moment+=tail.design*tail.resultantX;total+=tail.design;}const ceil=.26*.55*5.802*1.35;moment+=ceil*5.802/2;total+=ceil;near(sum(t.reactions.map(r=>r.y)),total);near(t.reactions[1].y*5.802,moment);near(t.analysis.balanceMoment,0);assert.ok(t.reactions[0].y>t.reactions[1].y);near(t.loads.ceilingDead,.26*.55*5.802);});
+test("tail nodal force pairs preserve actual resultant and moment with raised heels and asymmetric eaves", () => {
+  const t = buildTruss({
+    span: 5.802,
+    rise: 1.3527585,
+    chordB: 50,
+    chordH: 200,
+    webB: 50,
+    webH: 100,
+    heelHeight: 0.51,
+    overhangLow: 0.619,
+    overhangHigh: 0.519,
+    ceilingDead: 0.26,
+    ceilingSpacing: 0.55,
+    spacing: 1.05,
+    roofDead: 0.37,
+    snow: 2.75,
+    mu: 0.8,
+    gammaG: 1.35,
+    gammaQ: 1.5,
+    E: 11000,
+    timberDensity: 450,
+  });
+  assert.equal(t.stable, true);
+  assert.equal(t.nodes.length, 9);
+  assert.equal(t.bars.length, 15);
+  const map = new Map(t.nodes.map((n) => [n.id, n]));
+  let moment = 0,
+    total = 0;
+  for (const b of t.bars) {
+    const a = map.get(b.nodeA),
+      z = map.get(b.nodeB),
+      W = ((b.mass * G) / 1000) * 1.35;
+    moment += (W * (a.x + z.x)) / 2;
+    total += W;
+    if (b.role === "top") {
+      const W = 0.37 * 1.05 * b.length * 1.35 + 2.75 * 0.8 * 1.05 * Math.abs(z.x - a.x) * 1.5;
+      moment += (W * (a.x + z.x)) / 2;
+      total += W;
+    }
+  }
+  for (const tail of t.tails) {
+    moment += tail.design * tail.resultantX;
+    total += tail.design;
+  }
+  const ceil = 0.26 * 0.55 * 5.802 * 1.35;
+  moment += (ceil * 5.802) / 2;
+  total += ceil;
+  near(sum(t.reactions.map((r) => r.y)), total);
+  near(t.reactions[1].y * 5.802, moment);
+  near(t.analysis.balanceMoment, 0);
+  assert.ok(t.reactions[0].y > t.reactions[1].y);
+  near(t.loads.ceilingDead, 0.26 * 0.55 * 5.802);
+});
 
-test('FEM panel nodes never cut the real bottom or upper chord into unsupported stock pieces',()=>{const{roof,z}=run(fixture()),row=roof.instances.filter(b=>b.trussRow===0);assert.equal(row.filter(b=>b.role==='bottomChord').length,1);assert.equal(row.filter(b=>b.role==='topChord').length,2);near(row.find(b=>b.role==='bottomChord').length,5.802);for(const b of row){assert.ok(b.requireSingleStock);assert.ok(b.cutLength<=6+1e-7);if(b.role==='web'){assert.equal(b.shape.type,'rippedBoard');assert.ok(b.shapeNetVolume>0);assert.ok(b.shapeCutLength<=b.length+1e-7);}}assert.ok(z.analysis.physicalReference);near(sum(row.map(b=>b.mass)),z.analysis.totals.mass);});
+test("FEM panel nodes never cut the real bottom or upper chord into unsupported stock pieces", () => {
+  const { roof, z } = run(fixture()),
+    row = roof.instances.filter((b) => b.trussRow === 0);
+  assert.equal(row.filter((b) => b.role === "bottomChord").length, 1);
+  assert.equal(row.filter((b) => b.role === "topChord").length, 2);
+  near(row.find((b) => b.role === "bottomChord").length, 5.802);
+  for (const b of row) {
+    assert.ok(b.requireSingleStock);
+    assert.ok(b.cutLength <= 6 + 1e-7);
+    if (b.role === "web") {
+      assert.equal(b.shape.type, "rippedBoard");
+      assert.ok(b.shapeNetVolume > 0);
+      assert.ok(b.shapeCutLength <= b.length + 1e-7);
+    }
+  }
+  assert.ok(z.analysis.physicalReference);
+  near(sum(row.map((b) => b.mass)), z.analysis.totals.mass);
+});
 
-test('raised heel starts the bottom chord at the true wall bearing plane and has real auxiliary faces',()=>{const p=fixture(),{roof,z}=run(p),bottom=roof.instances.find(b=>b.role==='bottomChord');near(bottom.start[1]-bottom.h/2000,z.eave);near(z.bottomChordSeatY,z.eave);near(z.bottomChordAxisY,z.eave+.1);near(z.heelClearance,.3);assert.equal(z.auxiliaryFaces.length,2);for(const face of z.auxiliaryFaces){assert.equal(face.parentZoneId,z.id);assert.equal(face.shape,'mono');assert.equal(face.effectiveFraming,'rafters');assert.ok(face.coverHighPlane);const refs=roof.instances.filter(b=>b.auxiliaryFaceId===face.id);assert.equal(refs.length,z.trussRows.length);assert.ok(refs.every(b=>b.start[1]<b.end[1]));}assert.ok(z.chordAnalysis.checks.some(c=>c.id==='physical-chord-stability'&&c.status==='unverified'));});
+test("raised heel starts the bottom chord at the true wall bearing plane and has real auxiliary faces", () => {
+  const p = fixture(),
+    { roof, z } = run(p),
+    bottom = roof.instances.find((b) => b.role === "bottomChord");
+  near(bottom.start[1] - bottom.h / 2000, z.eave);
+  near(z.bottomChordSeatY, z.eave);
+  near(z.bottomChordAxisY, z.eave + 0.1);
+  near(z.heelClearance, 0.3);
+  assert.equal(z.auxiliaryFaces.length, 2);
+  for (const face of z.auxiliaryFaces) {
+    assert.equal(face.parentZoneId, z.id);
+    assert.equal(face.shape, "mono");
+    assert.equal(face.effectiveFraming, "rafters");
+    assert.ok(face.coverHighPlane);
+    const refs = roof.instances.filter((b) => b.auxiliaryFaceId === face.id);
+    assert.equal(refs.length, z.trussRows.length);
+    assert.ok(refs.every((b) => b.start[1] < b.end[1]));
+  }
+  assert.ok(
+    z.chordAnalysis.checks.some((c) => c.id === "physical-chord-stability" && c.status === "unverified"),
+  );
+});
 
-test('full roof projected area, actual area and snow use all asymmetric and side eaves',()=>{const{roof}=run(fixture());near(roof.projectedArea,(7.802+1.038)*(5.802+.619+.519));near(roof.area,roof.projectedArea/Math.cos(25*Math.PI/180));near(roof.snowEffectiveArea,.8*roof.projectedArea);assert.ok(roof.gableArea>5.802*(5.802/2*Math.tan(25*Math.PI/180)));});
+test("full roof projected area, actual area and snow use all asymmetric and side eaves", () => {
+  const { roof } = run(fixture());
+  near(roof.projectedArea, (7.802 + 1.038) * (5.802 + 0.619 + 0.519));
+  near(roof.area, roof.projectedArea / Math.cos((25 * Math.PI) / 180));
+  // СП 20.13330.2016 прил. Б, схема Б.1: µ = 1 for α = 25° ≤ 30°.
+  near(snowShapeMu(25), 1);
+  near(roof.snowEffectiveArea, 1 * roof.projectedArea);
+  assert.ok(roof.gableArea > 5.802 * ((5.802 / 2) * Math.tan((25 * Math.PI) / 180)));
+});
 
-test('trimmed webs, both chords and raised heels have zero positive-volume overlap in actual cut meshes',()=>{const{roof}=run(fixture()),members=roof.instances.filter(b=>b.trussRow===0).map(b=>({...b,poly:projectedMesh(b)}));for(let i=0;i<members.length;i++)for(let j=0;j<i;j++)assert.ok(overlap(members[i].poly,members[j].poly)<1e-6,`${members[i].trussPhysicalId}/${members[j].trussPhysicalId}`);});
+test("trimmed webs, both chords and raised heels have zero positive-volume overlap in actual cut meshes", () => {
+  const { roof } = run(fixture()),
+    members = roof.instances.filter((b) => b.trussRow === 0).map((b) => ({ ...b, poly: projectedMesh(b) }));
+  for (let i = 0; i < members.length; i++)
+    for (let j = 0; j < i; j++)
+      assert.ok(
+        overlap(members[i].poly, members[j].poly) < 1e-6,
+        `${members[i].trussPhysicalId}/${members[j].trussPhysicalId}`,
+      );
+});
 
-test('flat ceiling pressure and actual ceiling battens are applied to bottom nodes exactly once',()=>{const p=fixture(),{r,z}=run(p),rows=z.trussRows,top=sum(rows.map(r=>r.loads.roofDead)),ceiling=sum(rows.map(r=>r.loads.ceilingDead)),wood=sum(rows.map(r=>r.loads.timber)),snow=sum(rows.map(r=>r.loads.snow)),auxWeight=r.auxiliaryTimber.quantities.roofMassByZone.G*G/1000;assert.ok(z.ceilingLoadSplit.extraFlat>0);near(ceiling,.26*z.bearingArea+z.ceilingLoadSplit.extraFlat*z.bearingArea);near(top+ceiling,.55*z.surfaceArea+auxWeight);near(top+ceiling+wood+snow,r.loads.roofWeight+r.loads.snow);assert.ok(z.chordAnalysis.members.some(m=>m.id==='BOTTOM'&&m.maxMoment>0));assert.ok(r.timber.instances.some(b=>b.role==='ceilingBatten'));});
+test("flat ceiling pressure and actual ceiling battens are applied to bottom nodes exactly once", () => {
+  const p = fixture(),
+    { r, z } = run(p),
+    rows = z.trussRows,
+    top = sum(rows.map((r) => r.loads.roofDead)),
+    ceiling = sum(rows.map((r) => r.loads.ceilingDead)),
+    wood = sum(rows.map((r) => r.loads.timber)),
+    snow = sum(rows.map((r) => r.loads.snow)),
+    auxWeight = (r.auxiliaryTimber.quantities.roofMassByZone.G * G) / 1000;
+  assert.ok(z.ceilingLoadSplit.extraFlat > 0);
+  near(ceiling, 0.26 * z.bearingArea + z.ceilingLoadSplit.extraFlat * z.bearingArea);
+  near(top + ceiling, 0.55 * z.surfaceArea + auxWeight);
+  near(top + ceiling + wood + snow, r.loads.roofWeight + r.loads.snow);
+  assert.ok(z.chordAnalysis.members.some((m) => m.id === "BOTTOM" && m.maxMoment > 0));
+  assert.ok(r.timber.instances.some((b) => b.role === "ceilingBatten"));
+});
 
-test('global real-bearing reactions preserve roof force and both plan moments including tails and real wood',()=>{const p=fixture(),{r,z,roof}=run(p),q=structuredClone(p);q.roof.type='none';const base=calculateDesigner(q),before=new Map(base.piles.map(p=>[p.id,p])),delta=r.piles.map(p=>({x:p.x,y:p.y,P:p.reaction-before.get(p.id).reaction})),gammaG=p.loads.gammaG,gammaQ=p.loads.gammaQ,S=z.bounds.span,v0=z.bounds.minV,v1=z.bounds.maxV,crest=v0+z.crestRatio*S,cover=z.coverBounds,lowA=cover.length*(crest-cover.minV)/Math.cos(25*Math.PI/180),highA=cover.length*(cover.maxV-crest)/Math.cos(25*Math.PI/180),ceiling=.26*z.bearingArea,topD=.55*roof.area-ceiling;let P=(topD+ceiling)*gammaG+p.loads.snow*roof.snowEffectiveArea*gammaQ,My=(topD*(lowA*(cover.minV+crest)/2+highA*(crest+cover.maxV)/2)/(lowA+highA)+ceiling*(v0+v1)/2)*gammaG+p.loads.snow*.8*cover.length*((crest-cover.minV)*(cover.minV+crest)/2+(cover.maxV-crest)*(crest+cover.maxV)/2)*gammaQ,Mx=((topD+ceiling)*gammaG+p.loads.snow*roof.snowEffectiveArea*gammaQ)*(z.bounds.minU+z.bounds.maxU)/2;for(const b of r.timber.instances.filter(b=>b.category==='roof')){const W=b.mass*G/1000*gammaG;P+=W;Mx+=W*(b.start[0]+b.end[0])/2;My+=W*(b.start[2]+b.end[2])/2;}near(sum(delta.map(p=>p.P)),P);near(sum(delta.map(p=>p.P*p.x)),Mx);near(sum(delta.map(p=>p.P*p.y)),My);near(r.foundation.balanceError,0);assert.equal(r.loads.roofSupportRouting.length,1);assert.ok(r.loads.roofSupportRouting[0].rows.every(r=>r.designA>0&&r.designB>0));});
+test("global real-bearing reactions preserve roof force and both plan moments including tails and real wood", () => {
+  const p = fixture();
+  // No live load: the snow ψ of the governing combination then equals 1 in both runs.
+  p.loads.live = 0;
+  const { r, z, roof } = run(p),
+    q = structuredClone(p);
+  q.roof.type = "none";
+  const base = calculateDesigner(q),
+    before = new Map(base.piles.map((p) => [p.id, p])),
+    delta = r.piles.map((p) => ({ x: p.x, y: p.y, P: p.reaction - before.get(p.id).reaction })),
+    gammaG = p.loads.gammaG,
+    gammaQ = p.loads.gammaQ,
+    S = z.bounds.span,
+    v0 = z.bounds.minV,
+    v1 = z.bounds.maxV,
+    crest = v0 + z.crestRatio * S,
+    cover = z.coverBounds,
+    lowA = (cover.length * (crest - cover.minV)) / Math.cos((25 * Math.PI) / 180),
+    highA = (cover.length * (cover.maxV - crest)) / Math.cos((25 * Math.PI) / 180),
+    ceiling = 0.26 * z.bearingArea,
+    topD = 0.55 * roof.area - ceiling;
+  let P = (topD + ceiling) * gammaG + p.loads.snow * roof.snowEffectiveArea * gammaQ,
+    My =
+      ((topD * ((lowA * (cover.minV + crest)) / 2 + (highA * (crest + cover.maxV)) / 2)) / (lowA + highA) +
+        (ceiling * (v0 + v1)) / 2) *
+        gammaG +
+      p.loads.snow *
+        snowShapeMu(25) *
+        cover.length *
+        (((crest - cover.minV) * (cover.minV + crest)) / 2 +
+          ((cover.maxV - crest) * (crest + cover.maxV)) / 2) *
+        gammaQ,
+    Mx =
+      (((topD + ceiling) * gammaG + p.loads.snow * roof.snowEffectiveArea * gammaQ) *
+        (z.bounds.minU + z.bounds.maxU)) /
+      2;
+  for (const b of r.timber.instances.filter((b) => b.category === "roof")) {
+    const W = ((b.mass * G) / 1000) * gammaG;
+    P += W;
+    Mx += (W * (b.start[0] + b.end[0])) / 2;
+    My += (W * (b.start[2] + b.end[2])) / 2;
+  }
+  near(sum(delta.map((p) => p.P)), P);
+  near(sum(delta.map((p) => p.P * p.x)), Mx);
+  near(sum(delta.map((p) => p.P * p.y)), My);
+  near(r.foundation.balanceError, 0);
+  assert.equal(r.loads.roofSupportRouting.length, 1);
+  assert.ok(r.loads.roofSupportRouting[0].rows.every((r) => r.designA > 0 && r.designB > 0));
+});
 
-test('final timber, net profiles, six-metre map and self-weight rows contain every physical truss board once',()=>{const p=fixture(),{r}=run(p),cut=calculateCutting(p,r),members=r.timber.instances.filter(b=>b.physicalTruss),ids=cut.stocks.flatMap(s=>s.pieces.map(p=>p.sourceId));assert.ok(members.length>100);for(const b of members){assert.equal(ids.filter(id=>id===b.id).length,1,b.id);assert.ok(b.cutLength<=6+1e-7);if(b.shapeNetVolume!==undefined){near(b.volume,b.shapeNetVolume);near(b.mass,b.shapeNetVolume*p.material.density);near(b.cutLength,b.shapeCutLength);}}near(r.loads.rows.reduce((s,r)=>s+r.design,0),r.loads.totalDesign);assert.equal(cut.overlength.length,0);assert.ok(r.checks.every(c=>c.status!=='fail'));});
+test("final timber, net profiles, six-metre map and self-weight rows contain every physical truss board once", () => {
+  const p = fixture(),
+    { r } = run(p),
+    cut = calculateCutting(p, r),
+    members = r.timber.instances.filter((b) => b.physicalTruss),
+    ids = cut.stocks.flatMap((s) => s.pieces.map((p) => p.sourceId));
+  assert.ok(members.length > 100);
+  for (const b of members) {
+    assert.equal(ids.filter((id) => id === b.id).length, 1, b.id);
+    assert.ok(b.cutLength <= 6 + 1e-7);
+    if (b.shapeNetVolume !== undefined) {
+      near(b.volume, b.shapeNetVolume);
+      near(b.mass, b.shapeNetVolume * p.material.density);
+      near(b.cutLength, b.shapeCutLength);
+    }
+  }
+  near(
+    r.loads.rows.reduce((s, r) => s + r.design, 0),
+    r.loads.totalDesign,
+  );
+  assert.equal(cut.overlength.length, 0);
+  // A3 (SP 64 φ instead of ideal Euler): the 50x100 support diagonals of this raised-heel
+  // Fink under 2.75 kPa snow are genuinely too slender (λ = l/(50/√12) > 120). They are the
+  // only failures; every other check of the fabricated truss passes.
+  const z = r.roofModel.zones[0],
+    slender = z.analysis.bars.filter((b) => b.memberKind === "supportStrut" && b.force < 0 && b.lambda > 120);
+  assert.ok(slender.length);
+  for (const b of slender) {
+    const lambda = (b.length * 1000) / (50 / Math.sqrt(12));
+    near(b.lambda, lambda);
+    near(b.capacity, ((3000 / lambda ** 2) * 12.92 * 50 * 100) / 1000);
+  }
+  const failed = r.checks.filter((c) => c.status === "fail").map((c) => c.id);
+  assert.ok(
+    failed.every((id) => slender.some((b) => id.startsWith(`roof-G-${b.id}`)) || id === "roofZonesSolution"),
+    failed.join(", "),
+  );
+});
 
-test('unfabricable continuous bottom stock and unsupported slope choices fail explicitly',()=>{const p=fixture();p.roof.zones[0].pitchRight=20;let r=calculateRoofZones(p,calculateDesigner(p));assert.equal(r.zones.length,0);assert.ok(r.checks.some(c=>c.status==='fail'));p.roof.zones[0].pitchRight=25;p.loads.roofDead=.01;r=calculateRoofZones(p,calculateDesigner(p));assert.ok(r.checks.some(c=>c.status==='fail'));const t=buildTruss({span:8,rise:2,heelHeight:.5,overhangLow:.4,overhangHigh:.3,chordH:200});assert.equal(t.stable,true);const bottom=physicalTrussBoards(t).find(b=>b.role==='bottomChord');near(bottom.length,8);assert.equal(bottom.requireSingleStock,true);});
+test("unfabricable continuous bottom stock and unsupported slope choices fail explicitly", () => {
+  const p = fixture();
+  p.roof.zones[0].pitchRight = 20;
+  let r = calculateRoofZones(p, calculateDesigner(p));
+  assert.equal(r.zones.length, 0);
+  assert.ok(r.checks.some((c) => c.status === "fail"));
+  p.roof.zones[0].pitchRight = 25;
+  p.loads.roofDead = 0.01;
+  r = calculateRoofZones(p, calculateDesigner(p));
+  assert.ok(r.checks.some((c) => c.status === "fail"));
+  const t = buildTruss({
+    span: 8,
+    rise: 2,
+    heelHeight: 0.5,
+    overhangLow: 0.4,
+    overhangHigh: 0.3,
+    chordH: 200,
+  });
+  assert.equal(t.stable, true);
+  const bottom = physicalTrussBoards(t).find((b) => b.role === "bottomChord");
+  near(bottom.length, 8);
+  assert.equal(bottom.requireSingleStock, true);
+});
 
-test('explicit snowMu inherits to all eaves, FEM, local bending and real-bearing pile moments',()=>{const p=fixture();p.loads.snow=1.5;p.roof.snowMu=1;const{r,z,roof}=run(p);near(z.analysis.input.muLeft,1);near(z.analysis.input.muRight,1);near(roof.snowEffectiveArea,roof.projectedArea);near(r.loads.snow,1.5*roof.projectedArea);near(r.loads.mu,1);near(sum(z.trussRows.map(r=>r.loads.snow)),r.loads.snow);assert.equal(z.snowCoefficients.method,'manual');const q=structuredClone(p);q.loads.snow=0;const without=run(q).r,map=new Map(without.piles.map(p=>[p.id,p.reaction])),delta=r.piles.map(p=>({P:p.reaction-map.get(p.id),x:p.x,y:p.y})),W=r.loads.snow*p.loads.gammaQ;near(sum(delta.map(d=>d.P)),W);near(sum(delta.map(d=>d.P*d.x)),W*(z.coverBounds.minU+z.coverBounds.maxU)/2);near(sum(delta.map(d=>d.P*d.y)),W*(z.coverBounds.minV+z.coverBounds.maxV)/2);const chord=z.chordAnalysis.members.find(c=>c.side==='low'),c=Math.cos(25*Math.PI/180),dead=z.analysis.input.roofDead*z.analysis.input.spacing+50*200/1e6*450*G/1000;near(chord.qService,(dead+1.5*z.analysis.input.spacing*c)*c);for(const t of z.analysis.tails)near(t.snow,1.5*z.analysis.input.spacing*t.horizontal);});
+test("explicit snowMu inherits to all eaves, FEM, local bending and real-bearing pile moments", () => {
+  const p = fixture();
+  p.loads.snow = 1.5;
+  p.loads.live = 0; // isolate snow: ψ of the single temporary action is 1
+  p.roof.snowMu = 1;
+  const { r, z, roof } = run(p);
+  near(z.analysis.input.muLeft, 1);
+  near(z.analysis.input.muRight, 1);
+  near(roof.snowEffectiveArea, roof.projectedArea);
+  near(r.loads.snow, 1.5 * roof.projectedArea);
+  near(r.loads.mu, 1);
+  near(sum(z.trussRows.map((r) => r.loads.snow)), r.loads.snow);
+  assert.equal(z.snowCoefficients.method, "manual");
+  const q = structuredClone(p);
+  q.loads.snow = 0;
+  const without = run(q).r,
+    map = new Map(without.piles.map((p) => [p.id, p.reaction])),
+    delta = r.piles.map((p) => ({ P: p.reaction - map.get(p.id), x: p.x, y: p.y })),
+    W = r.loads.snow * p.loads.gammaQ;
+  near(sum(delta.map((d) => d.P)), W);
+  near(sum(delta.map((d) => d.P * d.x)), (W * (z.coverBounds.minU + z.coverBounds.maxU)) / 2);
+  near(sum(delta.map((d) => d.P * d.y)), (W * (z.coverBounds.minV + z.coverBounds.maxV)) / 2);
+  const chord = z.chordAnalysis.members.find((c) => c.side === "low"),
+    c = Math.cos((25 * Math.PI) / 180),
+    dead = z.analysis.input.roofDead * z.analysis.input.spacing + (((50 * 200) / 1e6) * 450 * G) / 1000;
+  near(chord.qService, (dead + 1.5 * z.analysis.input.spacing * c) * c);
+  for (const t of z.analysis.tails) near(t.snow, 1.5 * z.analysis.input.spacing * t.horizontal);
+});
 
-test('zone snowMu overrides project coefficient and uniform snow cases retain exact roof area',()=>{for(const s of[1,1.5,2]){const p=fixture();p.loads.snow=s;p.roof.snowMu=1;p.roof.zones[0].snowMu=.6;const{r,z,roof}=run(p);near(z.analysis.input.muLeft,.6);near(z.analysis.input.muRight,.6);near(roof.snowEffectiveArea,.6*roof.projectedArea);near(r.loads.snow,s*.6*roof.projectedArea);near(sum(z.trussRows.map(row=>row.loads.snow)),r.loads.snow);}const p=fixture();p.roof.snowMu=0;const{r,roof}=run(p);near(roof.snowEffectiveArea,0);near(r.loads.snow,0);});
+test("zone snowMu overrides project coefficient and uniform snow cases retain exact roof area", () => {
+  for (const s of [1, 1.5, 2]) {
+    const p = fixture();
+    p.loads.snow = s;
+    p.roof.snowMu = 1;
+    p.roof.zones[0].snowMu = 0.6;
+    const { r, z, roof } = run(p);
+    near(z.analysis.input.muLeft, 0.6);
+    near(z.analysis.input.muRight, 0.6);
+    near(roof.snowEffectiveArea, 0.6 * roof.projectedArea);
+    near(r.loads.snow, s * 0.6 * roof.projectedArea);
+    near(sum(z.trussRows.map((row) => row.loads.snow)), r.loads.snow);
+  }
+  const p = fixture();
+  p.roof.snowMu = 0;
+  const { r, roof } = run(p);
+  near(roof.snowEffectiveArea, 0);
+  near(r.loads.snow, 0);
+});
 
-test('invalid manual snow coefficient fails with a useful diagnostic without NaN geometry',()=>{const validBase=calculateDesigner(fixture());for(const bad of[-.1,4,NaN,Infinity,null]){const p=fixture();p.roof.zones[0].snowMu=bad;assert.throws(()=>calculateDesigner(p),e=>e.name==='DesignerValidationError'&&JSON.stringify(e.validation.errors).includes('snowMu'));const roof=calculateRoofZones(p,validBase);assert.equal(roof.zones.length,0);assert.equal(roof.status,'fail');assert.ok(roof.warnings.some(w=>w.includes('snowMu')));assert.ok(Number.isFinite(roof.mass));}});
+test("invalid manual snow coefficient fails with a useful diagnostic without NaN geometry", () => {
+  const validBase = calculateDesigner(fixture());
+  for (const bad of [-0.1, 4, NaN, Infinity, null]) {
+    const p = fixture();
+    p.roof.zones[0].snowMu = bad;
+    assert.throws(
+      () => calculateDesigner(p),
+      (e) => e.name === "DesignerValidationError" && JSON.stringify(e.validation.errors).includes("snowMu"),
+    );
+    const roof = calculateRoofZones(p, validBase);
+    assert.equal(roof.zones.length, 0);
+    assert.equal(roof.status, "fail");
+    assert.ok(roof.warnings.some((w) => w.includes("snowMu")));
+    assert.ok(Number.isFinite(roof.mass));
+  }
+});
 
-test('small edge tributaries are exact loads, never clamped to the requested layout spacing',()=>{const p=fixture();p.roof.zones[0].spacing=.3;p.roof.zones[0].overhangs.start=0;p.roof.zones[0].overhangs.end=0;const{z,r}=run(p);assert.ok(z.trussRows[0].tributaryWidth<.2);near(sum(z.trussRows.map(r=>r.loads.snow)),r.loads.snow);near(sum(z.trussRows.map(r=>r.loads.roofDead+r.loads.ceilingDead+r.loads.timber)),r.loads.roofWeight);});
+test("small edge tributaries are exact loads, never clamped to the requested layout spacing", () => {
+  const p = fixture();
+  p.roof.zones[0].spacing = 0.3;
+  p.roof.zones[0].overhangs.start = 0;
+  p.roof.zones[0].overhangs.end = 0;
+  const { z, r } = run(p);
+  assert.ok(z.trussRows[0].tributaryWidth < 0.2);
+  near(sum(z.trussRows.map((r) => r.loads.snow)), r.loads.snow);
+  near(
+    sum(z.trussRows.map((r) => r.loads.roofDead + r.loads.ceilingDead + r.loads.timber)),
+    r.loads.roofWeight,
+  );
+});
+
+test("default standard heel: top chord rests on the bottom chord and runs on into the eave tail, no heel stubs", () => {
+  const p = fixture();
+  delete p.roof.heelClearance; // no explicit raised-heel request
+  const { roof, z } = run(p);
+  assert.equal(z.heelMode, "standard");
+  // Only chords and webs: no heel verticals, no support struts, no separate tail stubs.
+  assert.deepEqual([...new Set(roof.instances.map((b) => b.role))].sort(), [
+    "bottomChord",
+    "topChord",
+    "web",
+  ]);
+  for (let row = 0; row < z.trussRows.length; row++) {
+    const boards = roof.instances.filter((b) => b.trussRow === row),
+      bottom = boards.filter((b) => b.role === "bottomChord"),
+      top = boards.filter((b) => b.role === "topChord");
+    assert.equal(bottom.length, 1);
+    assert.equal(top.length, 2, "one continuous top chord per slope");
+    const [b] = bottom,
+      axisY = b.start[1];
+    near(Math.min(b.start[2], b.end[2]), 0.099, 1e-3);
+    near(Math.max(b.start[2], b.end[2]), 5.901, 1e-3);
+    for (const t of top) {
+      const [tail, ridge] =
+          Math.abs(t.start[2] - 2.95) > Math.abs(t.end[2] - 2.95) ? [t.start, t.end] : [t.end, t.start],
+        wallZ = tail[2] < 2.95 ? 0.099 : 5.901,
+        eave = tail[2] < 2.95 ? 0.619 : 0.519;
+      // the same board reaches the full eave overhang beyond the wall line…
+      near(Math.abs(tail[2] - wallZ), eave, 0.02);
+      // …and over the wall line its axis sits exactly one seat offset above the bottom chord axis
+      const y = tail[1] + ((ridge[1] - tail[1]) * (wallZ - tail[2])) / (ridge[2] - tail[2]);
+      near(y - axisY, z.heelHeight, 1e-3);
+    }
+  }
+});

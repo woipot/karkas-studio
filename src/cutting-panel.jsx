@@ -1,62 +1,369 @@
-import React,{useEffect,useMemo,useState} from 'react';
-import {calculateCutting,cuttingRowsToCSV,cuttingToPrintHTML,formatEndCut} from './cutting.js';
+import React, { useEffect, useMemo, useState } from "react";
+import { calculateCutting, cuttingRowsToCSV, cuttingToPrintHTML, formatEndCut } from "./cutting.js";
 
-const fmt=(n,d=3)=>Number(n).toLocaleString('ru-RU',{maximumFractionDigits:d});
-const colors=['#c9dda9','#e2d3ac','#c4d9ca','#dfc8a4','#bfd1df','#d4c5d8','#d8dbae'];
-const css=`
+const fmt = (n, d = 3) => Number(n).toLocaleString("ru-RU", { maximumFractionDigits: d });
+const colors = ["#c9dda9", "#e2d3ac", "#c4d9ca", "#dfc8a4", "#bfd1df", "#d4c5d8", "#d8dbae"];
+const css = `
 .cutting-panel{height:100%;min-height:0;overflow:auto;background:#f8faf3;padding:27px 28px;color:#7d9562;box-sizing:border-box}.cutting-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:15px;margin-bottom:21px}.cutting-heading h2{margin:0;font-size:23px;font-weight:500;color:#78945c}.cutting-heading p{font-size:10px;color:#a2b08f;margin:8px 0 0;line-height:1.5}.cutting-actions{display:flex;gap:8px;flex-wrap:wrap}.cutting-metrics{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;gap:11px;margin-bottom:18px}.cutting-metric{background:white;border:1px solid #dfe8d3;border-radius:7px;padding:16px}.cutting-metric.primary{background:#edf4df;border-color:#d5e4be}.cutting-metric>span{font-size:8px;color:#9caf87;display:block}.cutting-metric strong{font-size:25px;font-weight:500;display:block;margin:10px 0 6px;color:#7d9b5c;letter-spacing:-.5px}.cutting-metric strong small{font-size:10px;font-weight:400;letter-spacing:0;margin-left:5px}.cutting-metric>small{font-size:8px;color:#a4b395;line-height:1.6;display:block}.cutting-proof{display:flex;justify-content:space-between;gap:12px;align-items:center;background:#f0f5e7;border:1px solid #e0e9d3;border-radius:5px;padding:11px 13px;margin-bottom:17px;font-size:9px;line-height:1.7;color:#91a777}.cutting-proof strong{font-weight:500;color:#7e985f}.cutting-warning{padding:13px 15px;border:1px solid #e4d0ad;background:#faf4e7;color:#af8f59;font-size:10px;line-height:1.7;border-radius:6px;margin-bottom:17px}.cutting-warning strong{font-weight:550;display:block}.cutting-warning ul{margin:7px 0 0;padding-left:16px;max-height:180px;overflow:auto}.cutting-toolbar{display:flex;align-items:center;gap:10px;margin:19px 0 11px;flex-wrap:wrap}.cutting-toolbar select,.cutting-search,.cutting-kerf{border:1px solid #dfe8d4;border-radius:5px;background:#fff;padding:9px 10px;font-size:10px;color:#91a67b}.cutting-search{flex:1;min-width:120px}.cutting-search::placeholder{color:#b0bda0}.cutting-kerf{display:flex;align-items:center;gap:6px;white-space:nowrap;padding:6px 9px;font-size:9px}.cutting-kerf input{width:43px;border:0;padding:3px;background:#f5f8ee;font-size:10px;text-align:right;color:#7c965d}.cutting-legend{display:flex;gap:15px;font-size:8px;color:#a9b899;margin-bottom:17px;flex-wrap:wrap}.cutting-legend>span{display:flex;align-items:center;gap:5px}.cutting-legend i{display:inline-block;width:12px;height:8px;background:#c9dda9}.cutting-legend .tail{background:repeating-linear-gradient(45deg,#ecf0e5,#ecf0e5 3px,#d7e0cc 3px,#d7e0cc 4px)}.cutting-legend .kerf{width:3px;background:#c4a179}.stock-card{padding:17px 18px;background:#fff;border:1px solid #dce6ce;border-radius:7px;margin-bottom:13px}.stock-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:13px}.stock-head h3{font-size:12px;font-weight:500;margin:0;color:#7f9a60}.stock-head h3>small{font-size:9px;color:#abb997;font-weight:400;margin-left:12px}.stock-head>span{font-size:8px;color:#a2b68d;background:#f0f6e7;border-radius:4px;padding:5px 7px;white-space:nowrap}.stock-scale{display:flex;justify-content:space-between;color:#b0bea0;font-size:7px;margin:0 0 5px}.stock-bar{height:47px;border:1px solid #aaba96;position:relative;overflow:hidden;border-radius:3px;background:#fff}.stock-piece{position:absolute;top:0;bottom:0;overflow:hidden;border-right:1px solid #a0b286;color:#6f8655;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:0;min-width:0;gap:4px;border-radius:0}.stock-piece:hover{filter:brightness(.97)}.stock-piece b{font-size:9px;font-weight:500;white-space:nowrap}.stock-piece>span{font-size:8px;white-space:nowrap}.stock-piece .splice-mark{position:absolute;top:2px;font-size:10px;color:#956f40}.stock-piece .splice-mark.start{left:3px}.stock-piece .splice-mark.end{right:3px}.stock-kerf{position:absolute;top:0;bottom:0;background:#b79268;min-width:1px;pointer-events:none}.stock-tail{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(45deg,#f0f3e9,#f0f3e9 4px,#dfe7d5 4px,#dfe7d5 5px);display:flex;align-items:center;justify-content:center;font-size:8px;color:#a5b394;overflow:hidden}.stock-foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:8px;color:#a5b697;margin-top:9px;line-height:1.7}.stock-foot .reusable{color:#94ab79}.stock-details{margin-top:11px}.stock-details summary{font-size:8px;color:#95ac7a;cursor:pointer;list-style-position:inside;padding:3px 0}.stock-detail-scroll{overflow:auto;margin-top:8px}.stock-details table{border-collapse:collapse;width:100%;font-size:8px;min-width:520px}.stock-details th{font-size:7px;font-weight:400;text-align:left;color:#b1bea3;background:#f8faf4;white-space:nowrap}.stock-details th,.stock-details td{padding:8px;border-bottom:1px solid #edf2e6;color:#a0b28c;vertical-align:top;text-align:left}.stock-details td:first-child{min-width:130px}.stock-details td:first-child b{font-weight:450;color:#8da573}.stock-details td:first-child small{display:block;color:#b7c3ab;margin-top:4px;font-size:7px}.cutting-pagination{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:19px 0;font-size:9px;color:#a6b696}.cutting-pagination>div{display:flex;align-items:center;gap:11px}.cutting-pagination button{padding:7px 10px;background:#eff4e5;border:1px solid #dce7ce;color:#8ea875;border-radius:4px;font-size:9px}.cutting-notes{border-top:1px solid #e1e8d7;padding-top:17px;margin-top:21px;color:#a7b399;font-size:9px;line-height:1.8}.cutting-notes summary{cursor:pointer;color:#94aa7d;font-size:10px}.cutting-notes p{margin:9px 0}.cutting-empty{padding:50px 20px;text-align:center;border:1px dashed #d3dfc3;color:#9fb38a;font-size:11px;border-radius:6px}.cutting-page-note{font-size:8px;color:#acb99f;line-height:1.7;margin-top:18px}@media(max-width:1150px){.cutting-metrics{grid-template-columns:1fr 1fr}.cutting-heading{flex-wrap:wrap}.cutting-proof{align-items:flex-start;flex-direction:column;gap:4px}.cutting-panel{padding:21px}.stock-head h3>small{display:block;margin:6px 0 0}.stock-card{padding:15px}}@media(max-width:650px){.cutting-panel{height:auto;min-height:500px;overflow:visible;padding:19px}.cutting-heading h2{font-size:22px}.cutting-heading p,.cutting-warning{font-size:11px}.cutting-metric{padding:13px}.cutting-metric>span,.cutting-metric>small{font-size:9px}.cutting-metric strong{font-size:24px}.cutting-proof{font-size:10px}.cutting-toolbar select{flex:1}.cutting-search{flex-basis:100%;font-size:11px}.cutting-kerf{font-size:10px}.cutting-legend,.stock-foot,.stock-details summary,.cutting-page-note{font-size:9px}.stock-head h3{font-size:12px}.stock-bar{height:50px}.cutting-notes{font-size:10px}.cutting-pagination{flex-wrap:wrap;font-size:10px}.cutting-pagination button{font-size:10px}}
 `;
 
-const joint=end=>end&&(end.jointId!=null||(['halfLap','half-lap','scarf','fishplate'].includes(end.scheme)&&end.lapLength>0));
-function StockCard({stock,onSelect}){
-  return <article className="stock-card"><header className="stock-head"><h3>{stock.id}<small>{stock.section.replace('x',' × ')} мм · 6 000 мм</small></h3><span>{stock.pieces.length} деталей · занято {fmt(stock.consumed/6*100,1)}%</span></header>
-    <div className="stock-scale">{[0,1,2,3,4,5,6].map(n=><span key={n}>{n} м</span>)}</div>
-    <div className="stock-bar" aria-label={`Схема ${stock.id}: ${stock.pieces.length} деталей, остаток ${fmt(stock.remainder)} метров`}>
-      {stock.pieces.map((p,i)=><React.Fragment key={p.id}>
-        {i>0&&<i className="stock-kerf" style={{left:`${(p.cutStart-(stock.kerfWaste/(stock.pieces.length-1)))/6*100}%`,width:`${stock.kerfWaste/(stock.pieces.length-1)/6*100}%`}}/>}
-        <button className="stock-piece" style={{left:`${p.cutStart/6*100}%`,width:`${p.length/6*100}%`,background:colors[i%colors.length]}}
-          title={`${p.id} · ${p.name}\nЗаготовка ${fmt(p.length)} м · позиция ${fmt(p.cutStart)}–${fmt(p.cutEnd)} м\nНачало: ${formatEndCut(p.endStart)}\nКонец: ${formatEndCut(p.endEnd)}\nНаклон элемента ${fmt(p.angle,1)}°`}
-          onClick={()=>onSelect?.({type:'board',id:p.sourceId,source:p.source})}>
-          {joint(p.endStart)&&<i className="splice-mark start">⌁</i>}{joint(p.endEnd)&&<i className="splice-mark end">⌁</i>}
-          {p.length>.25&&<b>{p.id}</b>}{p.length>.5&&<span>{fmt(p.length)} м</span>}
-        </button>
-      </React.Fragment>)}
-      {stock.remainder>1e-8&&<div className="stock-tail" style={{left:`${stock.consumed/6*100}%`,width:`${stock.remainder/6*100}%`}} title={`Остаток ${fmt(stock.remainder)} м`}>{stock.remainder>.35?fmt(stock.remainder):''}</div>}
-    </div>
-    <div className="stock-foot"><span>Детали {fmt(stock.used)} м · пропилы {fmt(stock.kerfWaste*1000,0)} мм</span><span className={stock.reusable?'reusable':''}>Остаток {fmt(stock.remainder)} м{stock.reusable?' · можно сохранить':' · менее 0,30 м'}</span></div>
-    <details className="stock-details"><summary>Все детали, позиции и торцевые соединения</summary><div className="stock-detail-scroll"><table><thead><tr><th>Деталь</th><th>Заготовка / позиция, м</th><th>Начальный торец</th><th>Конечный торец</th></tr></thead><tbody>{stock.pieces.map(p=><tr key={p.id}><td><b>{p.id}</b><small>{p.name}</small></td><td>{fmt(p.length)}<br/><small>{fmt(p.cutStart)}–{fmt(p.cutEnd)}</small></td><td>{formatEndCut(p.endStart)}</td><td>{formatEndCut(p.endEnd)}</td></tr>)}</tbody></table></div></details>
-  </article>;
+const joint = (end) =>
+  end &&
+  (end.jointId != null ||
+    (["halfLap", "half-lap", "scarf", "fishplate"].includes(end.scheme) && end.lapLength > 0));
+function StockCard({ stock, onSelect }) {
+  return (
+    <article className="stock-card">
+      <header className="stock-head">
+        <h3>
+          {stock.id}
+          <small>{stock.section.replace("x", " × ")} мм · 6 000 мм</small>
+        </h3>
+        <span>
+          {stock.pieces.length} деталей · занято {fmt((stock.consumed / 6) * 100, 1)}%
+        </span>
+      </header>
+      <div className="stock-scale">
+        {[0, 1, 2, 3, 4, 5, 6].map((n) => (
+          <span key={n}>{n} м</span>
+        ))}
+      </div>
+      <div
+        className="stock-bar"
+        aria-label={`Схема ${stock.id}: ${stock.pieces.length} деталей, остаток ${fmt(stock.remainder)} метров`}
+      >
+        {stock.pieces.map((p, i) => (
+          <React.Fragment key={p.id}>
+            {i > 0 && (
+              <i
+                className="stock-kerf"
+                style={{
+                  left: `${((p.cutStart - stock.kerfWaste / (stock.pieces.length - 1)) / 6) * 100}%`,
+                  width: `${(stock.kerfWaste / (stock.pieces.length - 1) / 6) * 100}%`,
+                }}
+              />
+            )}
+            <button
+              className="stock-piece"
+              style={{
+                left: `${(p.cutStart / 6) * 100}%`,
+                width: `${(p.length / 6) * 100}%`,
+                background: colors[i % colors.length],
+              }}
+              title={`${p.id} · ${p.name}\nЗаготовка ${fmt(p.length)} м · позиция ${fmt(p.cutStart)}–${fmt(p.cutEnd)} м\nНачало: ${formatEndCut(p.endStart)}\nКонец: ${formatEndCut(p.endEnd)}\nНаклон элемента ${fmt(p.angle, 1)}°`}
+              onClick={() => onSelect?.({ type: "board", id: p.sourceId, source: p.source })}
+            >
+              {joint(p.endStart) && <i className="splice-mark start">⌁</i>}
+              {joint(p.endEnd) && <i className="splice-mark end">⌁</i>}
+              {p.length > 0.25 && <b>{p.id}</b>}
+              {p.length > 0.5 && <span>{fmt(p.length)} м</span>}
+            </button>
+          </React.Fragment>
+        ))}
+        {stock.remainder > 1e-8 && (
+          <div
+            className="stock-tail"
+            style={{ left: `${(stock.consumed / 6) * 100}%`, width: `${(stock.remainder / 6) * 100}%` }}
+            title={`Остаток ${fmt(stock.remainder)} м`}
+          >
+            {stock.remainder > 0.35 ? fmt(stock.remainder) : ""}
+          </div>
+        )}
+      </div>
+      <div className="stock-foot">
+        <span>
+          Детали {fmt(stock.used)} м · пропилы {fmt(stock.kerfWaste * 1000, 0)} мм
+        </span>
+        <span className={stock.reusable ? "reusable" : ""}>
+          Остаток {fmt(stock.remainder)} м{stock.reusable ? " · можно сохранить" : " · менее 0,30 м"}
+        </span>
+      </div>
+      <details className="stock-details">
+        <summary>Все детали, позиции и торцевые соединения</summary>
+        <div className="stock-detail-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Деталь</th>
+                <th>Заготовка / позиция, м</th>
+                <th>Начальный торец</th>
+                <th>Конечный торец</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stock.pieces.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <b>{p.id}</b>
+                    <small>{p.name}</small>
+                  </td>
+                  <td>
+                    {fmt(p.length)}
+                    <br />
+                    <small>
+                      {fmt(p.cutStart)}–{fmt(p.cutEnd)}
+                    </small>
+                  </td>
+                  <td>{formatEndCut(p.endStart)}</td>
+                  <td>{formatEndCut(p.endEnd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </article>
+  );
 }
 
-export default function CuttingPanel({project,result,cutting:precomputedCutting,onCuttingChange,onSelect}){
-  const cutting=useMemo(()=>precomputedCutting??calculateCutting(project,result),[project,result,precomputedCutting]);
-  const [section,setSection]=useState('all'),[search,setSearch]=useState(''),[page,setPage]=useState(1),[message,setMessage]=useState('');
-  const [kerf,setKerf]=useState(String(cutting.kerfMM));
-  useEffect(()=>setKerf(String(cutting.kerfMM)),[cutting.kerfMM]);
-  useEffect(()=>setPage(1),[section,search]);
-  const filtered=cutting.stocks.filter(s=>(section==='all'||s.section===section)&&(!search.trim()||[s.id,...s.pieces.flatMap(p=>[p.id,p.name])].join(' ').toLowerCase().includes(search.trim().toLowerCase())));
-  const perPage=8,pages=Math.max(1,Math.ceil(filtered.length/perPage)),currentPage=Math.min(page,pages);
-  const visible=filtered.slice((currentPage-1)*perPage,currentPage*perPage),s=cutting.summary;
-  const exportCSV=()=>{const url=URL.createObjectURL(new Blob([cuttingRowsToCSV(cutting,project.name)],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='karkas-full-cutting-map.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
-  const print=()=>{const win=window.open('','_blank');if(!win){setMessage('Браузер заблокировал страницу печати. Разрешите всплывающее окно для полной карты.');return;}win.document.open();win.document.write(cuttingToPrintHTML(cutting,project.name));win.document.close();win.focus();};
-  const commitKerf=()=>{const n=Number(kerf.replace(',','.'));if(!kerf.trim()||!Number.isFinite(n)||n<0||n>10){setMessage('Ширина пропила: число от 0 до 10 мм.');setKerf(String(cutting.kerfMM));return;}setMessage('');onCuttingChange?.({...project.cutting,kerf:n});};
-  return <section className="cutting-panel" aria-label="Раскрой досок 6 метров"><style>{css}</style>
-    <header className="cutting-heading"><div><h2>Раскрой досок</h2><p>Все заготовки из досок 6 м · карта по каждой детали модели</p></div><div className="cutting-actions"><button className="button secondary" onClick={exportCSV}>Весь раскрой CSV ↗</button><button className="button secondary" onClick={print}>Все схемы / PDF ↗</button></div></header>
-    <div className="cutting-metrics"><div className="cutting-metric primary"><span>Купить досок по 6 м</span><strong>{s.boards}<small>шт.</small></strong><small>{fmt(s.purchasedVolume)} м³ · {cutting.groups.length} сечений</small></div>
-      <div className="cutting-metric"><span>Детали по модели</span><strong>{s.pieces}<small>шт.</small></strong><small>{fmt(s.usedVolume)} м³ заготовок · стыков {s.spliceCount}{s.spliceCountExact?'':'*'}</small></div>
-      <div className="cutting-metric"><span>Остатки + пропилы</span><strong>{fmt(s.wastePercent,1)}<small>%</small></strong><small>{fmt(s.wasteVolume)} м³ · пропилы {fmt(s.kerfLoss)} м</small></div>
-      <div className="cutting-metric"><span>Пригодные остатки от 0,30 м</span><strong>{fmt(s.reusableLength,2)}<small>м</small></strong><small>{fmt(s.reusableVolume)} м³ · хранить по сечениям</small></div></div>
-    <div className="cutting-proof"><strong>{s.optimal?'Число досок минимально в принятой модели':'Найденная раскладка · оптимальность не доказана'}</strong><span>Нижняя граница: {s.lowerBound} досок · найдено: {s.boards}{!s.complete?' · есть неразмещённые детали':''}</span></div>
-    {(cutting.overlength.length>0||cutting.invalid.length>0)&&<div className="cutting-warning"><strong>Не размещено {cutting.overlength.length+cutting.invalid.length} деталей</strong>Они не входят в объём закупки этой карты. Уточните геометрию или задайте рассчитанные продольные соединения.<ul>{[...cutting.overlength,...cutting.invalid].map((p,i)=><li key={`${p.id}-${i}`}>{p.id} · {p.section} · {fmt(p.length??0)} м — {p.reason}</li>)}</ul></div>}
-    {message&&<div className="cutting-warning" role="status">{message}</div>}
-    <div className="cutting-toolbar"><select aria-label="Сечение раскроя" value={section} onChange={e=>setSection(e.target.value)}><option value="all">Все сечения · {s.boards} досок</option>{cutting.groups.map(g=><option key={g.section} value={g.section}>{g.section.replace('x',' × ')} мм · {g.boards} шт.</option>)}</select>
-      <input className="cutting-search" aria-label="Найти доску или деталь" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Найти доску, деталь или элемент…"/>
-      <label className="cutting-kerf">Пропил<input aria-label="Ширина пропила, мм" inputMode="decimal" value={kerf} onChange={e=>setKerf(e.target.value)} onBlur={commitKerf} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur()}}/>мм</label></div>
-    <div className="cutting-legend"><span><i/>Заготовка детали</span><span><i className="kerf"/>Пропил</span><span><i className="tail"/>Хвостовой остаток</span><span>⌁ Продольное соединение</span></div>
-    {visible.length?visible.map(stock=><StockCard key={stock.id} stock={stock} onSelect={onSelect}/>):<div className="cutting-empty">Доски по выбранному фильтру не найдены.</div>}
-    <div className="cutting-pagination"><span>{filtered.length?`${(currentPage-1)*perPage+1}–${Math.min(currentPage*perPage,filtered.length)}`:'0'} из {filtered.length} досок</span><div><button disabled={currentPage<=1} onClick={()=>setPage(currentPage-1)}>← Назад</button><span>{currentPage} / {pages}</span><button disabled={currentPage>=pages} onClick={()=>setPage(currentPage+1)}>Вперёд →</button></div></div>
-    <p className="cutting-page-note">Экспорт CSV и страница печати содержат все {s.boards} досок и все {s.pieces} деталей, независимо от фильтра и страницы. Наклон элемента не является автоматически углом настройки пилы.</p>
-    <details className="cutting-notes"><summary>Допущения, пропилы и доказательство оптимальности</summary>{cutting.assumptions.map(a=><p key={a}>{a}</p>)}{!s.spliceCountExact&&<p>* Число стыков без идентификаторов соединений оценено по парам торцов. Перед производством проверьте соответствие деталей.</p>}
-      {cutting.groups.map(g=><p key={g.section}>{g.section.replace('x',' × ')} мм: {g.boards} досок, нижняя граница {g.lowerBound}; {g.optimal?(g.proof==='exact-search'?'минимум доказан точным поиском':'достигнута нижняя граница'):'оптимальность не доказана'}.</p>)}</details>
-  </section>;
+export default function CuttingPanel({
+  project,
+  result,
+  cutting: precomputedCutting,
+  onCuttingChange,
+  onSelect,
+}) {
+  const cutting = useMemo(
+    () => precomputedCutting ?? calculateCutting(project, result),
+    [project, result, precomputedCutting],
+  );
+  const [section, setSection] = useState("all"),
+    [search, setSearch] = useState(""),
+    [page, setPage] = useState(1),
+    [message, setMessage] = useState("");
+  const [kerf, setKerf] = useState(String(cutting.kerfMM));
+  useEffect(() => setKerf(String(cutting.kerfMM)), [cutting.kerfMM]);
+  useEffect(() => setPage(1), [section, search]);
+  const filtered = cutting.stocks.filter(
+    (s) =>
+      (section === "all" || s.section === section) &&
+      (!search.trim() ||
+        [s.id, ...s.pieces.flatMap((p) => [p.id, p.name])]
+          .join(" ")
+          .toLowerCase()
+          .includes(search.trim().toLowerCase())),
+  );
+  const perPage = 8,
+    pages = Math.max(1, Math.ceil(filtered.length / perPage)),
+    currentPage = Math.min(page, pages);
+  const visible = filtered.slice((currentPage - 1) * perPage, currentPage * perPage),
+    s = cutting.summary;
+  const exportCSV = () => {
+    const url = URL.createObjectURL(
+      new Blob([cuttingRowsToCSV(cutting, project.name)], { type: "text/csv;charset=utf-8" }),
+    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "karkas-full-cutting-map.csv";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const print = () => {
+    const win = window.open("", "_blank");
+    if (!win) {
+      setMessage("Браузер заблокировал страницу печати. Разрешите всплывающее окно для полной карты.");
+      return;
+    }
+    win.document.open();
+    win.document.write(cuttingToPrintHTML(cutting, project.name));
+    win.document.close();
+    win.focus();
+  };
+  const commitKerf = () => {
+    const n = Number(kerf.replace(",", "."));
+    if (!kerf.trim() || !Number.isFinite(n) || n < 0 || n > 10) {
+      setMessage("Ширина пропила: число от 0 до 10 мм.");
+      setKerf(String(cutting.kerfMM));
+      return;
+    }
+    setMessage("");
+    onCuttingChange?.({ ...project.cutting, kerf: n });
+  };
+  return (
+    <section className="cutting-panel" aria-label="Раскрой досок 6 метров">
+      <style>{css}</style>
+      <header className="cutting-heading">
+        <div>
+          <h2>Раскрой досок</h2>
+          <p>Все заготовки из досок 6 м · карта по каждой детали модели</p>
+        </div>
+        <div className="cutting-actions">
+          <button className="button secondary" onClick={exportCSV}>
+            Весь раскрой CSV ↗
+          </button>
+          <button className="button secondary" onClick={print}>
+            Все схемы / PDF ↗
+          </button>
+        </div>
+      </header>
+      <div className="cutting-metrics">
+        <div className="cutting-metric primary">
+          <span>Купить досок по 6 м</span>
+          <strong>
+            {s.boards}
+            <small>шт.</small>
+          </strong>
+          <small>
+            {fmt(s.purchasedVolume)} м³ · {cutting.groups.length} сечений
+          </small>
+        </div>
+        <div className="cutting-metric">
+          <span>Детали по модели</span>
+          <strong>
+            {s.pieces}
+            <small>шт.</small>
+          </strong>
+          <small>
+            {fmt(s.usedVolume)} м³ заготовок · стыков {s.spliceCount}
+            {s.spliceCountExact ? "" : "*"}
+          </small>
+        </div>
+        <div className="cutting-metric">
+          <span>Остатки + пропилы</span>
+          <strong>
+            {fmt(s.wastePercent, 1)}
+            <small>%</small>
+          </strong>
+          <small>
+            {fmt(s.wasteVolume)} м³ · пропилы {fmt(s.kerfLoss)} м
+          </small>
+        </div>
+        <div className="cutting-metric">
+          <span>Пригодные остатки от 0,30 м</span>
+          <strong>
+            {fmt(s.reusableLength, 2)}
+            <small>м</small>
+          </strong>
+          <small>{fmt(s.reusableVolume)} м³ · хранить по сечениям</small>
+        </div>
+      </div>
+      <div className="cutting-proof">
+        <strong>
+          {s.optimal
+            ? "Число досок минимально в принятой модели"
+            : "Найденная раскладка · оптимальность не доказана"}
+        </strong>
+        <span>
+          Нижняя граница: {s.lowerBound} досок · найдено: {s.boards}
+          {!s.complete ? " · есть неразмещённые детали" : ""}
+        </span>
+      </div>
+      {(cutting.overlength.length > 0 || cutting.invalid.length > 0) && (
+        <div className="cutting-warning">
+          <strong>Не размещено {cutting.overlength.length + cutting.invalid.length} деталей</strong>Они не
+          входят в объём закупки этой карты. Уточните геометрию или задайте рассчитанные продольные
+          соединения.
+          <ul>
+            {[...cutting.overlength, ...cutting.invalid].map((p, i) => (
+              <li key={`${p.id}-${i}`}>
+                {p.id} · {p.section} · {fmt(p.length ?? 0)} м — {p.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {message && (
+        <div className="cutting-warning" role="status">
+          {message}
+        </div>
+      )}
+      <div className="cutting-toolbar">
+        <select aria-label="Сечение раскроя" value={section} onChange={(e) => setSection(e.target.value)}>
+          <option value="all">Все сечения · {s.boards} досок</option>
+          {cutting.groups.map((g) => (
+            <option key={g.section} value={g.section}>
+              {g.section.replace("x", " × ")} мм · {g.boards} шт.
+            </option>
+          ))}
+        </select>
+        <input
+          className="cutting-search"
+          aria-label="Найти доску или деталь"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Найти доску, деталь или элемент…"
+        />
+        <label className="cutting-kerf">
+          Пропил
+          <input
+            aria-label="Ширина пропила, мм"
+            inputMode="decimal"
+            value={kerf}
+            onChange={(e) => setKerf(e.target.value)}
+            onBlur={commitKerf}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+          />
+          мм
+        </label>
+      </div>
+      <div className="cutting-legend">
+        <span>
+          <i />
+          Заготовка детали
+        </span>
+        <span>
+          <i className="kerf" />
+          Пропил
+        </span>
+        <span>
+          <i className="tail" />
+          Хвостовой остаток
+        </span>
+        <span>⌁ Продольное соединение</span>
+      </div>
+      {visible.length ? (
+        visible.map((stock) => <StockCard key={stock.id} stock={stock} onSelect={onSelect} />)
+      ) : (
+        <div className="cutting-empty">Доски по выбранному фильтру не найдены.</div>
+      )}
+      <div className="cutting-pagination">
+        <span>
+          {filtered.length
+            ? `${(currentPage - 1) * perPage + 1}–${Math.min(currentPage * perPage, filtered.length)}`
+            : "0"}{" "}
+          из {filtered.length} досок
+        </span>
+        <div>
+          <button disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>
+            ← Назад
+          </button>
+          <span>
+            {currentPage} / {pages}
+          </span>
+          <button disabled={currentPage >= pages} onClick={() => setPage(currentPage + 1)}>
+            Вперёд →
+          </button>
+        </div>
+      </div>
+      <p className="cutting-page-note">
+        Экспорт CSV и страница печати содержат все {s.boards} досок и все {s.pieces} деталей, независимо от
+        фильтра и страницы. Наклон элемента не является автоматически углом настройки пилы.
+      </p>
+      <details className="cutting-notes">
+        <summary>Допущения, пропилы и доказательство оптимальности</summary>
+        {cutting.assumptions.map((a) => (
+          <p key={a}>{a}</p>
+        ))}
+        {!s.spliceCountExact && (
+          <p>
+            * Число стыков без идентификаторов соединений оценено по парам торцов. Перед производством
+            проверьте соответствие деталей.
+          </p>
+        )}
+        {cutting.groups.map((g) => (
+          <p key={g.section}>
+            {g.section.replace("x", " × ")} мм: {g.boards} досок, нижняя граница {g.lowerBound};{" "}
+            {g.optimal
+              ? g.proof === "exact-search"
+                ? "минимум доказан точным поиском"
+                : "достигнута нижняя граница"
+              : "оптимальность не доказана"}
+            .
+          </p>
+        ))}
+      </details>
+    </section>
+  );
 }

@@ -1,3 +1,57 @@
-import React from 'react';
-const paths={cube:'M12 3 3 8l9 5 9-5-9-5ZM3 8v9l9 5 9-5V8M12 13v9',home:'m3 10 9-7 9 7v11H3V10Zm6 11v-8h6v8',layers:'m3 7 9-4 9 4-9 4-9-4Zm0 5 9 4 9-4M3 17l9 4 9-4',wind:'M3 8h12a3 3 0 1 0-3-3M3 12h16a3 3 0 1 1-3 3M3 16h6a2 2 0 1 1-2 2',foundation:'M3 4h18M5 4v6m7-6v6m7-6v6M3 10h18M5 10v10m7-10v10m7-10v10M3 20h4m3 0h4m3 0h4',beam:'M3 5h18v14H3V5Zm0 4h18M7 9v10m5-10v10m5-10v10',table:'M3 4h18v16H3V4Zm0 5h18M3 14h18M9 4v16',arrow:'m9 5 7 7-7 7',down:'m6 9 6 6 6-6',plus:'M12 5v14M5 12h14',minus:'M5 12h14',close:'m6 6 12 12M6 18 18 6',check:'m5 12 4 4L19 6',undo:'M9 4 4 9l5 5M4 9h10a6 6 0 0 1 0 12',redo:'m15 4 5 5-5 5m5-5H10a6 6 0 0 0 0 12',export:'M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5',upload:'M12 16V4m-4 4 4-4 4 4M4 16v5h16v-5',save:'M5 3h12l4 4v14H3V3h2Zm2 0v6h10V3M7 21v-8h10v8',help:'M9 8a3 3 0 1 1 4 3c-1 .5-1 1-1 3m0 3h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',ruler:'m3 16 13-13 5 5L8 21l-5-5Zm5-5 3 3m1-7 3 3m-11 5 3 3',window:'M4 3h16v18H4V3Zm8 0v18M4 12h16',door:'M5 21V3h14v18M5 21l10-4V5L5 3m7 8h.1',cursor:'m5 3 14 10-7 1-4 7L5 3Z',grid:'M3 3h18v18H3V3Zm6 0v18m6-18v18M3 9h18M3 15h18',target:'M3 9V3h6m6 0h6v6m0 6v6h-6m-6 0H3v-6',eye:'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Zm13 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0',warning:'m12 3 10 18H2L12 3Zm0 6v5m0 3h.01',file:'M5 3h9l5 5v13H5V3Zm9 0v5h5M8 13h8m-8 4h6',trash:'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7',sun:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-6v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5',refresh:'M20 7a9 9 0 1 0 1 8M20 3v5h-5',settings:'M4 7h16M4 17h16M8 4v6m8 4v6',expand:'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5',info:'M12 11v6m0-10h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',snow:'M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M9 4l3 3 3-3M9 20l3-3 3 3M4 10l4-1-1-4m10 14-1-4 4-1M4 14l4 1-1 4m10-14-1 4 4 1',weight:'M5 7h14l3 14H2L5 7Zm4 0V5a3 3 0 0 1 6 0v2'};
-export default function Icon({name,size=20,...p}){return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...p}><path d={paths[name]||paths.cube}/></svg>}
+import React from "react";
+const paths = {
+  cube: "M12 3 3 8l9 5 9-5-9-5ZM3 8v9l9 5 9-5V8M12 13v9",
+  home: "m3 10 9-7 9 7v11H3V10Zm6 11v-8h6v8",
+  layers: "m3 7 9-4 9 4-9 4-9-4Zm0 5 9 4 9-4M3 17l9 4 9-4",
+  wind: "M3 8h12a3 3 0 1 0-3-3M3 12h16a3 3 0 1 1-3 3M3 16h6a2 2 0 1 1-2 2",
+  foundation: "M3 4h18M5 4v6m7-6v6m7-6v6M3 10h18M5 10v10m7-10v10m7-10v10M3 20h4m3 0h4m3 0h4",
+  beam: "M3 5h18v14H3V5Zm0 4h18M7 9v10m5-10v10m5-10v10",
+  table: "M3 4h18v16H3V4Zm0 5h18M3 14h18M9 4v16",
+  arrow: "m9 5 7 7-7 7",
+  down: "m6 9 6 6 6-6",
+  plus: "M12 5v14M5 12h14",
+  minus: "M5 12h14",
+  close: "m6 6 12 12M6 18 18 6",
+  check: "m5 12 4 4L19 6",
+  undo: "M9 4 4 9l5 5M4 9h10a6 6 0 0 1 0 12",
+  redo: "m15 4 5 5-5 5m5-5H10a6 6 0 0 0 0 12",
+  export: "M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5",
+  upload: "M12 16V4m-4 4 4-4 4 4M4 16v5h16v-5",
+  save: "M5 3h12l4 4v14H3V3h2Zm2 0v6h10V3M7 21v-8h10v8",
+  help: "M9 8a3 3 0 1 1 4 3c-1 .5-1 1-1 3m0 3h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0",
+  ruler: "m3 16 13-13 5 5L8 21l-5-5Zm5-5 3 3m1-7 3 3m-11 5 3 3",
+  window: "M4 3h16v18H4V3Zm8 0v18M4 12h16",
+  door: "M5 21V3h14v18M5 21l10-4V5L5 3m7 8h.1",
+  cursor: "m5 3 14 10-7 1-4 7L5 3Z",
+  grid: "M3 3h18v18H3V3Zm6 0v18m6-18v18M3 9h18M3 15h18",
+  target: "M3 9V3h6m6 0h6v6m0 6v6h-6m-6 0H3v-6",
+  eye: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Zm13 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
+  warning: "m12 3 10 18H2L12 3Zm0 6v5m0 3h.01",
+  file: "M5 3h9l5 5v13H5V3Zm9 0v5h5M8 13h8m-8 4h6",
+  trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7",
+  sun: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-6v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5",
+  refresh: "M20 7a9 9 0 1 0 1 8M20 3v5h-5",
+  settings: "M4 7h16M4 17h16M8 4v6m8 4v6",
+  expand: "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5",
+  info: "M12 11v6m0-10h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0",
+  snow: "M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M9 4l3 3 3-3M9 20l3-3 3 3M4 10l4-1-1-4m10 14-1-4 4-1M4 14l4 1-1 4m10-14-1 4 4 1",
+  weight: "M5 7h14l3 14H2L5 7Zm4 0V5a3 3 0 0 1 6 0v2",
+};
+export default function Icon({ name, size = 20, ...p }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.65"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...p}
+    >
+      <path d={paths[name] || paths.cube} />
+    </svg>
+  );
+}

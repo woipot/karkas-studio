@@ -1,5 +1,49 @@
-import test from 'node:test';import assert from 'node:assert/strict';
-import {defaultDesignerProject,calculateDesigner,validateDesignerProject} from './designer-engine.js';
-function fixture(){const p=structuredClone(defaultDesignerProject);p.height=3.1;p.levels=[{id:'L1',name:'Этаж1',index:1,height:3.1}];p.roof.type='none';p.openings=[];p.walls.push({id:'P',kind:'partition',section:'50x100',studStep:.6,endpointMode:'faces',a:{x:1,y:1},b:{x:5,y:1},height:2.75,level:1});return p;}
-test('lower partition uses its actual height for studs, both top plates, openings and material takeoff',()=>{const p=fixture(),r=calculateDesigner(p),w=r.walls.find(w=>w.id==='P'),members=r.timber.instances.filter(b=>b.wallId==='P'),level=r.geometry.levels[0],top=level.wallBaseY+2.75;assert.ok(Math.abs(w.grossArea-4*2.75)<1e-7);assert.ok(Math.abs(Math.max(...members.flatMap(b=>[b.start[1],b.end[1]]))+.025-top)<1e-7);const plates=members.filter(b=>b.platePosition==='top');assert.equal(plates.length,2);assert.ok(plates.every(b=>b.start[1]+.025<=top+1e-7));assert.ok(r.geometry.levels[0].topY>top+.3);p.openings=[{id:'D',wallId:'P',offset:1,width:.8,height:2.6,sill:0,type:'door',floor:1}];assert.equal(validateDesignerProject(p).valid,false);});
-test('independent wall height cannot silently lower a bearing support or exceed the storey',()=>{const p=fixture();p.walls.at(-1).kind='bearing';delete p.walls.at(-1).endpointMode;assert.equal(validateDesignerProject(p).valid,false);p.walls.at(-1).kind='partition';p.walls.at(-1).height=3.2;assert.equal(validateDesignerProject(p).valid,false);});
+import test from "node:test";
+import assert from "node:assert/strict";
+import { defaultDesignerProject, calculateDesigner, validateDesignerProject } from "./designer-engine.js";
+function fixture() {
+  const p = structuredClone(defaultDesignerProject);
+  p.height = 3.1;
+  p.levels = [{ id: "L1", name: "Этаж1", index: 1, height: 3.1 }];
+  p.roof.type = "none";
+  p.openings = [];
+  p.walls.push({
+    id: "P",
+    kind: "partition",
+    section: "50x100",
+    studStep: 0.6,
+    endpointMode: "faces",
+    a: { x: 1, y: 1 },
+    b: { x: 5, y: 1 },
+    height: 2.75,
+    level: 1,
+  });
+  return p;
+}
+test("lower partition uses its actual height for studs, both top plates, openings and material takeoff", () => {
+  const p = fixture(),
+    r = calculateDesigner(p),
+    w = r.walls.find((w) => w.id === "P"),
+    members = r.timber.instances.filter((b) => b.wallId === "P"),
+    level = r.geometry.levels[0],
+    top = level.wallBaseY + 2.75;
+  assert.ok(Math.abs(w.grossArea - 4 * 2.75) < 1e-7);
+  assert.ok(Math.abs(Math.max(...members.flatMap((b) => [b.start[1], b.end[1]])) + 0.025 - top) < 1e-7);
+  const plates = members.filter((b) => b.platePosition === "top");
+  assert.equal(plates.length, 2);
+  assert.ok(plates.every((b) => b.start[1] + 0.025 <= top + 1e-7));
+  assert.ok(r.geometry.levels[0].topY > top + 0.3);
+  p.openings = [
+    { id: "D", wallId: "P", offset: 1, width: 0.8, height: 2.6, sill: 0, type: "door", floor: 1 },
+  ];
+  assert.equal(validateDesignerProject(p).valid, false);
+});
+test("independent wall height cannot silently lower a bearing support or exceed the storey", () => {
+  const p = fixture();
+  p.walls.at(-1).kind = "bearing";
+  delete p.walls.at(-1).endpointMode;
+  assert.equal(validateDesignerProject(p).valid, false);
+  p.walls.at(-1).kind = "partition";
+  p.walls.at(-1).height = 3.2;
+  assert.equal(validateDesignerProject(p).valid, false);
+});

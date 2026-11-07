@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+<title id="title">КАРКАС ENGINE 5 · Дом 10×8 м: каркас или профилированный брус — что купить</title>
+<desc id="desc">Сравнение сметы, древесины, ОСП, утеплителя и нагрузки на фундамент по data.json. В исходных данных чистый объём утеплителя не совпадает с разностью брутто и древесины; все исходные значения сохранены.</desc>
+<style>
+text{font-family:'Golos Text','Segoe UI',system-ui,sans-serif;fill:#263229;font-variant-numeric:tabular-nums}
+.kicker{font-size:15px;font-weight:700;letter-spacing:2px;fill:#5f7b49}.heading{font-size:27px;font-weight:700}.label{font-size:14px;font-weight:600;letter-spacing:.6px;fill:#5f7b49}.body{font-size:18px}.muted{font-size:15px;fill:#60705f}.value{font-size:30px;font-weight:650}.price{font-size:44px;font-weight:700;letter-spacing:-1px}.small{font-size:14px;fill:#60705f}.accent{fill:#b8693a}.rule{stroke:#e2e7db;stroke-width:1}
+</style>
+<rect width="1600" height="1000" fill="#f6f7f1"/>
+
+<text x="56" y="43" class="kicker" >КАРКАС ENGINE 5</text>
+<text x="56" y="89" class="heading" style="font-size:32px">Дом 10×8 м: каркас или профилированный брус — что купить</text>
+<text x="1544" y="43" class="small" text-anchor="end">СРАВНЕНИЕ КОМПЛЕКТОВ</text>
+<rect x="56" y="126" width="728" height="763" rx="16" fill="#ffffff"/>
+<rect x="80" y="148" width="5" height="48" rx="2" fill="#5f7b49"/>
+<text x="98" y="169" class="heading" >Каркас 50×150 + ОСП</text>
+<text x="98" y="194" class="muted" >Стойки и листовая обшивка</text>
+<path d="M80 213h680" class="rule"/>
+<text x="80" y="240" class="label" >СМЕТА, ₽</text>
+<text x="80" y="285" class="price" >2 299 240</text>
+<text x="760" y="278" class="muted" text-anchor="end">База сравнения</text>
+<rect x="80" y="303" width="680" height="5" rx="2.5" fill="#edf0e6"/>
+<rect x="80" y="303" width="498.71" height="5" rx="2.5" fill="#5f7b49"/>
+<text x="80" y="337" class="label" >ДРЕВЕСИНА · ОБЪЁМ И МАССА</text>
+<text x="80" y="372" class="value" >14,1 м³</text>
+<text x="320" y="372" class="value" >7,1 т</text>
+<rect x="80" y="389" width="680" height="5" rx="2.5" fill="#edf0e6"/>
+<rect x="80" y="389" width="390.59" height="5" rx="2.5" fill="#5f7b49"/>
+<text x="80" y="423" class="label" >ЛИСТЫ ОСП</text>
+<text x="760" y="423" class="small" text-anchor="end">ЛИСТОВ / ОТХОД</text>
+<text x="80" y="451" class="body" >ОСП-3 2500×1250 · 12 мм</text>
+<text x="760" y="451" class="body" text-anchor="end" style="font-weight:600">67 / 13,1%</text>
+<text x="80" y="478" class="body" >ОСП-3 2440×1220 · 22 мм</text>
+<text x="760" y="478" class="body" text-anchor="end" style="font-weight:600">31 / 2,5%</text>
+<text x="80" y="508" class="body" style="font-weight:700">Итого 98 листов</text>
+<text x="328" y="508" class="body" >Нижняя граница: 86</text>
+<text x="80" y="532" class="small" >нижняя граница — теоретический минимум листов</text>
+<path d="M80 547h680" class="rule"/>
+<text x="80" y="570" class="label" >УТЕПЛИТЕЛЬ · ЧИСТЫЙ ОБЪЁМ</text>
+<text x="80" y="606" class="value" >41,6 м³</text>
+<text x="760" y="604" class="body" text-anchor="end" style="font-weight:650">102 упак.</text>
+<text x="80" y="633" class="body" >Брутто 51,5 − проёмы 1,2 − древесина 8,7 м³ *</text>
+<text x="80" y="660" class="muted" >Полости каркаса заполняются утеплителем</text>
+<rect x="80" y="685" width="680" height="99" rx="10" fill="#f3f5ec"/>
+<text x="96" y="712" class="label" >КОНСТРУКЦИЯ СТЕН</text>
+<text x="96" y="741" class="body" style="font-weight:600">Каркас 50×150 мм + листы ОСП</text>
+<text x="96" y="768" class="small" >Древесина, утеплитель и обшивка работают в одной системе</text>
+<text x="80" y="815" class="label" >РАСЧЁТНАЯ ВЕРТИКАЛЬНАЯ НАГРУЗКА</text>
+<text x="80" y="851" class="value" >629 кН</text>
+<text x="760" y="849" class="body" text-anchor="end" style="font-weight:650">30 свай</text>
+<rect x="80" y="868" width="680" height="5" rx="2.5" fill="#edf0e6"/>
+<rect x="80" y="868" width="680.0" height="5" rx="2.5" fill="#5f7b49"/>
+<rect x="816" y="126" width="728" height="763" rx="16" fill="#ffffff"/>
+<rect x="840" y="148" width="5" height="48" rx="2" fill="#9cba77"/>
+<text x="858" y="169" class="heading" >Профилированный брус 145×145</text>
+<text x="858" y="194" class="muted" >Стены из сплошного бруса</text>
+<path d="M840 213h680" class="rule"/>
+<text x="840" y="240" class="label" >СМЕТА, ₽</text>
+<text x="840" y="285" class="price" >3 135 078</text>
+<text x="1520" y="278" class="body accent" text-anchor="end" style="font-weight:650">+36,4% к каркасу</text>
+<rect x="840" y="303" width="680" height="5" rx="2.5" fill="#edf0e6"/>
+<rect x="840" y="303" width="680.0" height="5" rx="2.5" fill="#9cba77"/>
+<text x="840" y="337" class="label" >ДРЕВЕСИНА · ОБЪЁМ И МАССА</text>
+<text x="840" y="372" class="value" >24,6 м³</text>
+<text x="1080" y="372" class="value" >12,3 т</text>
+<rect x="840" y="389" width="680" height="5" rx="2.5" fill="#edf0e6"/>
+<rect x="840" y="389" width="680.0" height="5" rx="2.5" fill="#9cba77"/>
+<text x="840" y="423" class="label" >ЛИСТЫ ОСП</text>
+<text x="1520" y="423" class="small" text-anchor="end">ЛИСТОВ / ОТХОД</text>
+<text x="840" y="451" class="body" >ОСП-3 2440×1220 · 22 мм</text>
+<text x="1520" y="451" class="body" text-anchor="end" style="font-weight:600">31 / 2,5%</text>
+<text x="840" y="478" class="body" >ОСП-3 2440×1220 · 12 мм</text>
+<text x="1520" y="478" class="body" text-anchor="end" style="font-weight:600">34 / 3,3%</text>
+<text x="840" y="508" class="body" style="font-weight:700">Итого 65 листов</text>
+<text x="1088" y="508" class="body" >Нижняя граница: 58</text>
+<text x="840" y="532" class="small" >нижняя граница — теоретический минимум листов</text>
+<path d="M840 547h680" class="rule"/>
+<text x="840" y="570" class="label" >УТЕПЛИТЕЛЬ · ЧИСТЫЙ ОБЪЁМ</text>
+<text x="840" y="606" class="value" >30,4 м³</text>
+<text x="1520" y="604" class="body" text-anchor="end" style="font-weight:650">74 упак.</text>
+<text x="840" y="633" class="body" >Брутто 36,7 − древесина 6,2 м³ *</text>
+<text x="840" y="660" class="muted" >стены — сплошной брус, без утеплителя в полости</text>
+<rect x="840" y="685" width="680" height="99" rx="10" fill="#f3f5ec"/>
+<text x="856" y="709" class="label" >КОМПЛЕКТ БРУСОВЫХ СТЕН</text>
+<text x="856" y="737" class="body" style="font-weight:700">13,1 м³</text>
+<text x="856" y="756" class="small" >брус</text>
+<text x="1021" y="737" class="body" style="font-weight:700">671 шт.</text>
+<text x="1021" y="756" class="small" >нагели</text>
+<text x="1186" y="737" class="body" style="font-weight:700">658 м.п.</text>
+<text x="1186" y="756" class="small" >джут</text>
+<text x="1351" y="737" class="body" style="font-weight:700">до 168 мм</text>
+<text x="1351" y="756" class="small" >усадка</text>
+<text x="856" y="775" class="small" style="fill:#b8693a">закладывайте зазор обсады над окнами и дверьми</text>
+<text x="840" y="815" class="label" >РАСЧЁТНАЯ ВЕРТИКАЛЬНАЯ НАГРУЗКА</text>
+<text x="840" y="851" class="value" >623 кН</text>
+<text x="1520" y="849" class="body" text-anchor="end" style="font-weight:650">30 свай</text>
+<rect x="840" y="868" width="680" height="5" rx="2.5" fill="#edf0e6"/>
+<rect x="840" y="868" width="673.51" height="5" rx="2.5" fill="#9cba77"/>
+<text x="56" y="915" class="body" style="font-size:17px">Брус тяжелее каркаса, но каркасная стена несёт слои утеплителя и отделки — нагрузка на фундамент почти равна.</text>
+<text x="56" y="940" class="small" >* Чистый объём = брутто − проёмы − древесина каркаса в слое (каркас: 51,5 − 1,2 − 8,7 = 41,6 м³).</text>
+<path d="M56 954h1488" class="rule"/>
+<text x="56" y="978" class="small" >Цены иллюстративные. Расчёт: СП 20.13330, СП 64.13330; форматы ОСП — данные производителей; сечения — ГОСТ 24454-80.</text>
+</svg>

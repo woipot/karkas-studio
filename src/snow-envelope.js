@@ -1,32 +1,205 @@
-import {calculateDesigner} from './designer-engine.js';
-import {calculateRoofZones} from './roof-zones.js';
-import {checkDesignerMembers} from './designer-mechanics.js';
-const clone=x=>JSON.parse(JSON.stringify(x));
+import { calculateDesigner } from "./designer-engine.js";
+import { calculateRoofZones } from "./roof-zones.js";
+import { checkDesignerMembers } from "./designer-mechanics.js";
+import { memberLoadProject, loadProfile, snowBasis } from "./load-profile.js";
+const clone = (x) => JSON.parse(JSON.stringify(x));
 /** Fixed-section load-case checks. No auto resizing between cases. */
-export function analyzeSnowCases(p,baseline){
- if(p.roof?.sourceModel!==undefined)return{groundSnow:p.loads?.snow,coefficientMethod:'Imported physical roof surfaces; no source-specific structural snow-case solver',basis:p.snowDesign?.basis??'Source geometry import',cases:[],checks:[{id:'snow-source-roof-scope',label:'Импорт: снеговые силовые случаи не рассчитаны',status:'unverified',note:'Базовый снег учтён по проекциям импортированных скатов. zoneFactors/annexFactors не заменяют расчёт исходных подкосных стен, прогонов, стропил и соединений; screen_pass не выдаётся.'}],worstTotalDesignCase:null,certified:false,assumptions:['Для roof.sourceModel сформирована геометрия и базовый вес/снег; пересчёт силовых снеговых случаев по автоматическим zones отключён. Нужна независимая расчётная схема исходной конструкции.']};
- const requested=p.snowDesign?.cases??[];if(!Array.isArray(requested)||requested.length>12)throw new Error('Снеговые случаи: не более 12.');
- const cases=[],checks=[];
- for(const item of requested){
-  if(!item||typeof item!=='object'||Array.isArray(item)||typeof item.id!=='string'||!item.id||typeof item.name!=='string'||!item.zoneFactors||typeof item.zoneFactors!=='object'||Array.isArray(item.zoneFactors))throw new Error('Снеговой случай: id, name и zoneFactors обязательны.');
-  const q=clone(p),zones=baseline.roofModel?.zones??[],annexFactors=item.annexFactors??{};
-  if(item.annexFactors!==undefined&&(!item.annexFactors||typeof item.annexFactors!=='object'||Array.isArray(item.annexFactors)))throw new Error('annexFactors: объект множителей существующих пристроек от0 до4.');
-  for(const [id,factor]of Object.entries(annexFactors))if(!(p.annexes??[]).some(a=>a.id===id)||!Number.isFinite(factor)||factor<0||factor>4)throw new Error('Множитель снега пристройки: существующий annexId и0…4.');
-  q.annexes=(q.annexes??[]).map(a=>({...a,loads:{...a.loads,snow:(a.loads?.snow??p.loads.snow)*(annexFactors[a.id]??1)}}));
-  // Freeze baseline auto-selected wall sections too; a load case must never
-  // quietly resize a wall or change a zone’s truss topology.
-  const profiles=baseline.roofModel?.wallProfiles??[];
-  q.walls=q.walls.map(w=>({...w,section:profiles.find(p=>p.wallId===w.id&&p.level===(w.level??1))?.section??w.section}));
-  if(q.roof.wallFraming==='auto')q.roof.wallFraming='continuous';
-  for(const [id,factor]of Object.entries(item.zoneFactors))if(!zones.some(z=>z.id===id)||!Number.isFinite(factor)||factor<0||factor>4)throw new Error('Множитель снеговой зоны: существующий zoneId и 0…4.');
-  q.roof.zones=zones.map(z=>({id:z.id,name:z.name,polygon:z.bearingPolygon??z.polygon,shape:z.shape,trussType:z.trussType,ridgeAngle:z.ridgeAngle,pitchLeft:z.pitchLeft,pitchRight:z.pitchRight,elevation:z.elevation??null,levelIndex:z.levelIndex,spacing:z.spacing,chordSection:z.selectedSection??z.chordSection,webSection:z.webSection,framing:z.effectiveFraming==='tiedRafters'?'tiedRafters':z.effectiveFraming==='rafters'?'rafters':'truss',deflectionRatio:z.deflectionRatio??300,overhangs:z.overhangs??{},loadSnowFactor:item.zoneFactors[z.id]??1,heelClearance:z.heelClearance??q.roof.heelClearance,ceilingDead:z.ceilingDead??q.roof.ceilingDead,ceilingDrop:z.ceilingDrop??q.roof.ceilingDrop,kneeRun:z.kneeRun??q.roof.kneeRun,collarHeightRatio:z.collarHeightRatio??q.roof.collarHeightRatio,tieSection:z.tieSection??q.roof.tieSection,kneeSection:z.kneeSection??q.roof.kneeSection,collarSection:z.collarSection??q.roof.collarSection,collarConnection:z.collarConnection??q.roof.collarConnection,collarEndInset:z.collarEndInset??q.roof.collarEndInset,snowMu:z.snowMu??q.roof.snowMu}));
-  const base=calculateDesigner(q),roof=calculateRoofZones(q,base,{roofExtraDeadByZone:baseline.auxiliaryTimber?.roofExtraDeadByZone??{},ceilingExtraDeadByZone:baseline.auxiliaryTimber?.ceilingExtraDeadByZone??{}}),r=calculateDesigner(q,{roofModel:roof}),mechanics=checkDesignerMembers(q,r),all=[...r.checks,...mechanics.checks],failures=all.filter(c=>c.status==='fail');
-  const rafters=roof.zones.filter(z=>z.rafterAnalysis).map(z=>({zoneId:z.id,section:z.selectedSection,analysis:z.rafterAnalysis}));
-  const frames=roof.zones.filter(z=>z.frameAnalysis).map(z=>({zoneId:z.id,section:z.selectedSection,stable:z.frameAnalysis.stable,collarConnection:z.collarConnection,connections:z.frameAnalysis.connections??[],members:z.frameAnalysis.members.map(m=>({id:m.id,role:m.role,utilization:m.utilization,status:m.status,maxMoment:m.maxMoment,maxAxial:m.maxAxial,deflectionMM:m.deflectionMM}))}));
-  const candidate={id:item.id,name:item.name,kind:item.kind??'load_arrangement',zoneFactors:item.zoneFactors,annexFactors:{...annexFactors},timberMass:r.timber.mass,timberVolume:r.timber.volume,boardCount:r.timber.boardCount,annexes:(r.annexes?.items??[]).map(a=>({annexId:a.id,kind:a.kind,snowCharacteristic:a.loads.snow,totalDesign:a.loads.totalDesign,woodMass:a.quantities.woodMass,pileReactionSum:a.loads.reactionSum})),snowCharacteristic:r.loads?.snow??0,totalDesign:r.loads?.totalDesign??null,maxPileReaction:r.foundation?.maxReaction??null,maxGrillageUtilization:r.grillageModel?.worstSpan?.check?.utilization??null,rafters,frames,failures,status:failures.length?'fail':'screen_pass',sectionsFixed:true};cases.push(candidate);
-  checks.push({id:'snow-case-'+item.id,label:'Снег: '+item.name,status:failures.length?'fail':'pass',note:failures.length?failures.map(c=>c.label).join('; '):'Частные проверки фиксированных сечений без автоподбора между случаями; нормативная полнота отдельно не подтверждена.'});
- }
- if(cases.length)checks.push({id:'snow-scope',label:'Снег: местные заносы, сползание и нормативные сочетания',status:'unverified',note:'Проверены явно заданные распределения. Локальные снеговые мешки требуют геометрии препятствий и полного нормативного задания; равномерный множитель зоны не заменяет треугольную/трапецеидальную нагрузку заноса.'});
- const highest=cases.reduce((a,b)=>!a||b.totalDesign>a.totalDesign?b:a,null);
- return {groundSnow:p.loads.snow,coefficientMethod:p.roof.snowMu!==undefined?'s = explicit roof.snowMu × sk × zone factor; no automatic local drift or full code combinations':'s = mu(alpha) × Ce × Ct × sk; Ce=Ct=1 in this concept model',basis:p.snowDesign?.basis??'User-specified load cases',cases,checks,worstTotalDesignCase:highest?.id??null,certified:false,assumptions:['Сечения и несущая схема зафиксированы по базовой модели. Нагрузки не приводят к скрытой замене досок между случаями.','annexFactors задаёт независимый множитель базового loads.snow указанной пристройки; без записи её снег не меняется. Для открытой террасы меняется снег на настиле, для крытых вариантов — на крыше. Частные сечения, древесная масса и опоры сохраняются.','Множитель по зоне применяется к её снеговой нагрузке, локальному расчёту стропил/ферм, вертикальным реакциям стены, суммарной нагрузке и реакциям свай.','Полное совместное действие ветра/снега и понижающие psi-коэффициенты EN1990 не реализованы; текущие gammaG/gammaQ описывают одну заданную огибающую.']};
+export function analyzeSnowCases(p, baseline) {
+  if (p.roof?.sourceModel !== undefined)
+    return {
+      groundSnow: p.loads?.snow,
+      coefficientMethod: "Imported physical roof surfaces; no source-specific structural snow-case solver",
+      basis: p.snowDesign?.basis ?? "Source geometry import",
+      cases: [],
+      checks: [
+        {
+          id: "snow-source-roof-scope",
+          label: "Импорт: снеговые силовые случаи не рассчитаны",
+          status: "unverified",
+          note: "Базовый снег учтён по проекциям импортированных скатов. zoneFactors/annexFactors не заменяют расчёт исходных подкосных стен, прогонов, стропил и соединений; screen_pass не выдаётся.",
+        },
+      ],
+      worstTotalDesignCase: null,
+      certified: false,
+      assumptions: [
+        "Для roof.sourceModel сформирована геометрия и базовый вес/снег; пересчёт силовых снеговых случаев по автоматическим zones отключён. Нужна независимая расчётная схема исходной конструкции.",
+      ],
+    };
+  const requested = p.snowDesign?.cases ?? [];
+  if (!Array.isArray(requested) || requested.length > 12) throw new Error("Снеговые случаи: не более 12.");
+  const cases = [],
+    checks = [];
+  for (const item of requested) {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      Array.isArray(item) ||
+      typeof item.id !== "string" ||
+      !item.id ||
+      typeof item.name !== "string" ||
+      !item.zoneFactors ||
+      typeof item.zoneFactors !== "object" ||
+      Array.isArray(item.zoneFactors)
+    )
+      throw new Error("Снеговой случай: id, name и zoneFactors обязательны.");
+    const q = clone(p),
+      zones = baseline.roofModel?.zones ?? [],
+      annexFactors = item.annexFactors ?? {};
+    if (
+      item.annexFactors !== undefined &&
+      (!item.annexFactors || typeof item.annexFactors !== "object" || Array.isArray(item.annexFactors))
+    )
+      throw new Error("annexFactors: объект множителей существующих пристроек от0 до4.");
+    for (const [id, factor] of Object.entries(annexFactors))
+      if (!(p.annexes ?? []).some((a) => a.id === id) || !Number.isFinite(factor) || factor < 0 || factor > 4)
+        throw new Error("Множитель снега пристройки: существующий annexId и0…4.");
+    q.annexes = (q.annexes ?? []).map((a) => ({
+      ...a,
+      loads: { ...a.loads, snow: (a.loads?.snow ?? p.loads.snow) * (annexFactors[a.id] ?? 1) },
+    }));
+    // Freeze baseline auto-selected wall sections too; a load case must never
+    // quietly resize a wall or change a zone’s truss topology.
+    const profiles = baseline.roofModel?.wallProfiles ?? [];
+    q.walls = q.walls.map((w) => ({
+      ...w,
+      section: profiles.find((p) => p.wallId === w.id && p.level === (w.level ?? 1))?.section ?? w.section,
+    }));
+    if (q.roof.wallFraming === "auto") q.roof.wallFraming = "continuous";
+    for (const [id, factor] of Object.entries(item.zoneFactors))
+      if (!zones.some((z) => z.id === id) || !Number.isFinite(factor) || factor < 0 || factor > 4)
+        throw new Error("Множитель снеговой зоны: существующий zoneId и 0…4.");
+    q.roof.zones = zones.map((z) => ({
+      id: z.id,
+      name: z.name,
+      polygon: z.bearingPolygon ?? z.polygon,
+      shape: z.shape,
+      trussType: z.trussType,
+      ridgeAngle: z.ridgeAngle,
+      pitchLeft: z.pitchLeft,
+      pitchRight: z.pitchRight,
+      elevation: z.elevation ?? null,
+      levelIndex: z.levelIndex,
+      spacing: z.spacing,
+      chordSection: z.selectedSection ?? z.chordSection,
+      webSection: z.webSection,
+      framing:
+        z.effectiveFraming === "tiedRafters"
+          ? "tiedRafters"
+          : z.effectiveFraming === "rafters"
+            ? "rafters"
+            : "truss",
+      deflectionRatio: z.deflectionRatio ?? 300,
+      overhangs: z.overhangs ?? {},
+      loadSnowFactor: item.zoneFactors[z.id] ?? 1,
+      heelClearance: z.heelClearance ?? q.roof.heelClearance,
+      ceilingDead: z.ceilingDead ?? q.roof.ceilingDead,
+      ceilingDrop: z.ceilingDrop ?? q.roof.ceilingDrop,
+      kneeRun: z.kneeRun ?? q.roof.kneeRun,
+      collarHeightRatio: z.collarHeightRatio ?? q.roof.collarHeightRatio,
+      tieSection: z.tieSection ?? q.roof.tieSection,
+      kneeSection: z.kneeSection ?? q.roof.kneeSection,
+      collarSection: z.collarSection ?? q.roof.collarSection,
+      collarConnection: z.collarConnection ?? q.roof.collarConnection,
+      collarEndInset: z.collarEndInset ?? q.roof.collarEndInset,
+      snowMu: z.snowMu ?? q.roof.snowMu,
+    }));
+    const base = calculateDesigner(q),
+      roof = calculateRoofZones(q, base, {
+        roofExtraDeadByZone: baseline.auxiliaryTimber?.roofExtraDeadByZone ?? {},
+        ceilingExtraDeadByZone: baseline.auxiliaryTimber?.ceilingExtraDeadByZone ?? {},
+      }),
+      r = calculateDesigner(q, { roofModel: roof }),
+      mechanics = checkDesignerMembers(memberLoadProject(q, r.loads?.windPressure), r),
+      all = [...r.checks, ...mechanics.checks],
+      failures = all.filter((c) => c.status === "fail");
+    const rafters = roof.zones
+      .filter((z) => z.rafterAnalysis)
+      .map((z) => ({ zoneId: z.id, section: z.selectedSection, analysis: z.rafterAnalysis }));
+    const frames = roof.zones
+      .filter((z) => z.frameAnalysis)
+      .map((z) => ({
+        zoneId: z.id,
+        section: z.selectedSection,
+        stable: z.frameAnalysis.stable,
+        collarConnection: z.collarConnection,
+        connections: z.frameAnalysis.connections ?? [],
+        members: z.frameAnalysis.members.map((m) => ({
+          id: m.id,
+          role: m.role,
+          utilization: m.utilization,
+          status: m.status,
+          maxMoment: m.maxMoment,
+          maxAxial: m.maxAxial,
+          deflectionMM: m.deflectionMM,
+        })),
+      }));
+    const candidate = {
+      id: item.id,
+      name: item.name,
+      kind: item.kind ?? "load_arrangement",
+      zoneFactors: item.zoneFactors,
+      annexFactors: { ...annexFactors },
+      timberMass: r.timber.mass,
+      timberVolume: r.timber.volume,
+      boardCount: r.timber.boardCount,
+      annexes: (r.annexes?.items ?? []).map((a) => ({
+        annexId: a.id,
+        kind: a.kind,
+        snowCharacteristic: a.loads.snow,
+        totalDesign: a.loads.totalDesign,
+        woodMass: a.quantities.woodMass,
+        pileReactionSum: a.loads.reactionSum,
+      })),
+      snowCharacteristic: r.loads?.snow ?? 0,
+      totalDesign: r.loads?.totalDesign ?? null,
+      maxPileReaction: r.foundation?.maxReaction ?? null,
+      maxGrillageUtilization: r.grillageModel?.worstSpan?.check?.utilization ?? null,
+      rafters,
+      frames,
+      failures,
+      status: failures.length ? "fail" : "screen_pass",
+      sectionsFixed: true,
+    };
+    cases.push(candidate);
+    checks.push({
+      id: "snow-case-" + item.id,
+      label: "Снег: " + item.name,
+      status: failures.length ? "fail" : "pass",
+      note: failures.length
+        ? failures.map((c) => c.label).join("; ")
+        : "Частные проверки фиксированных сечений без автоподбора между случаями; нормативная полнота отдельно не подтверждена.",
+    });
+  }
+  if (cases.length)
+    checks.push({
+      id: "snow-scope",
+      label: "Снег: местные заносы, сползание и нормативные сочетания",
+      status: "unverified",
+      note: "Проверены явно заданные распределения. Локальные снеговые мешки требуют геометрии препятствий и полного нормативного задания; равномерный множитель зоны не заменяет треугольную/трапецеидальную нагрузку заноса.",
+    });
+  const highest = cases.reduce((a, b) => (!a || b.totalDesign > a.totalDesign ? b : a), null);
+  return {
+    groundSnow: p.loads.snow,
+    snowCe: snowBasis(p.loads).ce,
+    snowCt: snowBasis(p.loads).ct,
+    profile: loadProfile(p.loads).id,
+    coefficientMethod:
+      p.roof.snowMu !== undefined
+        ? "S0 = ce × ct × explicit roof.snowMu × Sg × zone factor (SP 20.13330.2016 cl. 10.1); no automatic local drift"
+        : "S0 = ce × ct × mu(alpha) × Sg, mu per SP 20.13330.2016 App. B (1 up to 30 deg, 0 at 60 deg); gable trusses also checked for unbalanced variant 2",
+    unbalanced: (baseline.roofModel?.zones ?? [])
+      .filter((z) => z.snowCaseSummary)
+      .map((z) => ({ zoneId: z.id, ...z.snowCaseSummary })),
+    basis: p.snowDesign?.basis ?? "User-specified load cases",
+    cases,
+    checks,
+    worstTotalDesignCase: highest?.id ?? null,
+    certified: false,
+    assumptions: [
+      "Сечения и несущая схема зафиксированы по базовой модели. Нагрузки не приводят к скрытой замене досок между случаями.",
+      "annexFactors задаёт независимый множитель базового loads.snow указанной пристройки; без записи её снег не меняется. Для открытой террасы меняется снег на настиле, для крытых вариантов — на крыше. Частные сечения, древесная масса и опоры сохраняются.",
+      "Множитель по зоне применяется к её снеговой нагрузке, локальному расчёту стропил/ферм, вертикальным реакциям стены, суммарной нагрузке и реакциям свай.",
+      "Пользовательские случаи повторяют полный расчёт с теми же сочетаниями СП 20.13330.2016 п. 6.2, 6.4 (ψ 1,0/0,9/0,7, огибающая по основной временной нагрузке). Совместное действие ветра с вертикальными нагрузками в реакциях свай не учитывается.",
+    ],
+  };
 }

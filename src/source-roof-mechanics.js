@@ -19,6 +19,7 @@ import { axialCompression, bearingPerpendicular, resolveTimberMaterial } from ".
 import { loadFactors, roofSnowLoad } from "./load-profile.js";
 
 const G = 9.80665;
+const sum = (a) => a.reduce((s, v) => s + v, 0);
 const finite = (x) => typeof x === "number" && Number.isFinite(x);
 const sub = (a, b) => a.map((v, i) => v - b[i]),
   add = (a, b) => a.map((v, i) => v + b[i]),
@@ -326,7 +327,11 @@ export function analyzeSourceRoof(p, r) {
     E = p.material?.E ?? 10000,
     f = loadFactors(p.loads ?? {}),
     psiSecond = f.psi?.[1] ?? 0.9;
-  const roofDead = p.loads?.roofDead ?? 0.5,
+  // Sheet pressure is added only to member checks here; global mass is already
+  // carried by sheetModel -> structuralPanels -> pileField (GOST 8.417 gravity).
+  const sheetArea = sum((r.sheetModel?.surfaces ?? []).filter((s) => s.kind === "roof").map((s) => s.area));
+  const sheetMass = sum((r.sheetModel?.surfaces ?? []).filter((s) => s.kind === "roof").map((s) => s.mass));
+  const roofDead = (p.loads?.roofDead ?? 0.5) + (sheetArea > 0 ? (sheetMass * G) / 1000 / sheetArea : 0),
     ceilingDead = p.loads?.ceilingDead ?? p.roof?.ceilingDead ?? 0.3,
     atticLive = p.loads?.atticLive ?? 0.7,
     spacingFallback = p.roof?.spacing ?? 0.6;

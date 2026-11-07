@@ -1,3 +1,4 @@
+import { cutSheetParts, sheetPartsFromPanels, sheetCuttingOptions } from "./sheet-cutting.js";
 import { loadFactors } from "./load-profile.js";
 /** Actual wall bracing geometry. Shear capacity is never inferred from a picture. */
 const EPS = 1e-7;
@@ -669,6 +670,7 @@ export function buildWallBracing(project, result = {}) {
       // Check actual panel perimeters, including jambs and the rake. Internal
       // triangulation edges within the same purchased sheet are not joints.
       let unsupportedBoundary = 0;
+      const unsupportedEdgeIds = [];
       for (const panel of wallPanels) {
         const poly = panel.localPolygon;
         for (let i = 0; i < poly.length; i++) {
@@ -696,7 +698,10 @@ export function buildWallBracing(project, result = {}) {
               break;
             }
           }
-          if (missing) unsupportedBoundary++;
+          if (missing) {
+            unsupportedBoundary++;
+            unsupportedEdgeIds.push(`${panel.id}-E${i + 1}`);
+          }
         }
       }
       wallLine.panelArea = sum(wallPanels.map((q) => q.area));
@@ -706,6 +711,7 @@ export function buildWallBracing(project, result = {}) {
       lineChecks.push({
         id: `${w.id}-${l.index}-sheet-edges`,
         label: `${label}: кромки листов`,
+        unverifiedIds: unsupportedEdgeIds,
         status: "unverified",
         note: unsupported
           ? `${unsupported} участка кромок требуют дополнительной стойки, блокинга или изменения раскроя; дублирующая древесина не выдумана.`
@@ -988,11 +994,36 @@ export function buildWallBracing(project, result = {}) {
   out.quantities.purchasedSheetArea = sheetIds.size * p.sheetWidth * p.sheetHeight;
   out.quantities.wasteArea = Math.max(0, out.quantities.purchasedSheetArea - out.quantities.sheetArea);
   out.quantities.panelMass = sum(out.panels.map((p) => p.mass));
+  if (p.method === "sheathing" && !result.skipSheetCutting) {
+    const stock = {
+      id: "legacy-wall-sheet",
+      width: p.sheetWidth,
+      length: p.sheetHeight,
+      thickness: p.thickness,
+    };
+    const parts = sheetPartsFromPanels(out.panels, {
+      kind: "walls",
+      product: stock.id,
+      thickness: p.thickness,
+    });
+    out.sheetCutting = cutSheetParts(parts, stock, sheetCuttingOptions(project));
+    const assignment = new Map(
+      out.sheetCutting.stocks.flatMap((s) =>
+        s.pieces.flatMap((part) => part.panelIds.map((id) => [id, s.id])),
+      ),
+    );
+    for (const panel of out.panels) panel.purchaseSheetId = assignment.get(panel.id);
+    out.quantities.installationParts = sheetIds.size;
+    out.quantities.sheets = out.sheetCutting.count;
+    out.quantities.purchasedSheetArea = out.sheetCutting.purchasedArea;
+    out.quantities.wasteArea = out.sheetCutting.wasteArea;
+    out.quantities.reusableArea = out.sheetCutting.reusableArea;
+  }
   out.assumptions = [
     "Постоянная стеновая связь выбрана явно: конструкционная обшивка, врезная доска или отсутствие связи. Внешние декоративные X автоматически не добавляются.",
     "Панели представлены реальными полигонами с физически вырезанными окнами/дверями. Части одного stockSheetId относятся к одному закупочному листу; внутренняя триангуляция не является дополнительным швом.",
     "Листы подрезаются к фактическим осям стоек там, где возможно; под неподдержанными кромками добавляется геометрический блокинг или стойка. Неразрешённые стыки помечены, а пересекающая существующие доски древесина не выдумывается.",
-    "Количество листов — по принятой сетке раскладки без повторного использования остатков; это не доказанный оптимальный раскрой. Масса панели = чистая площадь × толщина × плотность; выбранная панель должна быть исключена из прочих вводимых слоёв стены.",
+    "Количество листов — по гильотинному раскрою монтажных заготовок с повторным использованием прямоугольных остатков; оптимальность эвристики не доказана. Масса панели = чистая площадь × толщина × плотность; выбранная панель должна быть исключена из прочих вводимых слоёв стены.",
     "Серия врезных укосин распределена по длине каждого подходящего чистого простенка в плоскости каркаса под углом 45–60°, от нижней до верхней обвязки. Выборки получены по пересечениям с реальными досками; они ослабляют сечения, которые требуют повторного расчёта.",
     "Объём выборок вычитается из уже существующих досок один раз. При пересечении с ранее заданным силовым стыком дополнительный вычет откладывается до точного объединения вырезов.",
     "Крепёж кромок/поля, сорт и свойства плиты, анкеры и работа диафрагм не выводятся из геометрии. При designShear=null сдвиговая несущая способность неизвестна. Введённые кН/м дают только предварительное сравнение, не полное нормативное подтверждение.",
@@ -1005,3 +1036,5 @@ export function buildWallBracing(project, result = {}) {
   out.status = out.checks.some((c) => c.status === "fail") ? "fail" : "unverified";
   return out;
 }
+
+export const sheetPolygons = { clean, area, triangulate, intersect, subtract, rectangle };

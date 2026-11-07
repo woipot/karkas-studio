@@ -1,7 +1,7 @@
 import { calculateInsulation } from "./insulation.js";
 import { parseSection } from "./catalog.js";
 import { calculateCutting } from "./cutting.js";
-import { defaultPrices } from "./prices.js";
+import { defaultPrices, defaultSheetPrices } from "./prices.js";
 export { defaultPrices } from "./prices.js";
 const numeric = (v, fallback = 0) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : fallback);
 const sum = (a) => a.reduce((x, y) => x + y, 0);
@@ -10,7 +10,7 @@ const fmt = (n, d = 2) => Number(n).toLocaleString("ru-RU", { maximumFractionDig
 export function resolvePrices(input = {}) {
   const p = {};
   for (const [key, fallback] of Object.entries(defaultPrices))
-    if (key !== "sectionPrices") {
+    if (key !== "sectionPrices" && key !== "sheetPrices") {
       const value = numeric(input?.[key], fallback),
         maximum = key.endsWith("Percent") ? 300 : 1e9;
       p[key] = value <= maximum ? value : fallback;
@@ -18,6 +18,12 @@ export function resolvePrices(input = {}) {
   if (Number.isFinite(input?.insulationPack) && input.insulationPack >= 0 && input.insulationPack <= 1e9)
     p.insulationPack = input.insulationPack;
   p.currency = ["RUB", "EUR", "USD"].includes(input?.currency) ? input.currency : "RUB";
+  p.sheetPrices = { ...defaultSheetPrices };
+  for (const [id, value] of Object.entries(input?.sheetPrices ?? {})) {
+    if (!(id in defaultSheetPrices) || !Number.isFinite(value) || value < 0 || value > 1e9)
+      throw new Error("Цена листа: требуется каталоговый ID с толщиной и неотрицательная конечная цена.");
+    p.sheetPrices[id] = value;
+  }
   p.sectionPrices = {};
   if (input?.sectionPrices && typeof input.sectionPrices === "object")
     for (const [id, value] of Object.entries(input.sectionPrices)) {
@@ -222,14 +228,18 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
     "sheathing",
     wallPanels ? "Обшивка перекрытий" : "Обшивка стен и перекрытий",
     "м²",
-    wallPanels ? floorArea : sheathing,
+    project.sheathing
+      ? (wallPanels ? 0 : netWall) + (project.sheathing.floors ? 0 : floorArea)
+      : wallPanels
+        ? floorArea
+        : sheathing,
     "sheathingM2",
     true,
     wallPanels
       ? "Один слой по наружным граням платформ за вычетом проёмов. Структурные плиты стен посчитаны отдельно по листам."
       : "Один слой: наружные стены без проёмов + физическая площадь платформ за вычетом проёмов.",
   );
-  if (wallPanels) {
+  if (wallPanels && !project.sheathing?.walls) {
     const q = result.bracingModel.quantities ?? {};
     add(
       "structural-panels",
@@ -238,10 +248,28 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
       q.purchasedSheetArea ?? q.sheetArea,
       "bracingSheetM2",
       false,
-      `${q.sheets ?? 0} листов по сетке раскладки. Отходы уже в закупочной площади; процентный запас повторно не добавлен. Крепёж и сертифицированная несущая способность уточняются.`,
+      `${q.sheets ?? 0} листов по гильотинному раскрою. Пропил включён, прямоугольные остатки переиспользованы; процентный запас повторно не добавлен. Крепёж и сертифицированная несущая способность уточняются.`,
     );
   }
 
+  for (const item of result.sheetModel?.purchases ?? []) {
+    if (item.product === "legacy-wall-sheet") continue;
+    const unitPrice = prices.sheetPrices[item.id];
+    rows.push({
+      id: "sheet-" + item.id,
+      name: `${item.product.startsWith("osb3") ? "ОСП-3" : item.product.startsWith("plywood-fk") ? "Фанера ФК" : "Фанера ФСФ"} · ${item.product.match(/(\d+x\d+)$/)?.[1]} · ${item.thickness} мм`,
+      category: "material",
+      unit: "лист",
+      netQuantity: item.count,
+      quantity: item.count,
+      unitPrice,
+      total: money(item.count * unitPrice),
+      editableKey: `sheetPrices.${item.id}`,
+      wasteQuantity: 0,
+      wasteCost: 0,
+      note: `${fmt(item.area)} м² в модели; ${fmt(item.purchasedArea)} м² закупки; отход ${fmt(item.wastePercent)}%; сохранено ${fmt(item.reusableArea)} м² остатков; нижняя граница ${item.lowerBound} листов. Гильотинный раскрой всего дома: остатки переиспользованы, второй запас не добавлен. ${project.prices?.sheetPrices?.[item.id] === undefined ? "Иллюстративная бюджетная цена за лист, не рыночная котировка." : "Цена за лист задана проектом."}`,
+    });
+  }
   if (result.insulation) {
     for (const [i, pack] of result.insulation.totals.packs.entries()) {
       // Legacy insulationM2 refers to the original 150 mm wall allowance
@@ -476,6 +504,7 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
     cutting,
     complete:
       result.insulation?.complete !== false &&
+      result.sheetModel?.complete !== false &&
       geo.closed !== false &&
       geo.platformAreaComplete !== false &&
       (cutting ? cutting.summary.complete : true),
@@ -486,6 +515,11 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
     },
     wasteTotal: money(sum(rows.map((r) => r.wasteCost))),
     assumptions: [
+      ...(project.sheathing
+        ? [
+            "Цены листов по умолчанию иллюстративные: ОСП 2500×1250×12 — 1500 RUB, фанера того же объёма — 2500 RUB; линейное масштабирование площади и толщины. Замените prices.sheetPrices по предложению поставщика. Масса/нагрузки от сметы не зависят.",
+          ]
+        : []),
       "Все цены — редактируемый пример, не рыночная котировка и не коммерческое предложение.",
       ...(result.profiledBeam?.walls.length
         ? [

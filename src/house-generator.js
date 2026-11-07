@@ -1,5 +1,6 @@
 import { resolveDressedProject } from "./lumber-standards.js";
 import { beamSection } from "./profiled-beam-catalog.js";
+import { floorDeckThickness } from "./sheet-catalog.js";
 import { defaultDesignerProject, parseSection, validateDesignerProject } from "./designer-engine.js";
 import { normalizeDesignerState } from "./designer-state.js";
 import { autoRoofZones } from "./roof-zones.js";
@@ -267,7 +268,17 @@ function ridgeFor(polygons, defaults) {
 
 function prepare(spec) {
   if (!object(spec)) reject("spec", "Параметры генерации должны быть объектом.");
-  for (const k of ["sections", "roof", "loads", "material", "foundation", "bracing", "site", "structure"])
+  for (const k of [
+    "sections",
+    "roof",
+    "loads",
+    "material",
+    "foundation",
+    "bracing",
+    "sheathing",
+    "site",
+    "structure",
+  ])
     if (spec[k] !== undefined && !object(spec[k])) reject(k, `${k}: требуется объект параметров.`);
   if (spec.foundation?.grillage !== undefined && !object(spec.foundation.grillage))
     reject("foundation.grillage", "Ростверк задаётся объектом параметров.");
@@ -458,7 +469,7 @@ function bin(F, map, r0, r1, d0, d1, doorD, extra = {}) {
 }
 
 function stairGeometry(ctx) {
-  const rise = ctx.levels[0].height + parseSection(ctx.floorSection).h / 1000 + 0.035,
+  const rise = ctx.levels[0].height + parseSection(ctx.floorSection).h / 1000 + floorDeckThickness(ctx.spec),
     risers = Math.min(40, Math.max(8, 2 * Math.ceil(rise / 0.18 / 2))),
     going = 0.275,
     landing = 1,
@@ -1094,6 +1105,7 @@ function build(ctx, strategy) {
       },
     },
     bracing: { ...defaultDesignerProject.bracing, section: sections.bracing, ...spec.bracing },
+    ...(spec.sheathing ? { sheathing: structuredClone(spec.sheathing) } : {}),
     roof: {
       ...defaultDesignerProject.roof,
       ...ctx.roofInput,

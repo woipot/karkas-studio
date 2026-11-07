@@ -1,3 +1,4 @@
+import { resolveSheet } from "./sheet-catalog.js";
 import { loadFactors } from "./load-profile.js";
 import { platformInnerFaceStation } from "./floor-platform-contour.js";
 import { solveGrillagePointLoads } from "./grillage-loads.js";
@@ -248,7 +249,10 @@ export function buildFloorOpenings(project = {}, { geometry = {}, walls = projec
     }
     const floorDeadRatio =
         level.platformNetArea > 0 && level.netFloorArea > 0 ? level.platformNetArea / level.netFloorArea : 1,
-      floorDead = (project.loads?.floorDead ?? 0) * floorDeadRatio,
+      // Physical deck mass (GOST 8.417 conventional gravity); floorDead excludes this sheet.
+      sheet = resolveSheet(project.sheathing?.floors),
+      sheetDead = sheet ? ((sheet.thickness / 1000) * sheet.density * 9.80665) / 1000 : 0,
+      floorDead = ((project.loads?.floorDead ?? 0) + sheetDead) * floorDeadRatio,
       contour = geometry.platformContours?.find((c) => c.index === opening.level),
       floorDepth = floorSection.h / 1000,
       Y = level.baseY + floorDepth - section.h / 2000,

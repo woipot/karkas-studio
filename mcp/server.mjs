@@ -5,6 +5,7 @@ import {
   insulationSchema,
   insulationProjectFields,
   profiledWallFeaturesSchema,
+  sheathingSchema,
 } from "./project-features.mjs";
 import { analyzeEnvelope } from "../src/hygrothermal.js";
 import { compareFoundationOptions } from "../src/foundation-options.js";
@@ -233,6 +234,7 @@ const generationSchema = z
       })
       .strict()
       .optional(),
+    sheathing: sheathingSchema.optional(),
     bracing: z
       .object({
         method: z.enum(["sheathing", "letIn", "none"]).optional(),
@@ -405,7 +407,18 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
     z
       .object({
         project: z
-          .object({ ...insulationProjectFields, walls: z.array(profiledWallFeaturesSchema).max(300) })
+          .object({
+            ...insulationProjectFields,
+            walls: z.array(profiledWallFeaturesSchema).max(300),
+            sheathing: sheathingSchema.optional(),
+            prices: z
+              .object({
+                insulationPack: num(0, 1e9).optional(),
+                sheetPrices: z.record(z.string(), num(0, 1e9)).optional(),
+              })
+              .catchall(z.unknown())
+              .optional(),
+          })
           .catchall(z.unknown()),
       })
       .strict(),
@@ -531,6 +544,7 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
             "foundation",
             "roof",
             "bracing",
+            "sheets",
             "rooms",
             "checks",
             "members",

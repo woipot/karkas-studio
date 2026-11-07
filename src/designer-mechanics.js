@@ -1,5 +1,6 @@
 import { resolveDressedProject } from "./lumber-standards.js";
 import { wallFrameSection } from "./profiled-beam-catalog.js";
+import { floorDeckThickness } from "./sheet-catalog.js";
 /** Preliminary member checks for Designer. No hidden stiffness credit for splices. */
 import { solveFloorWallBeam } from "./floor-wall-loads.js";
 import { memberLoadProject } from "./load-profile.js";
@@ -164,7 +165,7 @@ export function checkDesignerMembers(p, r) {
   const floorDeadPressureFor = (m) => {
     const l = levels.find((l) => l.index === m.floor);
     return (
-      (p.loads.floorDead ?? 0) *
+      ((p.loads.floorDead ?? 0) + (r.sheetModel?.pressureByLevel?.[m.floor] ?? 0)) *
       (l?.netFloorArea > 0 && finite(l.platformNetArea) ? l.platformNetArea / l.netFloorArea : 1)
     );
   };
@@ -539,8 +540,17 @@ export function checkDesignerMembers(p, r) {
     const upperDeadArea = levels.length
       ? sum(levels.slice(1).map((l) => (l.closed ? (l.platformNetArea ?? l.netFloorArea ?? l.area ?? 0) : 0)))
       : upperArea;
+    // Sheet self-weight uses conventional gravity, GOST 8.417; already included
+    // once in the global load rows, used here only for this member check.
     const upperFloor =
-      (upperDeadArea * (p.loads.floorDead ?? 0) + upperArea * floorWoodPressure) * gammaG +
+      (upperDeadArea * (p.loads.floorDead ?? 0) +
+        sum(
+          (r.sheetModel?.surfaces ?? [])
+            .filter((s) => s.kind === "floors" && s.level > 1)
+            .map((s) => (s.mass * 9.80665) / 1000),
+        ) +
+        upperArea * floorWoodPressure) *
+        gammaG +
       upperArea * (p.loads.live ?? 0) * gammaQ;
     const wallLayers = (memberLoads.rows ?? [])
       .filter((row) =>
@@ -555,7 +565,18 @@ export function checkDesignerMembers(p, r) {
         ].includes(row.id),
       )
       .reduce((s, row) => s + (row.characteristic ?? 0), 0);
-    const wallWeight = (houseTotals?.walls?.weight ?? 0) + (houseTotals?.bracing?.weight ?? 0) + wallLayers;
+    const selectedWallSheets = p.sheathing?.walls
+      ? sum(
+          (r.sheetModel?.surfaces ?? [])
+            .filter((s) => s.kind === "walls")
+            .map((s) => (s.mass * 9.80665) / 1000),
+        )
+      : 0;
+    const wallWeight =
+      (houseTotals?.walls?.weight ?? 0) +
+      (houseTotals?.bracing?.weight ?? 0) +
+      wallLayers +
+      selectedWallSheets;
     const line = (roofDesign + upperFloor + wallWeight * gammaG) / (2 * supportLength);
     const studs = bearingWalls
       .map((w) => {
@@ -830,7 +851,7 @@ export function checkDesignerMembers(p, r) {
       note: "Реакция сваи на площади контакта одной балки ростверка с оголовком (ширина пакета × длина опирания в пределах оголовка). Rсм90 = material.Fc90. Нахлёсты и опирание второй балки не засчитаны.",
     });
   }
-  const floorT = (section(p.floor?.section)?.h ?? 250) / 1000 + 0.035,
+  const floorT = (section(p.floor?.section)?.h ?? 250) / 1000 + floorDeckThickness(p),
     facadeH =
       (levels.length ? sum(levels.map((l) => l.height ?? p.height)) : F * p.height) +
       Math.max(0, F - 1) * floorT;

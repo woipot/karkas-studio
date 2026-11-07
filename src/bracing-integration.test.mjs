@@ -206,7 +206,11 @@ test("physical sheathing excludes windows, shares stock-sheet IDs and adds panel
     q.panelMass,
     v.m.panels.reduce((s, p) => s + p.mass, 0),
   );
-  assert.equal(new Set(v.m.panels.map((p) => p.stockSheetId)).size, q.sheets);
+  // Installed tiles are not purchased sheets: short top strips share stock.
+  // Independent 6×2.8 wall reference (sheet-materials.test): 5 tall blanks +
+  // 5 strips fit 6 stock sheets including 3 mm kerf, rather than 10 tiles.
+  assert.equal(new Set(v.m.panels.map((p) => p.stockSheetId)).size, q.installationParts);
+  assert.equal(new Set(v.m.panels.map((p) => p.purchaseSheetId)).size, q.sheets);
   near(q.purchasedSheetArea, q.sheets * 1.25 * 2.5);
   assert.ok(q.purchasedSheetArea >= q.sheetArea - 1e-6);
   const base = v.r.geometry.levels[0].wallBaseY;

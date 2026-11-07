@@ -8,6 +8,8 @@ import { validateInsulation } from "./insulation.js";
 import { isBeamWall, wallFrameSection, resolveBeam } from "./profiled-beam-catalog.js";
 import { buildProfiledBeam, validateBeamWalls, beamOpeningEnvelope } from "./profiled-beam.js";
 import { analyzeProfiledBeam } from "./profiled-beam-mechanics.js";
+import { parseSheetProduct, validateSheathing, floorDeckThickness } from "./sheet-catalog.js";
+import { buildHouseSheets } from "./sheet-layout.js";
 import { validateSourceRoofModel } from "./source-roof.js";
 import { buildAuxiliaryTimber } from "./auxiliary-timber.js";
 import { buildAnnexes, validateAnnexes, sharedAnnexGrillageLines } from "./annexes.js";
@@ -19,7 +21,6 @@ import { attachFloorWallLoads } from "./floor-wall-loads.js";
 import { resolvePartitionHeads } from "./partition-heads.js";
 import { buildGrillage, validateGrillageExtensions } from "./grillage.js";
 import { analyzeGrillageLoads } from "./grillage-loads.js";
-import { buildWallBracing } from "./wall-bracing.js";
 import { wallProfileTop } from "./wall-profiles.js";
 import { checkFullHeightWalls } from "./wall-stability.js";
 import { wallPlateEnds } from "./wall-plate-joints.js";
@@ -285,6 +286,7 @@ export function validateDesignerProject(input) {
     const standard = classifySection(id);
     if (!standard.gost) warnings.push(`${field}: ${id}. ${standard.note} ${standard.source}`);
   }
+  errors.push(...validateSheathing(input.sheathing));
   const range = (v, min, max, key) => {
     if (!finite(v) || v < min || v > max) error(key, `${key}: требуется конечное число от ${min} до ${max}.`);
   };
@@ -741,14 +743,15 @@ export function validateDesignerProject(input) {
         if (!["RUB", "EUR", "USD"].includes(v)) error("prices.currency", "Валюта: RUB, EUR или USD.");
         continue;
       }
-      if (k === "sectionPrices") {
-        if (!object(v) || Object.keys(v).length > 1000)
-          error("prices.sectionPrices", "Цены сечений: объект до 1000 позиций.");
+      if (k === "sectionPrices" || k === "sheetPrices") {
+        if (!object(v) || Object.keys(v).length > 1000) error("prices." + k, "Цены: объект до 1000 позиций.");
         else
           for (const [id, price] of Object.entries(v)) {
             if (!id || id.length > 100)
-              error("prices.sectionPrices", "ID сечения должен быть непустой строкой до 100 символов.");
-            range(price, 0, 1e9, "prices.sectionPrices." + id);
+              error("prices." + k, "ID должен быть непустой строкой до 100 символов.");
+            if (k === "sheetPrices" && !parseSheetProduct(id)?.thickness)
+              error("prices.sheetPrices." + id, "Цена листа: требуется каталоговый ID с толщиной.");
+            range(price, 0, 1e9, "prices." + k + "." + id);
           }
       } else range(v, 0, k.endsWith("Percent") ? 300 : 1e9, "prices." + k);
     }
@@ -1094,7 +1097,7 @@ function polygonContained(inner, outer) {
   return true;
 }
 function deriveLevels(p) {
-  const platform = parseSection(p.floor.section).h / 1000 + 0.035;
+  const platform = parseSection(p.floor.section).h / 1000 + floorDeckThickness(p);
   let baseY = 0.72 + parseSection(p.foundation.grillage.section).h / 1000;
   return Array.from({ length: p.floors }, (_, i) => {
     const index = i + 1,
@@ -1245,7 +1248,7 @@ function timberModel(p, graph, corners, bounds, truss, warnings, roofModel) {
     wallMap = new Map(p.walls.map((w) => [w.id, w])),
     duplicateIds = new Map();
   const floorSection = parseSection(p.floor.section),
-    platform = floorSection.h / 1000 + 0.035,
+    platform = floorSection.h / 1000 + floorDeckThickness(p),
     story = p.height + platform,
     base = p._baseY ?? 0.72;
   const hash = (value) => {
@@ -2057,8 +2060,8 @@ function mergeTimber(models, p) {
     density: p.material.density,
     braceBays: models.flatMap((m) => m.braceBays),
     roofGeometryAvailable: models.some((m) => m.roofGeometryAvailable),
-    platformHeight: parseSection(p.floor.section).h / 1000 + 0.035,
-    storyHeight: p.height + parseSection(p.floor.section).h / 1000 + 0.035,
+    platformHeight: parseSection(p.floor.section).h / 1000 + floorDeckThickness(p),
+    storyHeight: p.height + parseSection(p.floor.section).h / 1000 + floorDeckThickness(p),
     splices: models.flatMap((m) => m.splices),
     overStock: models.flatMap((m) => m.overStock),
     stockLength: 6,
@@ -2203,14 +2206,16 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
       for (const e of route.entries) {
         const tributary = e.trib * e.length,
           dead = p.loads.floorDead * tributary * deadScale,
+          deck = (geometry.sheetPressureByLevel?.[level.index] ?? 0) * tributary * deadScale,
           live = p.loads.live * tributary * liveScale,
           area = tributary * liveScale;
         for (const q of e.points) {
           const extra = { floorLevel: level.index, joistSpanId: e.span.id };
           distribute(q.point, dead * q.f, "layers", 0, q.beamId, extra);
+          distribute(q.point, deck * q.f, "timber", 0, q.beamId, { ...extra, source: "sheet-deck" });
           distribute(q.point, live * q.f, "live", area * q.f, q.beamId, extra);
           const key = (q.kind ?? "support") + ":" + (q.sourceId ?? "?");
-          supportTotals[key] = (supportTotals[key] ?? 0) + (dead + live) * q.f;
+          supportTotals[key] = (supportTotals[key] ?? 0) + (dead + deck + live) * q.f;
         }
         sampleCount += e.points.length;
         // Joist self-weight follows the same two supports.
@@ -2235,6 +2240,7 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
         platformArea: route.deadArea,
         floorArea: route.liveArea,
         dead: p.loads.floorDead * route.deadArea,
+        sheetDead: (geometry.sheetPressureByLevel?.[level.index] ?? 0) * route.deadArea,
         live: p.loads.live * route.liveArea,
         // characteristic floor layers + live delivered to each real support (kind:id)
         supportTotals,
@@ -2244,6 +2250,14 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
     // Fallback: legacy area quadrature to the nearest grillage span.
     floorRouting.levels.push({ level: level.index, method: "area-nearest-span", reason: route.reason });
     for (const surface of [
+      {
+        polygon: level.platformPolygon ?? level.polygon,
+        bounds: level.platformBounds ?? level.bounds,
+        area: level.platformNetArea ?? level.netFloorArea,
+        pressure: geometry.sheetPressureByLevel?.[level.index] ?? 0,
+        kind: "timber",
+        countArea: false,
+      },
       {
         polygon: level.platformPolygon ?? level.polygon,
         bounds: level.platformBounds ?? level.bounds,
@@ -2532,7 +2546,9 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
       })),
     });
   }
-  const roofLayersTotal = loads.roofWeight - (loads.roofTimberWeight ?? 0),
+  // Roof sheets already have their own mass samples below; roofWeight also
+  // exposes them to member checks, so exclude them from this fallback layer sum.
+  const roofLayersTotal = loads.roofWeight - (loads.roofTimberWeight ?? 0) - (loads.roofSheetWeight ?? 0),
     remainingLayers = roofLayersTotal - assignedLayers,
     remainingTimber = (loads.roofTimberWeight ?? 0) - assignedTimber,
     remainingSnow = loads.snow - assignedSnow,
@@ -2610,13 +2626,17 @@ function pileField(p, geometry, walls, timber, loads, grillageModel, wallLoadTra
     panelArea = sum(panels.map((q) => q.area ?? 0));
   if (panelArea > EPS)
     for (const panel of panels) {
+      if (panel.surfaceKind === "floors") continue; // Already routed through joist reactions / area fallback.
       const points = panel.polygon ?? panel.polygonXYZ ?? [];
       if (!points.length) continue;
       const q = {
         x: sum(points.map((p) => p[0])) / points.length,
         y: sum(points.map((p) => p[2])) / points.length,
       };
-      distribute(q, (loads.structuralPanelWeight * (panel.area ?? 0)) / panelArea, "timber");
+      distribute(q, (panel.mass * G) / 1000, "timber", 0, undefined, {
+        source: "sheet-panel",
+        panelId: panel.id,
+      });
     }
   for (const board of timber.instances) {
     // All wood except roof wood (already in roofWeight) enters once. Spread long
@@ -2948,7 +2968,16 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
   const checks = [...(grillageModel.checks ?? []), ...partitionHeads.checks];
   warnings.push(...(grillageModel.warnings ?? []));
   const houseWind = houseWindForces(p, geometry, roofModel);
-  const bracingModel = buildWallBracing(p, { geometry, walls, timber, roofModel, wind: houseWind });
+  const { bracingModel, sheetModel } = buildHouseSheets(p, {
+    geometry,
+    walls,
+    timber,
+    floorPlatform,
+    roofModel,
+    wind: houseWind,
+  });
+  geometry.sheetPressureByLevel = sheetModel.pressureByLevel;
+  checks.push(...sheetModel.checks);
   for (const notch of bracingModel.notches ?? []) {
     const board = timber.instances.find((b) => b.id === notch.boardId);
     if (!board) continue;
@@ -3160,6 +3189,7 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
     ...(grillageModel.assumptions ?? []),
     ...fullHeightWalls.assumptions,
     ...(bracingModel.assumptions ?? []),
+    ...sheetModel.assumptions,
   );
   const floorWallLoads = attachFloorWallLoads(p, { geometry, walls, timber, floorPlatform });
   checks.push(...floorWallLoads.checks);
@@ -3186,7 +3216,9 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
             ? roofModel.area
             : (roofLevel?.area ?? A) / Math.cos((p.roof.pitch * Math.PI) / 180),
       projectedRoofArea = finite(roofModel?.projectedArea) ? roofModel.projectedArea : (roofLevel?.area ?? A);
-    const structuralPanelWeight = ((bracingModel.quantities?.panelMass ?? 0) * G) / 1000;
+    const structuralPanelWeight = (sheetModel.mass * G) / 1000;
+    const roofSheetWeight =
+      (sum(sheetModel.panels.filter((p) => p.surfaceKind === "roof").map((p) => p.mass)) * G) / 1000;
     const floorLayers = geometry.totalPlatformArea * p.loads.floorDead,
       roofLayers = roofArea * p.loads.roofDead,
       wallWeight =
@@ -3238,7 +3270,7 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
         : []),
       {
         id: "structural-panels",
-        label: "Плиты жёсткости стен",
+        label: p.sheathing ? "Листовые материалы стен, перекрытий и кровли" : "Плиты жёсткости стен",
         characteristic: structuralPanelWeight,
         kind: "dead",
         loadKind: "timber",
@@ -3315,13 +3347,14 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
         w.openingArea * p.loads.openingDead,
     }));
     const roofMassIncluded = timber.roofGeometryAvailable || p.roof.type === "none",
-      complete = roofMassIncluded && geometry.areaComplete && geometry.platformAreaComplete;
+      complete =
+        roofMassIncluded && geometry.areaComplete && geometry.platformAreaComplete && sheetModel.complete;
     loads = {
       rows,
       roofZones: roofModel?.zones ?? [],
       rawRoofInstances: roofModel?.instances ?? [],
       structuralPanelWeight,
-      structuralPanels: bracingModel.panels ?? [],
+      structuralPanels: sheetModel.panels,
       dead,
       live,
       snow,
@@ -3347,7 +3380,8 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
       projectedRoofArea,
       floorArea: geometry.totalFloorArea,
       platformArea: geometry.totalPlatformArea,
-      roofWeight: roofLayers + timber.totals.roof.weight,
+      roofWeight: roofLayers + timber.totals.roof.weight + roofSheetWeight,
+      roofSheetWeight,
       roofTimberWeight: timber.totals.roof.weight,
       wallWeight,
       innerWallWeight,
@@ -3376,6 +3410,7 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
       complete,
       roofMassIncluded,
       missingLoads: [
+        ...(!sheetModel.complete ? ["Не все выбранные поверхности листовой обшивки сформированы."] : []),
         ...(!roofMassIncluded ? ["Древесина кровли не сформирована."] : []),
         ...(profiledBeam.walls.length
           ? ["Масса нагелей принята замещением древесины; крепёж и гидроизоляция брусовых стен не заданы."]
@@ -3685,6 +3720,7 @@ export function calculateDesigner(input, { truss, roofModel } = {}) {
     fullHeightWalls,
     profiledBeam,
     bracingModel,
+    sheetModel,
     graph: {
       nodes: levelModels.flatMap((l) =>
         l.graph.nodes.map(({ edges, ...n }) => ({

@@ -95,3 +95,15 @@ test("load routing sends each force through a real span and into its two piles",
   );
   assert.ok(r.loadChecks.some((c) => c.status === "unverified"));
 });
+
+test("round-off negatives (−1e-17) from load splitting are treated as zero, real negatives still fail", () => {
+  const base = { length: 2, b: 50, h: 200, plies: 3, E: 10000, Fb: 13 };
+  const r = solveGrillagePointLoads({
+    ...base,
+    loads: [{ at: 1, design: -3e-17, characteristic: -2.9e-17 }],
+  });
+  assert.ok(Number.isFinite(r.maxMoment ?? r.check?.maxMoment ?? 0));
+  assert.throws(() =>
+    solveGrillagePointLoads({ ...base, loads: [{ at: 1, design: -0.5, characteristic: -0.4 }] }),
+  );
+});

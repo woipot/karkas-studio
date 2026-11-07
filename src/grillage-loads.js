@@ -28,15 +28,16 @@ export function solveGrillagePointLoads({
         ![q.at, q.design ?? q.characteristic ?? 0, q.characteristic ?? q.service ?? 0].every(
           Number.isFinite,
         ) ||
-        (q.design ?? q.characteristic ?? 0) < 0 ||
-        (q.characteristic ?? q.service ?? 0) < 0,
+        // Floating-point round-off of lever-rule shares can give −1e-17; only real negatives fail.
+        (q.design ?? q.characteristic ?? 0) < -1e-9 ||
+        (q.characteristic ?? q.service ?? 0) < -1e-9,
     )
   )
     throw new Error("Требуются конечные неотрицательные нагрузки и положительные параметры.");
   const P = loads.map((q) => ({
     at: clamp(q.at, 0, L),
-    design: q.design ?? q.characteristic ?? 0,
-    service: q.characteristic ?? q.service ?? 0,
+    design: Math.max(0, q.design ?? q.characteristic ?? 0),
+    service: Math.max(0, q.characteristic ?? q.service ?? 0),
   }));
   const reactionStart = sum(P.map((q) => (q.design * (L - q.at)) / L)),
     reactionEnd = sum(P.map((q) => (q.design * q.at) / L));

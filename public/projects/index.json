@@ -12,6 +12,12 @@
       "projectId": "house-716fafe9-8ede-4707-ad6c-7bf2a0f6debd",
       "assetBase": "/projects/orion",
       "sourceUrl": "/projects/orion/source.json"
+    },
+    {
+      "key": "house-6x10",
+      "name": "Дом 6×10 · каркас с укосинами",
+      "projectId": "house-6x10-letin",
+      "assetBase": "/projects/house-6x10"
     }
   ]
 }

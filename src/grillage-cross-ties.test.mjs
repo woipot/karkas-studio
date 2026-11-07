@@ -1,32 +1,366 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import {buildGrillage,validateGrillageExtensions} from './grillage.js';
-const near=(a,b,t=1e-7)=>assert.ok(Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<t,`${a} != ${b}`),sum=a=>a.reduce((s,x)=>s+x,0);
-const rect=(x0,y0,x1,y1)=>[{x:x0,y:y0},{x:x1,y:y0},{x:x1,y:y1},{x:x0,y:y1}];
-function fixture(polygon=rect(0,0,12,8)){return{p:{floor:{axis:'y'},material:{density:450},foundation:{spacing:2,grillage:{section:'50x200',plies:3,capSize:250,girderSpacing:2}}},base:{geometry:{closed:true,polygon},walls:[]}};}
-const cross=(a,b,c)=>(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x),area=p=>Math.abs(sum(p.map((a,i)=>a.x*p[(i+1)%p.length].y-p[(i+1)%p.length].x*a.y)))/2;
-function body(b){const a={x:b.start[0],y:b.start[2]},z={x:b.end[0],y:b.end[2]},h=b.b/2000,v={x:b.crossAxis[0],y:b.crossAxis[2]},p=[{x:a.x-v.x*h,y:a.y-v.y*h},{x:z.x-v.x*h,y:z.y-v.y*h},{x:z.x+v.x*h,y:z.y+v.y*h},{x:a.x+v.x*h,y:a.y+v.y*h}];return cross(p[0],p[1],p[2])<0?p.reverse():p;}
-function overlap(a,b){let p=a;for(let i=0;i<b.length&&p.length;i++){const c=b[i],d=b[(i+1)%b.length],out=[];for(let j=0;j<p.length;j++){const q=p[j],r=p[(j+1)%p.length],f=cross(c,d,q),g=cross(c,d,r);if(f>=0)out.push(q);if((f>=0)!==(g>=0)){const t=f/(f-g);out.push({x:q.x+(r.x-q.x)*t,y:q.y+(r.y-q.y)*t});}}p=out;}return p.length>=3?area(p):0;}
-const line=(source,a,b,pileSpacing=3.5,annexId='A',kind='annex')=>({source,a,b,pileSpacing,annexId,kind});
-function noOverlap(r){const pieces=r.instances.map(b=>({...b,poly:body(b)}));for(let i=0;i<pieces.length;i++)for(let j=0;j<i;j++)assert.ok(overlap(pieces[i].poly,pieces[j].poly)<1e-8,`${pieces[i].id} / ${pieces[j].id}`);}
-function topology(r){for(const s of r.spans){near(s.length,Math.hypot(s.end.x-s.start.x,s.end.y-s.start.y));assert.ok(s.length<=s.pileSpacing+1e-7);assert.ok(r.piles.some(p=>p.id===s.startPileId));assert.ok(r.piles.some(p=>p.id===s.endPileId));}for(const p of r.piles){assert.ok(p.beamIds.length);for(const ref of p.stationRefs){const b=r.beams.find(b=>b.id===ref.beamId),s=b.stations.find(s=>s.pileId===p.id);near(s.point.x,p.x);near(s.point.y,p.y);}}for(const b of r.instances){assert.ok(b.length<=6+1e-7);assert.equal(b.requireSingleStock,true);assert.equal(b.cutStart.scheme,'butt');assert.equal(b.cutEnd.scheme,'butt');near(b.volume,b.b*b.h*b.length/1e6);near(b.mass,b.volume*450);}for(const j of r.joints.filter(j=>j.type==='splice')){assert.ok(r.piles.some(p=>p.id===j.pileId));assert.ok(j.supported);}}
+import test from "node:test";
+import assert from "node:assert/strict";
+import { buildGrillage, validateGrillageExtensions } from "./grillage.js";
+const near = (a, b, t = 1e-7) =>
+    assert.ok(Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < t, `${a} != ${b}`),
+  sum = (a) => a.reduce((s, x) => s + x, 0);
+const rect = (x0, y0, x1, y1) => [
+  { x: x0, y: y0 },
+  { x: x1, y: y0 },
+  { x: x1, y: y1 },
+  { x: x0, y: y1 },
+];
+function fixture(polygon = rect(0, 0, 12, 8)) {
+  return {
+    p: {
+      floor: { axis: "y" },
+      material: { density: 450 },
+      foundation: { spacing: 2, grillage: { section: "50x200", plies: 3, capSize: 250, girderSpacing: 2 } },
+    },
+    base: { geometry: { closed: true, polygon }, walls: [] },
+  };
+}
+const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x),
+  area = (p) =>
+    Math.abs(sum(p.map((a, i) => a.x * p[(i + 1) % p.length].y - p[(i + 1) % p.length].x * a.y))) / 2;
+function body(b) {
+  const a = { x: b.start[0], y: b.start[2] },
+    z = { x: b.end[0], y: b.end[2] },
+    h = b.b / 2000,
+    v = { x: b.crossAxis[0], y: b.crossAxis[2] },
+    p = [
+      { x: a.x - v.x * h, y: a.y - v.y * h },
+      { x: z.x - v.x * h, y: z.y - v.y * h },
+      { x: z.x + v.x * h, y: z.y + v.y * h },
+      { x: a.x + v.x * h, y: a.y + v.y * h },
+    ];
+  return cross(p[0], p[1], p[2]) < 0 ? p.reverse() : p;
+}
+function overlap(a, b) {
+  let p = a;
+  for (let i = 0; i < b.length && p.length; i++) {
+    const c = b[i],
+      d = b[(i + 1) % b.length],
+      out = [];
+    for (let j = 0; j < p.length; j++) {
+      const q = p[j],
+        r = p[(j + 1) % p.length],
+        f = cross(c, d, q),
+        g = cross(c, d, r);
+      if (f >= 0) out.push(q);
+      if (f >= 0 !== g >= 0) {
+        const t = f / (f - g);
+        out.push({ x: q.x + (r.x - q.x) * t, y: q.y + (r.y - q.y) * t });
+      }
+    }
+    p = out;
+  }
+  return p.length >= 3 ? area(p) : 0;
+}
+const line = (source, a, b, pileSpacing = 3.5, annexId = "A", kind = "annex") => ({
+  source,
+  a,
+  b,
+  pileSpacing,
+  annexId,
+  kind,
+});
+function noOverlap(r) {
+  const pieces = r.instances.map((b) => ({ ...b, poly: body(b) }));
+  for (let i = 0; i < pieces.length; i++)
+    for (let j = 0; j < i; j++)
+      assert.ok(overlap(pieces[i].poly, pieces[j].poly) < 1e-8, `${pieces[i].id} / ${pieces[j].id}`);
+}
+function topology(r) {
+  for (const s of r.spans) {
+    near(s.length, Math.hypot(s.end.x - s.start.x, s.end.y - s.start.y));
+    assert.ok(s.length <= s.pileSpacing + 1e-7);
+    assert.ok(r.piles.some((p) => p.id === s.startPileId));
+    assert.ok(r.piles.some((p) => p.id === s.endPileId));
+  }
+  for (const p of r.piles) {
+    assert.ok(p.beamIds.length);
+    for (const ref of p.stationRefs) {
+      const b = r.beams.find((b) => b.id === ref.beamId),
+        s = b.stations.find((s) => s.pileId === p.id);
+      near(s.point.x, p.x);
+      near(s.point.y, p.y);
+    }
+  }
+  for (const b of r.instances) {
+    assert.ok(b.length <= 6 + 1e-7);
+    assert.equal(b.requireSingleStock, true);
+    assert.equal(b.cutStart.scheme, "butt");
+    assert.equal(b.cutEnd.scheme, "butt");
+    near(b.volume, (b.b * b.h * b.length) / 1e6);
+    near(b.mass, b.volume * 450);
+  }
+  for (const j of r.joints.filter((j) => j.type === "splice")) {
+    assert.ok(r.piles.some((p) => p.id === j.pileId));
+    assert.ok(j.supported);
+  }
+}
 
-test('parallel floor-axis ties use existing pile intersections and their own spacing, with no duplicate timber',()=>{const{p,base}=fixture(),before=buildGrillage(p,base);p.foundation.grillage.crossTies={spacing:2,positions:[2,4,6,8,10],pileSpacing:3};const r=buildGrillage(p,base),ties=r.beams.filter(b=>b.kinds.includes('transverseTie'));assert.equal(ties.length,5);assert.equal(r.piles.length,before.piles.length);assert.equal(r.beams.length,before.beams.length+5);for(const b of ties){near(b.a.x,b.b.x);near(b.length,8);near(b.pileSpacing,3);assert.ok(b.stations.every(s=>r.piles.some(p=>p.id===s.pileId)));}assert.equal(r.status,'unverified');assert.equal(r.layout.positionsBasis,'absolute plan X');topology(r);noOverlap(r);near(r.quantities.volume,sum(r.instances.map(b=>b.volume)));});
+test("parallel floor-axis ties use existing pile intersections and their own spacing, with no duplicate timber", () => {
+  const { p, base } = fixture(),
+    before = buildGrillage(p, base);
+  p.foundation.grillage.crossTies = { spacing: 2, positions: [2, 4, 6, 8, 10], pileSpacing: 3 };
+  const r = buildGrillage(p, base),
+    ties = r.beams.filter((b) => b.kinds.includes("transverseTie"));
+  assert.equal(ties.length, 5);
+  assert.equal(r.piles.length, before.piles.length);
+  assert.equal(r.beams.length, before.beams.length + 5);
+  for (const b of ties) {
+    near(b.a.x, b.b.x);
+    near(b.length, 8);
+    near(b.pileSpacing, 3);
+    assert.ok(b.stations.every((s) => r.piles.some((p) => p.id === s.pileId)));
+  }
+  assert.equal(r.status, "unverified");
+  assert.equal(r.layout.positionsBasis, "absolute plan X");
+  topology(r);
+  noOverlap(r);
+  near(r.quantities.volume, sum(r.instances.map((b) => b.volume)));
+});
 
-test('automatic tie spacing rotates with the floor axis and explicit positions are absolute',()=>{const{p,base}=fixture();p.foundation.grillage.crossTies={spacing:3};let r=buildGrillage(p,base),ties=r.beams.filter(b=>b.kind==='transverseTie');assert.deepEqual(ties.map(b=>b.a.x),[3,6,9]);p.floor.axis='x';r=buildGrillage(p,base);ties=r.beams.filter(b=>b.kind==='transverseTie');assert.equal(ties.length,2);assert.ok(ties.every(b=>Math.abs(b.a.y-b.b.y)<1e-7));near(ties[0].a.y,8/3);near(ties[1].a.y,16/3);assert.equal(r.layout.positionsBasis,'absolute plan Y');p.foundation.grillage.crossTies.positions=[];r=buildGrillage(p,base);assert.equal(r.beams.filter(b=>b.kinds.includes('transverseTie')).length,0);});
+test("automatic tie spacing rotates with the floor axis and explicit positions are absolute", () => {
+  const { p, base } = fixture();
+  p.foundation.grillage.crossTies = { spacing: 3 };
+  let r = buildGrillage(p, base),
+    ties = r.beams.filter((b) => b.kind === "transverseTie");
+  assert.deepEqual(
+    ties.map((b) => b.a.x),
+    [3, 6, 9],
+  );
+  p.floor.axis = "x";
+  r = buildGrillage(p, base);
+  ties = r.beams.filter((b) => b.kind === "transverseTie");
+  assert.equal(ties.length, 2);
+  assert.ok(ties.every((b) => Math.abs(b.a.y - b.b.y) < 1e-7));
+  near(ties[0].a.y, 8 / 3);
+  near(ties[1].a.y, 16 / 3);
+  assert.equal(r.layout.positionsBasis, "absolute plan Y");
+  p.foundation.grillage.crossTies.positions = [];
+  r = buildGrillage(p, base);
+  assert.equal(r.beams.filter((b) => b.kinds.includes("transverseTie")).length, 0);
+});
 
-test('ties are clipped to an L footprint and do not cross its missing wing',()=>{const polygon=[{x:0,y:0},{x:12,y:0},{x:12,y:4},{x:8,y:4},{x:8,y:8},{x:0,y:8}],{p,base}=fixture(polygon);p.foundation.grillage.crossTies={spacing:3,positions:[2,6,10],pileSpacing:3};const r=buildGrillage(p,base),ties=r.beams.filter(b=>b.kind==='transverseTie');assert.equal(ties.length,3);near(ties.find(b=>b.a.x===10).length,4);assert.ok(!r.piles.some(p=>p.x>8+1e-7&&p.y>4+1e-7));topology(r);noOverlap(r);});
+test("ties are clipped to an L footprint and do not cross its missing wing", () => {
+  const polygon = [
+      { x: 0, y: 0 },
+      { x: 12, y: 0 },
+      { x: 12, y: 4 },
+      { x: 8, y: 4 },
+      { x: 8, y: 8 },
+      { x: 0, y: 8 },
+    ],
+    { p, base } = fixture(polygon);
+  p.foundation.grillage.crossTies = { spacing: 3, positions: [2, 6, 10], pileSpacing: 3 };
+  const r = buildGrillage(p, base),
+    ties = r.beams.filter((b) => b.kind === "transverseTie");
+  assert.equal(ties.length, 3);
+  near(ties.find((b) => b.a.x === 10).length, 4);
+  assert.ok(!r.piles.some((p) => p.x > 8 + 1e-7 && p.y > 4 + 1e-7));
+  topology(r);
+  noOverlap(r);
+});
 
-test('external overlap merges once, uses local minimum and keeps longer annex-only pile intervals',()=>{const{p,base}=fixture(),extraLines=[line('annex:A:overlap',{x:3,y:0},{x:9,y:0},3.5),line('annex:A:extension',{x:12,y:0},{x:15.4,y:0},3.5)],r=buildGrillage(p,{...base,extraLines}),b=r.beams.find(b=>b.a.y===0&&b.b.y===0);near(b.a.x,0);near(b.b.x,15.4);near(b.pileSpacing,2);near(b.maxPileSpacing,3.5);assert.equal(b.annexId,undefined);assert.equal(b.sharedWithHouse,true);assert.deepEqual(b.annexIds,['A']);const tail=r.spans.find(s=>s.beamId===b.id&&Math.abs(s.start.x-12)<1e-7);near(tail.length,3.4);near(tail.pileSpacing,3.5);assert.equal(tail.annexId,'A');const c=r.checks.find(c=>c.id==='grillage-spacing');assert.equal(c.status,'pass');assert.ok(c.value<=c.limit+1e-7);assert.equal(c.failSpanIds.length,0);for(const run of b.spacingRuns)if(run.stationStart<12)near(run.pileSpacing,2);assert.deepEqual(r.piles.find(p=>Math.abs(p.x-15.4)<1e-7&&p.y===0).annexIds,['A']);assert.deepEqual(r.piles.find(p=>p.x===0&&p.y===0).annexIds,[]);topology(r);noOverlap(r);});
+test("external overlap merges once, uses local minimum and keeps longer annex-only pile intervals", () => {
+  const { p, base } = fixture(),
+    extraLines = [
+      line("annex:A:overlap", { x: 3, y: 0 }, { x: 9, y: 0 }, 3.5),
+      line("annex:A:extension", { x: 12, y: 0 }, { x: 15.4, y: 0 }, 3.5),
+    ],
+    r = buildGrillage(p, { ...base, extraLines }),
+    b = r.beams.find((b) => b.a.y === 0 && b.b.y === 0);
+  near(b.a.x, 0);
+  near(b.b.x, 15.4);
+  near(b.pileSpacing, 2);
+  near(b.maxPileSpacing, 3.5);
+  assert.equal(b.annexId, undefined);
+  assert.equal(b.sharedWithHouse, true);
+  assert.deepEqual(b.annexIds, ["A"]);
+  const tail = r.spans.find((s) => s.beamId === b.id && Math.abs(s.start.x - 12) < 1e-7);
+  near(tail.length, 3.4);
+  near(tail.pileSpacing, 3.5);
+  assert.equal(tail.annexId, "A");
+  const c = r.checks.find((c) => c.id === "grillage-spacing");
+  assert.equal(c.status, "pass");
+  assert.ok(c.value <= c.limit + 1e-7);
+  assert.equal(c.failSpanIds.length, 0);
+  for (const run of b.spacingRuns) if (run.stationStart < 12) near(run.pileSpacing, 2);
+  assert.deepEqual(r.piles.find((p) => Math.abs(p.x - 15.4) < 1e-7 && p.y === 0).annexIds, ["A"]);
+  assert.deepEqual(r.piles.find((p) => p.x === 0 && p.y === 0).annexIds, []);
+  topology(r);
+  noOverlap(r);
+});
 
-test('shared4by2 veranda connects actual corner piles to main cross ties with physical T/X butt joints',()=>{const{p,base}=fixture(rect(.075,.075,7.925,5.925));p.foundation.spacing=1.8;p.foundation.grillage.crossTies={spacing:2,positions:[1.645,3.215,4.785,6.355],pileSpacing:3};const x0=1.645,x1=4.785,y0=-1.645,y1=-.505,extraLines=[line('annex:A:inner',{x:x0,y:y1},{x:x1,y:y1}),line('annex:A:outer',{x:x0,y:y0},{x:x1,y:y0}),line('annex:A:left',{x:x0,y:y0},{x:x0,y:y1}),line('annex:A:right',{x:x1,y:y0},{x:x1,y:y1}),line('annex:A:connector-left',{x:x0,y:y1},{x:x0,y:.075},3.5,'A','annexConnector'),line('annex:A:connector-right',{x:x1,y:y1},{x:x1,y:.075},3.5,'A','annexConnector')],r=buildGrillage(p,{...base,extraLines});assert.equal(r.checks.filter(c=>c.status==='fail').length,0);for(const x of[x0,x1])for(const y of[y0,y1]){const found=r.piles.filter(p=>Math.hypot(p.x-x,p.y-y)<1e-7);assert.equal(found.length,1);assert.deepEqual(found[0].annexIds,['A']);}const mainIds=new Set(r.beams.filter(b=>b.house).map(b=>b.id)),annexIds=new Set(r.beams.filter(b=>b.annexIds.includes('A')).map(b=>b.id));assert.ok(r.joints.some(j=>j.beamIds.some(id=>mainIds.has(id))&&j.beamIds.some(id=>annexIds.has(id))));for(const x of[x0,x1]){const b=r.beams.find(b=>Math.abs(b.a.x-x)<1e-7&&Math.abs(b.b.x-x)<1e-7);near(b.a.y,y0);near(b.b.y,5.925);assert.equal(b.sharedWithHouse,true);assert.ok(b.spacingRuns.some(s=>s.pileSpacing===3.5));assert.ok(b.spacingRuns.some(s=>s.pileSpacing===3));}assert.ok(r.spans.some(s=>s.length>1.8&&s.pileSpacing===3.5));assert.equal(new Set(r.instances.map(b=>b.id)).size,r.instances.length);topology(r);noOverlap(r);});
+test("shared4by2 veranda connects actual corner piles to main cross ties with physical T/X butt joints", () => {
+  const { p, base } = fixture(rect(0.075, 0.075, 7.925, 5.925));
+  p.foundation.spacing = 1.8;
+  p.foundation.grillage.crossTies = { spacing: 2, positions: [1.645, 3.215, 4.785, 6.355], pileSpacing: 3 };
+  const x0 = 1.645,
+    x1 = 4.785,
+    y0 = -1.645,
+    y1 = -0.505,
+    extraLines = [
+      line("annex:A:inner", { x: x0, y: y1 }, { x: x1, y: y1 }),
+      line("annex:A:outer", { x: x0, y: y0 }, { x: x1, y: y0 }),
+      line("annex:A:left", { x: x0, y: y0 }, { x: x0, y: y1 }),
+      line("annex:A:right", { x: x1, y: y0 }, { x: x1, y: y1 }),
+      line("annex:A:connector-left", { x: x0, y: y1 }, { x: x0, y: 0.075 }, 3.5, "A", "annexConnector"),
+      line("annex:A:connector-right", { x: x1, y: y1 }, { x: x1, y: 0.075 }, 3.5, "A", "annexConnector"),
+    ],
+    r = buildGrillage(p, { ...base, extraLines });
+  assert.equal(r.checks.filter((c) => c.status === "fail").length, 0);
+  for (const x of [x0, x1])
+    for (const y of [y0, y1]) {
+      const found = r.piles.filter((p) => Math.hypot(p.x - x, p.y - y) < 1e-7);
+      assert.equal(found.length, 1);
+      assert.deepEqual(found[0].annexIds, ["A"]);
+    }
+  const mainIds = new Set(r.beams.filter((b) => b.house).map((b) => b.id)),
+    annexIds = new Set(r.beams.filter((b) => b.annexIds.includes("A")).map((b) => b.id));
+  assert.ok(
+    r.joints.some((j) => j.beamIds.some((id) => mainIds.has(id)) && j.beamIds.some((id) => annexIds.has(id))),
+  );
+  for (const x of [x0, x1]) {
+    const b = r.beams.find((b) => Math.abs(b.a.x - x) < 1e-7 && Math.abs(b.b.x - x) < 1e-7);
+    near(b.a.y, y0);
+    near(b.b.y, 5.925);
+    assert.equal(b.sharedWithHouse, true);
+    assert.ok(b.spacingRuns.some((s) => s.pileSpacing === 3.5));
+    assert.ok(b.spacingRuns.some((s) => s.pileSpacing === 3));
+  }
+  assert.ok(r.spans.some((s) => s.length > 1.8 && s.pileSpacing === 3.5));
+  assert.equal(new Set(r.instances.map((b) => b.id)).size, r.instances.length);
+  topology(r);
+  noOverlap(r);
+});
 
-test('two annex line overlaps keep both ownership IDs and the stricter local pile spacing',()=>{const{p,base}=fixture(),extraLines=[line('A',{x:0,y:-2},{x:8,y:-2},3.5,'A'),line('B',{x:2,y:-2},{x:6,y:-2},1.25,'B')],r=buildGrillage(p,{...base,extraLines}),b=r.beams.find(b=>b.a.y===-2);assert.equal(b.annexId,undefined);assert.deepEqual(b.annexIds,['A','B']);near(b.spacingRuns.find(s=>s.stationStart===2).pileSpacing,1.25);for(const s of r.spans.filter(s=>s.beamId===b.id&&s.stationStart>=2&&s.stationEnd<=6)){near(s.pileSpacing,1.25);assert.deepEqual(s.annexIds,['A','B']);}assert.deepEqual(r.piles.find(p=>p.x===0&&p.y===-2).annexIds,['A']);assert.deepEqual(r.piles.find(p=>p.x===2&&p.y===-2).annexIds,['A','B']);topology(r);noOverlap(r);});
+test("two annex line overlaps keep both ownership IDs and the stricter local pile spacing", () => {
+  const { p, base } = fixture(),
+    extraLines = [
+      line("A", { x: 0, y: -2 }, { x: 8, y: -2 }, 3.5, "A"),
+      line("B", { x: 2, y: -2 }, { x: 6, y: -2 }, 1.25, "B"),
+    ],
+    r = buildGrillage(p, { ...base, extraLines }),
+    b = r.beams.find((b) => b.a.y === -2);
+  assert.equal(b.annexId, undefined);
+  assert.deepEqual(b.annexIds, ["A", "B"]);
+  near(b.spacingRuns.find((s) => s.stationStart === 2).pileSpacing, 1.25);
+  for (const s of r.spans.filter((s) => s.beamId === b.id && s.stationStart >= 2 && s.stationEnd <= 6)) {
+    near(s.pileSpacing, 1.25);
+    assert.deepEqual(s.annexIds, ["A", "B"]);
+  }
+  assert.deepEqual(r.piles.find((p) => p.x === 0 && p.y === -2).annexIds, ["A"]);
+  assert.deepEqual(r.piles.find((p) => p.x === 2 && p.y === -2).annexIds, ["A", "B"]);
+  topology(r);
+  noOverlap(r);
+});
 
-test('malformed optional layout data fails before emitting timber, and out-of-contour tie positions cannot silently pass',()=>{for(const ties of[null,[],{spacing:0},{spacing:7},{spacing:2,pileSpacing:NaN},{spacing:2,positions:[1,1]},{spacing:2,positions:[Infinity]},{spacing:2,unknown:true}]){const{p,base}=fixture();p.foundation.grillage.crossTies=ties;assert.equal(validateGrillageExtensions(p).valid,false);const r=buildGrillage(p,base);assert.equal(r.status,'fail');assert.equal(r.instances.length,0);}for(const change of[a=>a.a.x=NaN,a=>a.a.x=1001,a=>a.b.x=300,a=>a.b.y=-1,a=>a.pileSpacing=0,a=>a.pileSpacing=6.1,a=>a.kind='unknown',a=>a.source='',a=>a.annexId=null,a=>a.unknown=true]){const{p,base}=fixture(),a=line('valid',{x:0,y:-2},{x:8,y:-2});change(a);const r=buildGrillage(p,{...base,extraLines:[a]});assert.equal(r.status,'fail');assert.equal(r.instances.length,0);}const{p,base}=fixture();p.foundation.grillage.crossTies={spacing:2,positions:[15]};assert.equal(buildGrillage(p,base).status,'fail');});
+test("malformed optional layout data fails before emitting timber, and out-of-contour tie positions cannot silently pass", () => {
+  for (const ties of [
+    null,
+    [],
+    { spacing: 0 },
+    { spacing: 7 },
+    { spacing: 2, pileSpacing: NaN },
+    { spacing: 2, positions: [1, 1] },
+    { spacing: 2, positions: [Infinity] },
+    { spacing: 2, unknown: true },
+  ]) {
+    const { p, base } = fixture();
+    p.foundation.grillage.crossTies = ties;
+    assert.equal(validateGrillageExtensions(p).valid, false);
+    const r = buildGrillage(p, base);
+    assert.equal(r.status, "fail");
+    assert.equal(r.instances.length, 0);
+  }
+  for (const change of [
+    (a) => (a.a.x = NaN),
+    (a) => (a.a.x = 1001),
+    (a) => (a.b.x = 300),
+    (a) => (a.b.y = -1),
+    (a) => (a.pileSpacing = 0),
+    (a) => (a.pileSpacing = 6.1),
+    (a) => (a.kind = "unknown"),
+    (a) => (a.source = ""),
+    (a) => (a.annexId = null),
+    (a) => (a.unknown = true),
+  ]) {
+    const { p, base } = fixture(),
+      a = line("valid", { x: 0, y: -2 }, { x: 8, y: -2 });
+    change(a);
+    const r = buildGrillage(p, { ...base, extraLines: [a] });
+    assert.equal(r.status, "fail");
+    assert.equal(r.instances.length, 0);
+  }
+  const { p, base } = fixture();
+  p.foundation.grillage.crossTies = { spacing: 2, positions: [15] };
+  assert.equal(buildGrillage(p, base).status, "fail");
+});
 
-test('layout input is immutable and extra-line order does not change physical boards, pile coordinates or mass',()=>{const{p,base}=fixture();p.foundation.grillage.crossTies={spacing:3,positions:[3,6,9],pileSpacing:3};const extraLines=[line('A',{x:0,y:-2},{x:8,y:-2}),line('B',{x:8,y:-2},{x:8,y:0})],input={p,base,extraLines},before=JSON.stringify(input),a=buildGrillage(p,{...base,extraLines}),b=buildGrillage(p,{...base,extraLines:[...extraLines].reverse()});assert.equal(JSON.stringify(input),before);assert.deepEqual(a.instances.map(b=>({id:b.id,start:b.start,end:b.end,length:b.length})),b.instances.map(b=>({id:b.id,start:b.start,end:b.end,length:b.length})));assert.deepEqual(a.piles.map(p=>[p.x,p.y]),b.piles.map(p=>[p.x,p.y]));near(a.quantities.mass,b.quantities.mass);});
+test("layout input is immutable and extra-line order does not change physical boards, pile coordinates or mass", () => {
+  const { p, base } = fixture();
+  p.foundation.grillage.crossTies = { spacing: 3, positions: [3, 6, 9], pileSpacing: 3 };
+  const extraLines = [
+      line("A", { x: 0, y: -2 }, { x: 8, y: -2 }),
+      line("B", { x: 8, y: -2 }, { x: 8, y: 0 }),
+    ],
+    input = { p, base, extraLines },
+    before = JSON.stringify(input),
+    a = buildGrillage(p, { ...base, extraLines }),
+    b = buildGrillage(p, { ...base, extraLines: [...extraLines].reverse() });
+  assert.equal(JSON.stringify(input), before);
+  assert.deepEqual(
+    a.instances.map((b) => ({ id: b.id, start: b.start, end: b.end, length: b.length })),
+    b.instances.map((b) => ({ id: b.id, start: b.start, end: b.end, length: b.length })),
+  );
+  assert.deepEqual(
+    a.piles.map((p) => [p.x, p.y]),
+    b.piles.map((p) => [p.x, p.y]),
+  );
+  near(a.quantities.mass, b.quantities.mass);
+});
 
-test('distinct pile caps cannot overlap even when their supported timber packages do not intersect',()=>{const{p,base}=fixture();p.foundation.grillage.crossTies={spacing:2,positions:[2.2],pileSpacing:3};const r=buildGrillage(p,{...base,extraLines:[line('connector',{x:2,y:-.5},{x:2,y:0},3.5,'A','annexConnector')]}),check=r.checks.find(c=>c.id==='grillage-cap-conflicts');assert.equal(r.status,'fail');assert.equal(check.status,'fail');assert.ok(check.conflicts.length);const pair=check.conflicts.find(c=>{const a=r.piles.find(p=>p.id===c.pileAId),b=r.piles.find(p=>p.id===c.pileBId);return Math.abs(a.x-b.x-.2)<1e-7||Math.abs(b.x-a.x-.2)<1e-7;});assert.ok(pair);near(pair.penetrationXMM,50);near(pair.penetrationYMM,250);near(pair.overlapAreaMM2,12500);assert.notEqual(pair.pileAId,pair.pileBId);for(const id of check.pileIds)assert.ok(r.piles.some(p=>p.id===id));noOverlap(r);});
+test("distinct pile caps cannot overlap even when their supported timber packages do not intersect", () => {
+  const { p, base } = fixture();
+  p.foundation.grillage.crossTies = { spacing: 2, positions: [2.2], pileSpacing: 3 };
+  const r = buildGrillage(p, {
+      ...base,
+      extraLines: [line("connector", { x: 2, y: -0.5 }, { x: 2, y: 0 }, 3.5, "A", "annexConnector")],
+    }),
+    check = r.checks.find((c) => c.id === "grillage-cap-conflicts");
+  assert.equal(r.status, "fail");
+  assert.equal(check.status, "fail");
+  assert.ok(check.conflicts.length);
+  const pair = check.conflicts.find((c) => {
+    const a = r.piles.find((p) => p.id === c.pileAId),
+      b = r.piles.find((p) => p.id === c.pileBId);
+    return Math.abs(a.x - b.x - 0.2) < 1e-7 || Math.abs(b.x - a.x - 0.2) < 1e-7;
+  });
+  assert.ok(pair);
+  near(pair.penetrationXMM, 50);
+  near(pair.penetrationYMM, 250);
+  near(pair.overlapAreaMM2, 12500);
+  assert.notEqual(pair.pileAId, pair.pileBId);
+  for (const id of check.pileIds) assert.ok(r.piles.some((p) => p.id === id));
+  noOverlap(r);
+});
 
-test('touching cap faces are permitted but a positive penetration is not silently merged into one pile',()=>{const{p,base}=fixture();p.foundation.grillage.crossTies={spacing:2,positions:[2.25],pileSpacing:3};const extended={...base,extraLines:[line('connector',{x:2,y:-.5},{x:2,y:0},3.5,'A','annexConnector')]};let r=buildGrillage(p,extended);assert.equal(r.checks.find(c=>c.id==='grillage-cap-conflicts').status,'pass');p.foundation.grillage.crossTies.positions=[2.249];r=buildGrillage(p,extended);const c=r.checks.find(c=>c.id==='grillage-cap-conflicts');assert.equal(c.status,'fail');assert.ok(c.conflicts.some(c=>Math.abs(c.penetrationXMM-1)<1e-7));});
+test("touching cap faces are permitted but a positive penetration is not silently merged into one pile", () => {
+  const { p, base } = fixture();
+  p.foundation.grillage.crossTies = { spacing: 2, positions: [2.25], pileSpacing: 3 };
+  const extended = {
+    ...base,
+    extraLines: [line("connector", { x: 2, y: -0.5 }, { x: 2, y: 0 }, 3.5, "A", "annexConnector")],
+  };
+  let r = buildGrillage(p, extended);
+  assert.equal(r.checks.find((c) => c.id === "grillage-cap-conflicts").status, "pass");
+  p.foundation.grillage.crossTies.positions = [2.249];
+  r = buildGrillage(p, extended);
+  const c = r.checks.find((c) => c.id === "grillage-cap-conflicts");
+  assert.equal(c.status, "fail");
+  assert.ok(c.conflicts.some((c) => Math.abs(c.penetrationXMM - 1) < 1e-7));
+});

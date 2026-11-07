@@ -1,159 +1,1372 @@
-import {analyzeSnowCases} from './snow-envelope.js';
-import {analyzeEnvelope} from './hygrothermal.js';
-import {compareFoundationOptions} from './foundation-options.js';
-import {execFile} from 'node:child_process';
-import {promisify} from 'node:util';
-import {createHash,randomUUID} from 'node:crypto';
-import {mkdir,readFile,writeFile,link,readdir,open,unlink,access} from 'node:fs/promises';
-import path from 'node:path';
-import {fileURLToPath} from 'node:url';
-import {defaultDesignerProject,validateDesignerProject,calculateDesigner,pointInPolygon} from './designer-engine.js';
-import {normalizeDesignerState} from './designer-state.js';
-import {calculateRoofZones} from './roof-zones.js';
-import {checkDesignerMembers} from './designer-mechanics.js';
-import {calculateCutting,cuttingRowsToCSV,cuttingToPrintHTML} from './cutting.js';
-import {calculateEstimate,estimateRowsToCSV} from './estimate-engine.js';
-import {timberSections,sectionCatalogNote} from './catalog.js';
-import {generateHouse} from './house-generator.js';
-import {exportPlanSVG,exportBoardsCSV,exportModelOBJ} from './house-exports.js';
-import {buildFabricationGroups,fabricationPartsToCSV,fabricationStocksToCSV} from './fabrication-groups.js';
-export const ENGINE_VERSION='4.10.2';
-const clone=x=>JSON.parse(JSON.stringify(x));
-const canonical=x=>Array.isArray(x)?x.map(canonical):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,canonical(x[k])])):x;
-export const modelHash=p=>createHash('sha256').update(JSON.stringify(canonical(p))).digest('hex');
-export class EngineError extends Error{constructor(code,message,details){super(message);this.code=code;this.details=details;}}
-export function assertSafeJSON(value,depth=0){if(depth>40)throw new EngineError('INVALID_INPUT','Слишком глубокая структура.');if(typeof value==='number'&&!Number.isFinite(value))throw new EngineError('INVALID_INPUT','Числа должны быть конечными.');if(value&&typeof value==='object')for(const [k,v]of Object.entries(value)){if(['__proto__','prototype','constructor'].includes(k))throw new EngineError('INVALID_INPUT','Запрещённый ключ объекта.');assertSafeJSON(v,depth+1);}}
-function validated(project){
- assertSafeJSON(project);
- // Reject malformed explicit values BEFORE migration/defaults can erase them.
- const raw=validateDesignerProject(project);if(!raw.valid)throw new EngineError('INVALID_PROJECT','Проект не прошёл проверку входных данных.',raw.errors);
- const complete=clone(project);if(Array.isArray(complete.levels)&&complete.levels.length)complete.levels=Array.from({length:complete.floors},(_,i)=>complete.levels.find(l=>l.index===i+1)??{id:'level-'+(i+1),index:i+1,name:(i+1)+' этаж',height:complete.height});
- const p=normalizeDesignerState(complete),v=validateDesignerProject(p);if(!v.valid)throw new EngineError('INVALID_PROJECT','Проект не прошёл проверку входных данных.',v.errors);return p;
+import { resolveDressedProject } from "./lumber-standards.js";
+import { calculateInsulation, insulationProducts } from "./insulation.js";
+import {
+  profiledBeamSections,
+  beamProfiles,
+  beamMoistures,
+  beamCornerJoints,
+  beamDefaults,
+} from "./profiled-beam-catalog.js";
+import { sheetProducts, sheetSources } from "./sheet-catalog.js";
+import { analyzeSnowCases } from "./snow-envelope.js";
+import { analyzeEnvelope } from "./hygrothermal.js";
+import { compareFoundationOptions } from "./foundation-options.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile, link, readdir, open, unlink, access } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  defaultDesignerProject,
+  validateDesignerProject,
+  calculateDesigner,
+  pointInPolygon,
+} from "./designer-engine.js";
+import { normalizeDesignerState } from "./designer-state.js";
+import { calculateRoofZones } from "./roof-zones.js";
+import { memberLoadProject } from "./load-profile.js";
+import { analyzeSourceRoof } from "./source-roof-mechanics.js";
+import { checkDesignerMembers } from "./designer-mechanics.js";
+import { calculateCutting, cuttingRowsToCSV, cuttingToPrintHTML } from "./cutting.js";
+import { calculateEstimate, estimateRowsToCSV } from "./estimate-engine.js";
+import { timberSections, sectionCatalogNote } from "./catalog.js";
+import { generateHouse, generateHouseOptions, LAYOUT_STRATEGIES } from "./house-generator.js";
+import { evaluationMetrics, compareMetrics } from "./check-metrics.js";
+import { exportPlanSVG, exportBoardsCSV, exportModelOBJ } from "./house-exports.js";
+import {
+  buildFabricationGroups,
+  fabricationPartsToCSV,
+  fabricationStocksToCSV,
+} from "./fabrication-groups.js";
+export const ENGINE_VERSION = "5.0.0";
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const canonical = (x) =>
+  Array.isArray(x)
+    ? x.map(canonical)
+    : x && typeof x === "object"
+      ? Object.fromEntries(
+          Object.keys(x)
+            .sort()
+            .map((k) => [k, canonical(x[k])]),
+        )
+      : x;
+export const modelHash = (p) =>
+  createHash("sha256")
+    .update(JSON.stringify(canonical(p)))
+    .digest("hex");
+export class EngineError extends Error {
+  constructor(code, message, details) {
+    super(message);
+    this.code = code;
+    this.details = details;
+  }
 }
-export function evaluateHouse(project,planning={}){
- const sourcePlanning=planning;
- const p=validated(project),base=calculateDesigner(p);let roofModel=calculateRoofZones(p,base);
- let calculated=calculateDesigner(p,{roofModel});
- if(p.auxiliaryTimber?.enabled&&Object.keys(calculated.auxiliaryTimber?.roofExtraDeadByZone??{}).length){roofModel=calculateRoofZones(p,base,{roofExtraDeadByZone:calculated.auxiliaryTimber.roofExtraDeadByZone,ceilingExtraDeadByZone:calculated.auxiliaryTimber.ceilingExtraDeadByZone});calculated=calculateDesigner(p,{roofModel});}
- const mechanics=checkDesignerMembers(p,calculated);
- if(p.floor.wallSupportFraming)calculated.floorPlatform.joistChecks=(mechanics.joist?.members??[]).map(({parts,...m})=>({...m,partIds:parts.map(b=>b.id)}));
- if(p.roomSchedule){
-  if(!Array.isArray(p.roomSchedule)||p.roomSchedule.length>100)throw new EngineError('INVALID_PROJECT','roomSchedule: массив до100 помещений.');
-  const polyArea=poly=>Math.abs(poly.reduce((s,a,i)=>s+a.x*poly[(i+1)%poly.length].y-poly[(i+1)%poly.length].x*a.y,0))/2;
-  const rooms=p.roomSchedule.map(room=>{if(typeof room.name!=='string'||!Array.isArray(room.polygon)||room.polygon.length<3||!room.polygon.every(q=>Number.isFinite(q.x)&&Number.isFinite(q.y))||!Number.isInteger(room.level)||room.level<1||room.level>p.floors)throw new EngineError('INVALID_PROJECT','Помещение: имя, этаж и полигон с конечными координатами.');const full=polyArea(room.polygon),holes=p.voids.filter(v=>v.level===room.level&&v.polygon.every(q=>pointInPolygon(q,room.polygon))),removed=holes.reduce((s,v)=>s+polyArea(v.polygon),0);return {...room,area:Math.max(0,full-removed),voidIds:holes.map(v=>v.id),areaMethod:'Polygon less completely contained platform openings; clear polygons supplied by agent.'};});
-  planning={...planning,rooms,stale:false,checks:[],warnings:[...(planning.warnings??[]),'Раскладка помещений задана агентом по чистым полигонам. Доступ, лестница, эвакуация и инженерные системы требуют отдельного архитектурного проекта.']};
- }
+export function assertSafeJSON(value, depth = 0) {
+  if (depth > 40) throw new EngineError("INVALID_INPUT", "Слишком глубокая структура.");
+  if (typeof value === "number" && !Number.isFinite(value))
+    throw new EngineError("INVALID_INPUT", "Числа должны быть конечными.");
+  if (value && typeof value === "object")
+    for (const [k, v] of Object.entries(value)) {
+      if (["__proto__", "prototype", "constructor"].includes(k))
+        throw new EngineError("INVALID_INPUT", "Запрещённый ключ объекта.");
+      assertSafeJSON(v, depth + 1);
+    }
+}
+function validated(project) {
+  assertSafeJSON(project);
+  // Reject malformed explicit values BEFORE migration/defaults can erase them.
+  const raw = validateDesignerProject(project);
+  if (!raw.valid)
+    throw new EngineError("INVALID_PROJECT", "Проект не прошёл проверку входных данных.", raw.errors);
+  const complete = clone(project);
+  if (Array.isArray(complete.levels) && complete.levels.length)
+    complete.levels = Array.from(
+      { length: complete.floors },
+      (_, i) =>
+        complete.levels.find((l) => l.index === i + 1) ?? {
+          id: "level-" + (i + 1),
+          index: i + 1,
+          name: i + 1 + " этаж",
+          height: complete.height,
+        },
+    );
+  const p = normalizeDesignerState(complete),
+    v = validateDesignerProject(p);
+  if (!v.valid)
+    throw new EngineError("INVALID_PROJECT", "Проект не прошёл проверку входных данных.", v.errors);
+  return p;
+}
+export function evaluateHouse(project, planning = {}) {
+  const sourcePlanning = planning;
+  const revisionProject = validated(project),
+    p = resolveDressedProject(revisionProject),
+    base = calculateDesigner(p);
+  let roofModel = calculateRoofZones(p, base);
+  let calculated = calculateDesigner(p, { roofModel });
+  const extraRoofDead = { ...calculated.auxiliaryTimber?.roofExtraDeadByZone };
+  for (const [id, pressure] of Object.entries(calculated.sheetModel?.roofExtraDeadByZone ?? {}))
+    extraRoofDead[id] = (extraRoofDead[id] ?? 0) + pressure;
+  if (Object.keys(extraRoofDead).length) {
+    roofModel = calculateRoofZones(p, base, {
+      roofExtraDeadByZone: extraRoofDead,
+      ceilingExtraDeadByZone: calculated.auxiliaryTimber.ceilingExtraDeadByZone,
+    });
+    calculated = calculateDesigner(p, { roofModel });
+  }
+  // Member checks read one γG/γQ pair and w0·k(ze): see memberLoadProject (load-profile.js).
+  const mechanics = checkDesignerMembers(memberLoadProject(p, calculated.loads?.windPressure), calculated);
+  // Per-wall stud results for the viewer's member panel (compact: no geometry arrays).
+  const studFields = [
+    "wallId",
+    "id",
+    "b",
+    "h",
+    "length",
+    "unbracedLength",
+    "weakAxisRestraint",
+    "force",
+    "capacity",
+    "crushing",
+    "lambda",
+    "lambdaLimit",
+    "phi",
+    "tributaryWidth",
+    "utilization",
+    "status",
+    "measured",
+  ];
+  calculated.studMechanics = mechanics.stud
+    ? {
+        note: mechanics.stud.note ?? null,
+        equivalentLineLoad: mechanics.stud.equivalentLineLoad ?? null,
+        walls: (mechanics.stud.walls ?? []).map((s) =>
+          Object.fromEntries(studFields.filter((k) => s[k] !== undefined).map((k) => [k, s[k]])),
+        ),
+      }
+    : null;
+  if (p.floor.wallSupportFraming)
+    calculated.floorPlatform.joistChecks = (mechanics.joist?.members ?? []).map(({ parts, ...m }) => ({
+      ...m,
+      partIds: parts.map((b) => b.id),
+    }));
+  if (p.roomSchedule) {
+    if (!Array.isArray(p.roomSchedule) || p.roomSchedule.length > 100)
+      throw new EngineError("INVALID_PROJECT", "roomSchedule: массив до100 помещений.");
+    const polyArea = (poly) =>
+      Math.abs(
+        poly.reduce(
+          (s, a, i) => s + a.x * poly[(i + 1) % poly.length].y - poly[(i + 1) % poly.length].x * a.y,
+          0,
+        ),
+      ) / 2;
+    const rooms = p.roomSchedule.map((room) => {
+      if (
+        typeof room.name !== "string" ||
+        !Array.isArray(room.polygon) ||
+        room.polygon.length < 3 ||
+        !room.polygon.every((q) => Number.isFinite(q.x) && Number.isFinite(q.y)) ||
+        !Number.isInteger(room.level) ||
+        room.level < 1 ||
+        room.level > p.floors
+      )
+        throw new EngineError("INVALID_PROJECT", "Помещение: имя, этаж и полигон с конечными координатами.");
+      const full = polyArea(room.polygon),
+        holes = p.voids.filter(
+          (v) => v.level === room.level && v.polygon.every((q) => pointInPolygon(q, room.polygon)),
+        ),
+        removed = holes.reduce((s, v) => s + polyArea(v.polygon), 0);
+      return {
+        ...room,
+        area: Math.max(0, full - removed),
+        voidIds: holes.map((v) => v.id),
+        areaMethod: "Polygon less completely contained platform openings; clear polygons supplied by agent.",
+      };
+    });
+    planning = {
+      ...planning,
+      rooms,
+      stale: false,
+      checks: [],
+      warnings: [
+        ...(planning.warnings ?? []),
+        "Раскладка помещений задана агентом по чистым полигонам. Доступ, лестница, эвакуация и инженерные системы требуют отдельного архитектурного проекта.",
+      ],
+    };
+  }
 
- const result={...calculated,checks:[...calculated.checks,...mechanics.checks,...(planning.checks??[])],assumptions:[...calculated.assumptions,...mechanics.assumptions],planning};
- const snowAssessment=analyzeSnowCases(p,result);result.snowAssessment=snowAssessment;result.checks.push(...snowAssessment.checks);result.assumptions.push(...snowAssessment.assumptions);
- const envelope=p.envelope?.assemblies?{assemblies:p.envelope.assemblies.map(a=>{const analyzed={id:a.id,name:a.name,appliesTo:a.appliesTo,...analyzeEnvelope(a)};if(a.targetU!==undefined){if(!Number.isFinite(a.targetU)||a.targetU<=0)throw new EngineError('INVALID_PROJECT','Целевое U должно быть положительным конечным числом.');analyzed.targetU=a.targetU;analyzed.thermalTargetStatus=analyzed.Ueffective<=a.targetU?'pass':'fail';analyzed.checks.push({id:'U-target',label:'Принятый ориентир U ограждения',status:analyzed.thermalTargetStatus,value:analyzed.Ueffective,limit:a.targetU,unit:'Вт/(м²·К)',note:'Частное сравнение с принятым reference U; не подтверждает общий тепловой баланс, герметичность или энергосертификацию.'});}return analyzed;}),certified:false}:null;result.envelope=envelope;if(envelope)result.checks.push(...envelope.assemblies.flatMap(a=>a.checks.map(c=>({...c,id:'envelope-'+a.id+'-'+c.id,label:a.name+': '+c.label}))));
- const foundationSelection=result.foundation?compareFoundationOptions(p,result,p.site?.foundation??{}):{certified:false,status:'unverified',note:'Свайное поле не сформировано.'};result.foundationSelection=foundationSelection;
- if(p.staircase&&!result.spatialLayout?.enabled)result.checks.push({id:'staircase-working-design',label:'Лестница, ограждение второго света и высота прохода',status:'unverified',note:'Контур ниши, направление и ступени заданы для планировки. Статика маршей/площадок, крепление ограждений, проход и эвакуация не подтверждены.'});
- result.checks.push({id:'foundation-technology-design',label:'Тип, длина и сопротивление свай',status:'unverified',note:'Выбор технологии предварительный. Введённый предел на сваю не заменяет изыскания, расчёт сопротивления/осадки и исполнительный контроль.'});
- if(p.envelope?.junctionDetails?.length)result.checks.push({id:'envelope-air-sealing',label:'Непрерывность воздушного барьера и герметизация углов',status:'unverified',note:'Двухстоечный утепляемый угол и мембраны показаны в деталях. Продуваемость зависит от монтажа, проклейки, примыканий и испытания оболочки; плотный стык досок не подтверждает герметичность.'});
- if(p.site?.country==='RU'&&p.envelope?.assemblies?.length)result.checks.push({id:'envelope-ru-compliance',label:'Тепловая защита и годовой влажностный режим по местным требованиям',status:'unverified',note:'Рассчитаны R/U и стационарный профиль для заданных толщин. Применимость и полный расчёт СП50, тепловые мостики, годовая влага и фактическая воздухопроницаемость не подтверждены.'});
- const sourceMissing=p.roof?.sourceModel?.missingItems??[];
- if(sourceMissing.length&&result.loads){result.loads.complete=false;result.loads.missingLoads.push(...sourceMissing.map(s=>'Не включено в массу импорта: '+s));}
- const cutting=calculateCutting(p,result),estimate=calculateEstimate(p,result,cutting);
- if(sourceMissing.length){estimate.complete=false;estimate.assumptions.push('Импорт исходного проекта неполон. Не включено в стоимость: '+sourceMissing.join('; '));}
- const fails=result.checks.filter(c=>c.status==='fail'),unknown=result.checks.filter(c=>['unverified','warning'].includes(c.status));
- const summary={name:p.name,area:result.geometry.totalFloorArea,platformArea:result.geometry.totalPlatformArea,floors:p.floors,rooms:planning.rooms?.filter(r=>r.kind!=='corridor').length??0,annexes:result.annexes?.items?.length??0,annexArea:result.annexes?.quantities?.floorArea??0,annexRoofArea:result.annexes?.quantities?.roofArea??0,doubleHeightSpaces:result.spatialLayout?.doubleHeightSpaces?.length??0,staircases:result.spatialLayout?.staircases?.length??0,boards:result.timber.boardCount,timberVolume:result.timber.volume,timberMass:result.timber.mass,designVerticalLoad:result.loads?.totalDesign??null,piles:result.piles.length,grillageBoards:result.timber.totals.foundation.count,stockBoards:cutting.summary.boards,unplaced:cutting.overlength.length,estimateRub:estimate.currency==='RUB'?estimate.total:null,estimateTotal:estimate.total,currency:estimate.currency,status:!result.geometry.areaComplete||result.geometry.platformAreaComplete===false||!cutting.summary.complete||sourceMissing.length?'incomplete':fails.length?'failed_checks':'requires_engineering',failedChecks:fails.length,unverifiedOrWarningChecks:unknown.length,certified:false};
- const report={engine:{name:'КАРКАС ENGINE',version:ENGINE_VERSION,schemaVersion:'1.0',hash:modelHash({project:p,planning:sourcePlanning}),hashBasis:'SHA256 of canonical {project, planning: sourcePlanning}; derived planning and calculation outputs are not revision inputs.',units:{coordinates:'m',sections:'mm',mass:'kg',force:'kN',stress:'MPa',price:estimate.currency},generatedAt:new Date().toISOString()},project:p,sourcePlanning:clone(sourcePlanning),planning,result,cutting,estimate,summary};
- report.fabrication=buildFabricationGroups(report);summary.partGroups=report.fabrication.partGroups.length;summary.cuttingPatterns=report.fabrication.patternGroups.length;return report;
+  const result = {
+    ...calculated,
+    checks: [...calculated.checks, ...mechanics.checks, ...(planning.checks ?? [])],
+    assumptions: [...calculated.assumptions, ...mechanics.assumptions],
+    planning,
+  };
+  // Imported roofs: member forces along the physical contact load path (rafters → plates →
+  // knee-wall studs/posts → beams → main frame).
+  const sourceRoof = analyzeSourceRoof(p, result);
+  if (sourceRoof) {
+    result.sourceRoofMechanics = sourceRoof;
+    result.checks.push(...sourceRoof.checks);
+    // The representative stud uses one equivalent line load for every stud of every wall; with
+    // the actual roof reactions per stud available it is kept only as a superseded reference.
+    if (sourceRoof.wallStuds?.studs?.length)
+      for (const c of result.checks)
+        if (c.id === "designerStudCompression" || c.id === "designerStudPlateBearing") {
+          c.supersededBy =
+            c.id === "designerStudCompression" ? "source-roof-wall-studs" : "source-roof-wall-plate-bearing";
+          c.status = "unverified";
+          c.note =
+            `Представительная оценка по эквивалентной нагрузке (одна погонная нагрузка на все стены) заменена расчётом каждой стойки по фактическим реакциям кровли: ${c.supersededBy}. ${c.note ?? ""}`.trim();
+        }
+    result.assumptions.push(...sourceRoof.assumptions);
+  }
+  const snowAssessment = analyzeSnowCases(p, result);
+  result.snowAssessment = snowAssessment;
+  result.checks.push(...snowAssessment.checks);
+  result.assumptions.push(...snowAssessment.assumptions);
+  const envelope = p.envelope?.assemblies
+    ? {
+        assemblies: p.envelope.assemblies.map((a) => {
+          const analyzed = { id: a.id, name: a.name, appliesTo: a.appliesTo, ...analyzeEnvelope(a) };
+          if (a.targetU !== undefined) {
+            if (!Number.isFinite(a.targetU) || a.targetU <= 0)
+              throw new EngineError(
+                "INVALID_PROJECT",
+                "Целевое U должно быть положительным конечным числом.",
+              );
+            analyzed.targetU = a.targetU;
+            analyzed.thermalTargetStatus = analyzed.Ueffective <= a.targetU ? "pass" : "fail";
+            analyzed.checks.push({
+              id: "U-target",
+              label: "Принятый ориентир U ограждения",
+              status: analyzed.thermalTargetStatus,
+              value: analyzed.Ueffective,
+              limit: a.targetU,
+              unit: "Вт/(м²·К)",
+              note: "Частное сравнение с принятым reference U; не подтверждает общий тепловой баланс, герметичность или энергосертификацию.",
+            });
+          }
+          return analyzed;
+        }),
+        certified: false,
+      }
+    : null;
+  result.envelope = envelope;
+  if (envelope)
+    result.checks.push(
+      ...envelope.assemblies.flatMap((a) =>
+        a.checks.map((c) => ({ ...c, id: "envelope-" + a.id + "-" + c.id, label: a.name + ": " + c.label })),
+      ),
+    );
+  const foundationSelection = result.foundation
+    ? compareFoundationOptions(p, result, p.site?.foundation ?? {})
+    : { certified: false, status: "unverified", note: "Свайное поле не сформировано." };
+  result.foundationSelection = foundationSelection;
+  if (p.staircase && !result.spatialLayout?.enabled)
+    result.checks.push({
+      id: "staircase-working-design",
+      label: "Лестница, ограждение второго света и высота прохода",
+      status: "unverified",
+      note: "Контур ниши, направление и ступени заданы для планировки. Статика маршей/площадок, крепление ограждений, проход и эвакуация не подтверждены.",
+    });
+  result.checks.push({
+    id: "foundation-technology-design",
+    label: "Тип, длина и сопротивление свай",
+    status: "unverified",
+    note: "Выбор технологии предварительный. Введённый предел на сваю не заменяет изыскания, расчёт сопротивления/осадки и исполнительный контроль.",
+  });
+  if (p.envelope?.junctionDetails?.length)
+    result.checks.push({
+      id: "envelope-air-sealing",
+      label: "Непрерывность воздушного барьера и герметизация углов",
+      status: "unverified",
+      note: "Двухстоечный утепляемый угол и мембраны показаны в деталях. Продуваемость зависит от монтажа, проклейки, примыканий и испытания оболочки; плотный стык досок не подтверждает герметичность.",
+    });
+  if (p.site?.country === "RU" && p.envelope?.assemblies?.length)
+    result.checks.push({
+      id: "envelope-ru-compliance",
+      label: "Тепловая защита и годовой влажностный режим по местным требованиям",
+      status: "unverified",
+      note: "Рассчитаны R/U и стационарный профиль для заданных толщин. Применимость и полный расчёт СП50, тепловые мостики, годовая влага и фактическая воздухопроницаемость не подтверждены.",
+    });
+  const sourceMissing = p.roof?.sourceModel?.missingItems ?? [];
+  if (sourceMissing.length && result.loads) {
+    result.loads.complete = false;
+    result.loads.missingLoads.push(...sourceMissing.map((s) => "Не включено в массу импорта: " + s));
+  }
+  result.insulation = calculateInsulation(p, result);
+  result.checks.push(...result.insulation.checks);
+  result.assumptions.push(...result.insulation.assumptions);
+  const cutting = calculateCutting(p, result),
+    estimate = calculateEstimate(p, result, cutting);
+  if (sourceMissing.length) {
+    estimate.complete = false;
+    estimate.assumptions.push(
+      "Импорт исходного проекта неполон. Не включено в стоимость: " + sourceMissing.join("; "),
+    );
+  }
+  const fails = result.checks.filter((c) => c.status === "fail"),
+    unknown = result.checks.filter((c) => ["unverified", "warning"].includes(c.status));
+  const summary = {
+    name: p.name,
+    area: result.geometry.totalFloorArea,
+    platformArea: result.geometry.totalPlatformArea,
+    floors: p.floors,
+    rooms: planning.rooms?.filter((r) => !["corridor", "spare", "stair"].includes(r.kind)).length ?? 0,
+    annexes: result.annexes?.items?.length ?? 0,
+    annexArea: result.annexes?.quantities?.floorArea ?? 0,
+    annexRoofArea: result.annexes?.quantities?.roofArea ?? 0,
+    doubleHeightSpaces: result.spatialLayout?.doubleHeightSpaces?.length ?? 0,
+    staircases: result.spatialLayout?.staircases?.length ?? 0,
+    boards: result.timber.boardCount,
+    timberVolume: result.timber.volume,
+    timberMass: result.timber.mass,
+    designVerticalLoad: result.loads?.totalDesign ?? null,
+    piles: result.piles.length,
+    grillageBoards: result.timber.totals.foundation.count,
+    stockBoards: cutting.summary.boards,
+    unplaced: cutting.overlength.length,
+    estimateRub: estimate.currency === "RUB" ? estimate.total : null,
+    estimateTotal: estimate.total,
+    currency: estimate.currency,
+    status:
+      !result.geometry.areaComplete ||
+      !result.insulation.complete ||
+      result.geometry.platformAreaComplete === false ||
+      !cutting.summary.complete ||
+      sourceMissing.length
+        ? "incomplete"
+        : fails.length
+          ? "failed_checks"
+          : "requires_engineering",
+    failedChecks: fails.length,
+    unverifiedOrWarningChecks: unknown.length,
+    certified: false,
+  };
+  const report = {
+    engine: {
+      name: "КАРКАС ENGINE",
+      version: ENGINE_VERSION,
+      schemaVersion: "1.0",
+      hash: modelHash({ project: revisionProject, planning: sourcePlanning }),
+      hashBasis:
+        "SHA256 of canonical {project, planning: sourcePlanning}; derived planning and calculation outputs are not revision inputs.",
+      units: {
+        coordinates: "m",
+        sections: "mm",
+        mass: "kg",
+        force: "kN",
+        stress: "MPa",
+        price: estimate.currency,
+      },
+      generatedAt: new Date().toISOString(),
+    },
+    project: revisionProject,
+    sourcePlanning: clone(sourcePlanning),
+    planning,
+    result,
+    cutting,
+    estimate,
+    summary,
+  };
+  report.fabrication = buildFabricationGroups(report);
+  summary.partGroups = report.fabrication.partGroups.length;
+  summary.cuttingPatterns = report.fabrication.patternGroups.length;
+  return report;
 }
-const allowedRoots=new Set(['name','height','floors','grid','levels','walls','openings','objects','voids','roof','floor','material','loads','foundation','bracing','joints','boardCuts','cutting','prices','site','staircase','envelope','snowDesign','roomSchedule','auxiliaryTimber','annexes','doubleHeightSpaces','spatialLayout']);
-export function applyProjectPatch(project,operations){
- const p=clone(project);if(!Array.isArray(operations)||operations.length<1||operations.length>500)throw new EngineError('INVALID_PATCH','Нужно от 1 до 500 операций.');
- for(const op of operations){
-  assertSafeJSON(op);if(!['add','replace','remove'].includes(op.op)||typeof op.path!=='string'||!op.path.startsWith('/'))throw new EngineError('INVALID_PATCH','Используйте add, replace, remove и JSON Pointer path.');
-  const keys=op.path.slice(1).split('/').map(k=>k.replaceAll('~1','/').replaceAll('~0','~'));
-  if(!allowedRoots.has(keys[0])||keys.some(k=>['__proto__','prototype','constructor'].includes(k)))throw new EngineError('INVALID_PATCH','Недоступный путь проекта.',op.path);
-  let parent=p;for(const key of keys.slice(0,-1)){if(parent===null||typeof parent!=='object'||!Object.hasOwn(parent,key))throw new EngineError('INVALID_PATCH','Путь не существует.',op.path);parent=parent[key];}
-  const key=keys.at(-1);if(parent===null||typeof parent!=='object')throw new EngineError('INVALID_PATCH','Родитель пути не является объектом.',op.path);
-  if(Array.isArray(parent)){
-   const i=key==='-'&&op.op==='add'?parent.length:/^(0|[1-9]\d*)$/.test(key)?Number(key):-1;
-   if(i<0||i>parent.length||(op.op!=='add'&&i===parent.length))throw new EngineError('INVALID_PATCH','Индекс массива вне диапазона.',op.path);
-   if(op.op==='remove')parent.splice(i,1);else if(op.op==='add')parent.splice(i,0,clone(op.value));else parent[i]=clone(op.value);
-  }else{if(op.op!=='add'&&!Object.hasOwn(parent,key))throw new EngineError('INVALID_PATCH','Заменяемый ключ не существует.',op.path);if(op.op==='remove')delete parent[key];else{if(op.value===undefined)throw new EngineError('INVALID_PATCH','Нужно значение value.');parent[key]=clone(op.value);}}
- }
- // Apply the whole transaction before validation, allowing safe geometry edits.
- return validated(p);
+const allowedRoots = new Set([
+  "name",
+  "height",
+  "floors",
+  "grid",
+  "levels",
+  "walls",
+  "openings",
+  "objects",
+  "voids",
+  "roof",
+  "floor",
+  "material",
+  "loads",
+  "foundation",
+  "bracing",
+  "sheathing",
+  "joints",
+  "boardCuts",
+  "cutting",
+  "prices",
+  "site",
+  "staircase",
+  "envelope",
+  "insulation",
+  "snowDesign",
+  "roomSchedule",
+  "auxiliaryTimber",
+  "annexes",
+  "doubleHeightSpaces",
+  "spatialLayout",
+]);
+export function applyProjectPatch(project, operations) {
+  const p = clone(project);
+  if (!Array.isArray(operations) || operations.length < 1 || operations.length > 500)
+    throw new EngineError("INVALID_PATCH", "Нужно от 1 до 500 операций.");
+  for (const op of operations) {
+    assertSafeJSON(op);
+    if (
+      !["add", "replace", "remove"].includes(op.op) ||
+      typeof op.path !== "string" ||
+      !op.path.startsWith("/")
+    )
+      throw new EngineError("INVALID_PATCH", "Используйте add, replace, remove и JSON Pointer path.");
+    const keys = op.path
+      .slice(1)
+      .split("/")
+      .map((k) => k.replaceAll("~1", "/").replaceAll("~0", "~"));
+    if (!allowedRoots.has(keys[0]) || keys.some((k) => ["__proto__", "prototype", "constructor"].includes(k)))
+      throw new EngineError("INVALID_PATCH", "Недоступный путь проекта.", op.path);
+    let parent = p;
+    for (const key of keys.slice(0, -1)) {
+      if (parent === null || typeof parent !== "object" || !Object.hasOwn(parent, key))
+        throw new EngineError("INVALID_PATCH", "Путь не существует.", op.path);
+      parent = parent[key];
+    }
+    const key = keys.at(-1);
+    if (parent === null || typeof parent !== "object")
+      throw new EngineError("INVALID_PATCH", "Родитель пути не является объектом.", op.path);
+    if (Array.isArray(parent)) {
+      const i =
+        key === "-" && op.op === "add" ? parent.length : /^(0|[1-9]\d*)$/.test(key) ? Number(key) : -1;
+      if (i < 0 || i > parent.length || (op.op !== "add" && i === parent.length))
+        throw new EngineError("INVALID_PATCH", "Индекс массива вне диапазона.", op.path);
+      if (op.op === "remove") parent.splice(i, 1);
+      else if (op.op === "add") parent.splice(i, 0, clone(op.value));
+      else parent[i] = clone(op.value);
+    } else {
+      if (op.op !== "add" && !Object.hasOwn(parent, key))
+        throw new EngineError("INVALID_PATCH", "Заменяемый ключ не существует.", op.path);
+      if (op.op === "remove") delete parent[key];
+      else {
+        if (op.value === undefined) throw new EngineError("INVALID_PATCH", "Нужно значение value.");
+        parent[key] = clone(op.value);
+      }
+    }
+  }
+  // Apply the whole transaction before validation, allowing safe geometry edits.
+  return validated(p);
 }
-export function engineCatalog(){return {engine:'КАРКАС ENGINE',version:ENGINE_VERSION,units:{plan:'m (x,y)',world:'m [x,height,z]',sections:'mm b×h',loads:'kN/m²',forces:'kN',E:'MPa'},sections:timberSections,note:sectionCatalogNote,stockLength:6,parameterGuide:{sourceRoof:{input:'roof.sourceModel replaces automatic roof zones; do not supply zones or type none. source requires title and pageRefs.',members:'Physical timber only: id, name, role, section (mm b×h), start/end absolute world [x,height,z] metres, nonparallel crossAxis. Optional butt/miter cuts, sourceMark/sourcePage, level, ready shape (plane depth/width; layeredProfile with nonoverlapping from/to/points layers) and blankLength metres (at least finished extent; retains pre-machining stock allowance).',surfaces:'Nonoverlapping planar polygons: id, kind, points absolute world XYZ; optional explicit snowMu. Actual slope area and horizontal snow projection are computed.',missingItems:'List absent source positions explicitly. They make global loads/estimate incomplete; the engine never turns missing quantities into zero with a complete claim.',limits:'Coordinates ±40m (height0..40), max5000boards/1000surfaces; no automatic rafters/trusses/supports. Boards over6m remain unplaced. Source geometry, counts and partial balance do not validate strength, joints, load paths or full source fidelity.'},annexes:{kinds:['openTerrace','coveredTerrace','glazedVeranda'],coordinates:'attachedWallId + offset/width along the real first-floor exterior wall; depth extends outward',foundation:'foundation.mode=independent retains separate support rows; shared creates one physical grillage graph with house connectors, canonical pile IDs and a combined vertical-load solve. Sections, package plies, cap, level and adopted capacity must be compatible.',loads:'Own wood, glass, dead/live and adopted snow scenario. Uncovered deck uses full ground snow × deckSnowFactor; roofed modes use snowMu on roof. Local drift, sliding snow, uplift, connections and geotechnics remain unverified.',procurement:'All physical timber enters the same 6 m stock optimization once. Roofing/glazing/drainage receive separate annex-tagged estimate rows. No automatic warm-envelope claim.'},secondLight:{frame:'void.edgeSection is one standard board; edgePlies=1..6 creates actual parallel boards. Clear opening is axis polygon inset by half the total frame width; equal load sharing and connections remain unverified.',configuration:'One upper opening references the lower room, physical U stair, clear gallery paths and real upper daylight openings.',geometry:'Floor and flight guards, treads, risers, landing, cleats and notched stringers are actual spatial timber with cutting identities.',limits:'Geometric and adopted clearance screens do not certify stair strength, guard connections, fire escape or accessibility.'},partitions:{topAttachment:'Per wall: {target: roofTieUnderside|ceilingFrameUnderside, gap: metres, mode: sliding, zoneId?: string}. Non-bearing only. Effective height follows actual physical members; no bounding-box/eave fallback. Gap is adopted, connection and relative-movement allowance remain unverified.',ceiling:'Tall partitions trim full ceiling paths. Rail ends hang from actual bottom chords or new side-supported transfer headers. Full ceiling assembly has its own visibility layer; its mass is never removed by hiding it.'},floor:{rimSection:'Full-depth rim band, null uses floor.section; outside face aligns to exterior wall structural frame, not its axis',edgeReference:'Wall coordinates remain axes. Derived platform outerPolygon follows each actual exterior wall depth; grillage retains its own width and support axes. Geometric bearing overlap is screened, connections and load spreading are unverified',areas:'Planning/live area is net wall-axis area; deck layers, floor dead loads and procurement use net physical platform area',blocking:'Full-depth transverse restraint, does not create a bearing',blockingStep:'0.3..3 m row spacing; default 1.2',wallSupportFraming:'Boolean: actual full-depth parallel joist packages and transverse transfer blocks beneath wall footprints. Enabled for new generation; legacy projects opt in. wallSupports exposes physical coverage; wallLoadTransfers separates wall self-weight reactions from unknown connections and bearing-wall superstructure loads.'},tiedRafters:{framing:'tiedRafters: continuous rafters and lower tie, upper collar and internal knees; 2D EA/EI beam-column screen with explicit joint assumptions',geometry:'kneeRun, collarHeightRatio, tieSection, kneeSection, collarSection; collarConnection=inPlane|faceLap, collarEndInset metres; ceilingDrop creates real suspended ceiling timber',limits:'Sections, real bearing/notches, connection stiffness and roof/annex clearance must be inspected. A matching photograph is not a structural validation.'},roofOverhangs:{coordinates:'Horizontal metres in local U=(cos azimuth,sin azimuth), V=(-sin azimuth,cos azimuth)',keys:{start:'minU',end:'maxU',low:'minV',high:'maxV'},support:'Bearing polygon remains unchanged; rect-mono rafters and symmetric rect-gable raised-heel trusses support independent eaves. Unsupported configurations fail explicitly',coldAttic:'heelClearance raises the physical heel; ceilingDead is the flat ceiling component already included in roofDead; roofInterior=false with ceilingBattens=true creates actual flat ceiling rails'},fabrication:{partGroups:'Exact local machining identity, quantities and applications',patternGroups:'Repeated ordered layout on 6 m stock',maps:'fabrication_parts_csv and fabrication_stocks_csv'}},templates:['rectangle','l-shape','custom polygon'],roofShapes:['mono','gable','hip'],roofFraming:['auto','rafters','truss','tiedRafters'],bracing:['sheathing','letIn','none'],capabilities:['Explicit source roof geometry imported without substituting a truss; strength remains unverified','Polygon footprints and independent 1–2 floors','Room program with generated partitions and circulation on rectangular floors','Double-height rooms with physical U stairs, galleries, guards and upper daylight relationships','Independent open terraces, covered terraces and unheated glazed verandas','Built-up grillage with transverse ties, shared house/annex graph, real piles, ply boards and supported joints','Inclined rafters / multiple truss schemes and full-height walls','Density, self weight, bending, shear, Euler stability and deflection checks','Stock lengths 6 m, joint geometry, kerf and cut schedules','Procurement estimate from actual cutting, editable prices','Floor rim bands on both platforms, full-depth blocking and real bearing spans','Independent mono-rafter and symmetric gable-truss eaves with actual continuous chords, raised heels, auxiliary timber and flat-ceiling loads','Fabrication part groups, repeated stock patterns and exact CSV placement maps','Versioned transactions, bounded variants, JSON/CSV/SVG/OBJ/HTML export'],limits:['Not a certified working structural project; normative combinations, soil and engineered connections remain explicit unknowns.','Grillage: nearest-span load transfer and independent simple spans, not a spatial grillage stiffness solution.','Ply load sharing and support connections require design; equal sharing is a stated assumption.','Room generation is deterministic geometric zoning, not a fire/egress or building-code approval.','Timber assortment is nominal; strength values and density must be supplied for the actual product.'],defaults:clone(defaultDesignerProject),additionalTools:['karkas_add_annex','karkas_update_annex','karkas_remove_annex','karkas_set_second_light','karkas_compare_foundations','karkas_check_envelope','karkas_snow_cases'],exports:['JSON','CSV','SVG','OBJ','HTML','structural_pdf (A3 construction study)','fabrication_parts_csv','fabrication_stocks_csv'],workflow:['karkas_generate','karkas_report(checks)','karkas_get_project','karkas_set_second_light(expected_revision)','karkas_add_annex(expected_revision)','karkas_apply_patch(expected_revision)','karkas_compare_variants','karkas_export']};}
-const validId=id=>typeof id==='string'&&/^house-[a-f0-9-]{36}$/.test(id);
-export function createHouseEngine({dataDir=process.env.KARKAS_DATA_DIR??fileURLToPath(new URL('../work/engine-data/',import.meta.url))}={}){
- const root=path.resolve(dataDir),cache=new Map();
- const projectDir=id=>{if(!validId(id))throw new EngineError('NOT_FOUND','Некорректный ID проекта.');return path.join(root,'projects',id);};
- async function read(id,revision){
-  const dir=projectDir(id);let rev=revision;
-  if(rev===undefined){let files;try{files=await readdir(path.join(dir,'revisions'));}catch{throw new EngineError('NOT_FOUND','Проект не найден.');}rev=Math.max(0,...files.filter(x=>/^\d{6}\.json$/.test(x)).map(x=>Number(x.slice(0,6))));}
-  if(!Number.isInteger(rev)||rev<1)throw new EngineError('NOT_FOUND','Ревизия не найдена.');
-  try{return JSON.parse(await readFile(path.join(dir,'revisions',String(rev).padStart(6,'0')+'.json'),'utf8'));}catch{throw new EngineError('NOT_FOUND','Ревизия не найдена.');}
- }
- async function save(record){
-  const dir=path.join(projectDir(record.id),'revisions');await mkdir(dir,{recursive:true});
-  const destination=path.join(dir,String(record.revision).padStart(6,'0')+'.json'),temp=path.join(dir,'.'+randomUUID()+'.tmp');
-  // Publish a completed, synced file by exclusive hard-link creation. Two
-  // writers of revision N cannot overwrite each other. A crash leaves only an
-  // ignored temporary file; no stale lock can block future transactions.
-  const handle=await open(temp,'wx');try{await handle.writeFile(JSON.stringify(record,null,2));await handle.sync();}finally{await handle.close();}
-  try{await link(temp,destination);}catch(e){if(e.code==='EEXIST')throw new EngineError('REVISION_CONFLICT','Ревизию уже создал другой запрос. Прочитайте актуальный проект.',{expected:record.revision-1,actual:record.revision});throw e;}finally{await unlink(temp).catch(()=>{});}
- }
- async function create(project,planning={}){const p=validated(project),id='house-'+randomUUID(),record={id,revision:1,project:p,planning,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),hash:modelHash({project:p,planning})};const report=evaluateHouse(p,planning);await save(record);cache.set(record.hash,report);return metadata(record,report);}
- function analyzed(record){let report=cache.get(record.hash);if(!report){report=evaluateHouse(record.project,record.planning);if(cache.size>=6)cache.delete(cache.keys().next().value);cache.set(record.hash,report);}return {...report,engine:{...report.engine,projectId:record.id,revision:record.revision,hash:record.hash}};}
- function metadata(record,report){return {project_id:record.id,revision:record.revision,hash:record.hash,summary:report.summary,next:'Inspect failed and unverified checks using karkas_report before selecting a variant.'};}
- async function analyze(id,revision){return analyzed(await read(id,revision));}
- return {dataDir:root,create,async generate(spec){assertSafeJSON(spec);const {project,planning}=generateHouse(spec);return create(project,planning);},async get(id,revision){return read(id,revision);},analyze,
-  async list(){let ids;try{ids=await readdir(path.join(root,'projects'));}catch{return {projects:[]};}const projects=[];for(const id of ids.filter(validId)){const r=await read(id);projects.push({project_id:id,revision:r.revision,name:r.project.name,hash:r.hash,updatedAt:r.updatedAt});}return {projects};},
-  async patch(id,expectedRevision,operations){const prior=await read(id);if(prior.revision!==expectedRevision)throw new EngineError('REVISION_CONFLICT','Проект изменился: прочитайте актуальную ревизию.',{expected:expectedRevision,actual:prior.revision});const p=applyProjectPatch(prior.project,operations),geometryChanged=operations.some(o=>/^\/(walls|levels|floors|voids|openings)/.test(o.path)&&!/^\/(walls|levels)\/\d+\/height$/.test(o.path)),planning=geometryChanged?{...prior.planning,checks:[],warnings:[...(prior.planning.warnings??[]),'Room-program metadata predates a geometry edit; inspect the actual revised walls and openings.'],stale:true}:prior.planning,record={...prior,project:p,planning,revision:prior.revision+1,updatedAt:new Date().toISOString()};record.hash=modelHash({project:p,planning});const report=evaluateHouse(p,planning);await save(record);cache.set(record.hash,report);return metadata(record,report);},
-  async addAnnex(id,expectedRevision,annex){
-   assertSafeJSON(annex);const prior=await read(id);if(prior.revision!==expectedRevision)throw new EngineError('REVISION_CONFLICT','Проект изменился: прочитайте актуальную ревизию.',{expected:expectedRevision,actual:prior.revision});
-   if(!annex||typeof annex.id!=='string')throw new EngineError('INVALID_ANNEX','Нужен объект пристройки с ID.');
-   const items=prior.project.annexes??[];if(items.some(a=>a.id===annex.id))throw new EngineError('DUPLICATE_ANNEX','Пристройка с таким ID уже существует.');
-   return this.patch(id,expectedRevision,[{op:prior.project.annexes===undefined?'add':'replace',path:'/annexes',value:[...items,clone(annex)]}]);
-  },
-  async updateAnnex(id,expectedRevision,annexId,changes){
-   assertSafeJSON(changes);const prior=await read(id);if(prior.revision!==expectedRevision)throw new EngineError('REVISION_CONFLICT','Проект изменился: прочитайте актуальную ревизию.',{expected:expectedRevision,actual:prior.revision});
-   const items=prior.project.annexes??[],index=items.findIndex(a=>a.id===annexId);if(index<0)throw new EngineError('NOT_FOUND','Пристройка не найдена.');
-   if(!changes||typeof changes!=='object'||Array.isArray(changes)||!Object.keys(changes).length||changes.id!==undefined)throw new EngineError('INVALID_ANNEX','Нужны изменения параметров; ID пристройки не меняется.');
-   const merge=(a,b)=>Object.fromEntries([...new Set([...Object.keys(a??{}),...Object.keys(b)])].map(k=>[k,Object.hasOwn(b,k)?b[k]&&typeof b[k]==='object'&&!Array.isArray(b[k])&&a?.[k]&&typeof a[k]==='object'&&!Array.isArray(a[k])?merge(a[k],b[k]):clone(b[k]):clone(a[k])]));
-   return this.patch(id,expectedRevision,[{op:'replace',path:'/annexes/'+index,value:merge(items[index],changes)}]);
-  },
-  async removeAnnex(id,expectedRevision,annexId){
-   const prior=await read(id);if(prior.revision!==expectedRevision)throw new EngineError('REVISION_CONFLICT','Проект изменился: прочитайте актуальную ревизию.',{expected:expectedRevision,actual:prior.revision});
-   const index=(prior.project.annexes??[]).findIndex(a=>a.id===annexId);if(index<0)throw new EngineError('NOT_FOUND','Пристройка не найдена.');
-   return this.patch(id,expectedRevision,[{op:'remove',path:'/annexes/'+index}]);
-  },
-  async configureDoubleHeight(id,expectedRevision,configuration){
-   assertSafeJSON(configuration);const prior=await read(id);if(prior.revision!==expectedRevision)throw new EngineError('REVISION_CONFLICT','Проект изменился: прочитайте актуальную ревизию.',{expected:expectedRevision,actual:prior.revision});
-   const {opening,space,staircase,spatialLayout,replaceVoidIds=[]}=configuration??{};
-   if(!opening||opening.kind!=='doubleHeight'||!space||space.voidId!==opening.id||staircase&&staircase.voidId!==opening.id)throw new EngineError('INVALID_SPATIAL_LAYOUT','Пространство и лестница должны ссылаться на один проём второго света.');
-   const removed=new Set([...replaceVoidIds,opening.id]),voids=[...(prior.project.voids??[]).filter(v=>!removed.has(v.id)),clone(opening)],spaces=[...(prior.project.doubleHeightSpaces??[]).filter(v=>v.id!==space.id&&!removed.has(v.voidId)),clone(space)];
-   const operations=[{op:'replace',path:'/voids',value:voids},{op:prior.project.doubleHeightSpaces===undefined?'add':'replace',path:'/doubleHeightSpaces',value:spaces}];
-   if(staircase)operations.push({op:prior.project.staircase===undefined?'add':'replace',path:'/staircase',value:clone(staircase)});
-   if(spatialLayout)operations.push({op:prior.project.spatialLayout===undefined?'add':'replace',path:'/spatialLayout',value:{...prior.project.spatialLayout,...clone(spatialLayout)}});
-   return this.patch(id,expectedRevision,operations);
-  },
-  async report(id,revision,{topic='summary',offset=0,limit=50,category,wallId,annexId,level,status,beamId,memberIds}={}){const report=await analyze(id,revision),r=report.result;let data;
-   switch(topic){case'summary':data=report.summary;break;case'geometry':data=r.geometry;break;case'loads':data=r.loads;break;case'foundation':data=r.grillageModel;break;case'roof':data=r.roofModel;break;case'bracing':data=r.bracingModel;break;case'rooms':data=report.planning;break;case'checks':data=r.checks;break;case'members':data=r.timber.instances;break;case'cutting':data=report.cutting.stocks.map(s=>({id:s.id,section:s.section,length:s.length,used:s.used,consumed:s.consumed,remainder:s.remainder,kerfWaste:s.kerfWaste,reusable:s.reusable,pieces:s.pieces.map(q=>({id:q.id,name:q.name,length:q.length,start:q.start,end:q.end,endStart:q.endStart,endEnd:q.endEnd}))}));break;case'estimate':data=report.estimate.rows;break;case'assumptions':data=r.assumptions;break;case'snow':data=r.snowAssessment;break;case'envelope':data=r.envelope;break;case'foundation_selection':data=r.foundationSelection;break;case'floor_platform':data=r.floorPlatform;break;case'partition_heads':data=r.partitionHeads;break;case'annexes':data=r.annexes;break;case'spatial_layout':data=r.spatialLayout;break;case'fabrication_parts':data=report.fabrication.partGroups;break;case'fabrication_patterns':data=report.fabrication.patternGroups;break;default:throw new EngineError('INVALID_TOPIC','Неизвестная тема отчёта.');}
-   if(['foundation','roof','bracing'].includes(topic)){
-    // Return compact subsystem records; physical geometry is paged via members.
-    if(topic==='foundation')data={pileHeadY:data.pileHeadY,topY:data.topY,quantities:data.quantities,loadMethod:data.loadMethod,worstSpan:data.worstSpan?{id:data.worstSpan.id,length:data.worstSpan.length,designTotal:data.worstSpan.designTotal,check:data.worstSpan.check}:null,beams:data.beams.map(b=>({id:b.id,a:b.a,b:b.b,length:b.length,section:b.section,stations:b.stations})),piles:data.piles,joints:data.joints,checks:[...data.checks,...(data.loadChecks??[])]};
-    if(topic==='roof')data={sourceMode:data.sourceMode??false,source:data.source??null,importedMemberCount:data.sourceMode?data.instances.length:0,importedSurfaces:data.sourceMode?data.surfaces:undefined,zones:data.zones.map(z=>({id:z.id,name:z.name,shape:z.shape,framing:z.effectiveFraming,requestedSection:z.requestedSection,selectedSection:z.selectedSection,pitchLeft:z.pitchLeft,pitchRight:z.pitchRight,ridgeAngle:z.ridgeAngle,overhangs:z.overhangs,bearingPolygon:z.bearingPolygon??z.polygon,coverPolygon:z.coverPolygon,area:z.surfaceArea,checks:z.frameAnalysis?.checks??z.rafterAnalysis?.checks,frame:z.frameAnalysis?{method:'Linear 2D EA/EI frame with explicit end releases; connections unverified',stable:z.frameAnalysis.stable,input:z.frameAnalysis.input,nodes:z.frameAnalysis.nodes,elements:z.frameAnalysis.elements,members:z.frameAnalysis.members,connections:z.frameAnalysis.connections??[],lapConnections:(z.frameRows??[]).flatMap(r=>r.lapConnections??[]),reactions:z.frameAnalysis.design?.reactions,serviceDisplacements:z.frameAnalysis.service?.displacements,equilibrium:z.frameAnalysis.design?.equilibrium,assumptions:z.frameAnalysis.assumptions}:undefined,ceiling:z.tiedRafters?{drop:z.ceilingDrop,battenTopY:z.ceilingDatumY,insulationTopY:z.ceilingInsulationTopY}:undefined,warnings:z.warnings})),checks:data.checks,warnings:data.warnings};
-    if(topic==='bracing')data={method:data.method,quantities:data.quantities,wallLines:data.wallLines,checks:data.checks};
-   }
-   if(topic==='annexes')data=data?{...data,instances:undefined,items:(data.items??[]).filter(a=>!annexId||a.id===annexId).map(({instances,...a})=>a)}:{items:[],quantities:{}};
-   if(topic==='spatial_layout')data=data?{...data,instances:undefined}:{staircases:[],doubleHeightSpaces:[],galleries:[],guards:[]};
-   if(Array.isArray(data)){const filtered=data.filter(x=>(!category||x.category===category)&&(!wallId||x.wallId===wallId)&&(!annexId||x.annexId===annexId)&&(!level||(x.level??x.floor)===level)&&(!status||x.status===status)&&(!beamId||x.beamId===beamId)&&(!memberIds||memberIds.includes(x.id)));return {project_id:id,revision:report.engine.revision,hash:report.engine.hash,topic,total:filtered.length,offset,items:filtered.slice(offset,offset+Math.min(100,limit)),nextOffset:offset+limit<filtered.length?offset+limit:null};}
-   return {project_id:id,revision:report.engine.revision,hash:report.engine.hash,topic,data};},
-  async variants(id,revision,variants){if(!Array.isArray(variants)||!variants.length||variants.length>12)throw new EngineError('INVALID_INPUT','Сравнивайте от 1 до 12 вариантов.');const record=await read(id,revision),baseline=analyzed(record);const outcomes=variants.map((v,index)=>{try{const p=applyProjectPatch(record.project,v.operations),report=evaluateHouse(p,record.planning);return {index,name:v.name,hash:report.engine.hash,summary:report.summary,delta:{cost:report.summary.estimateTotal-baseline.summary.estimateTotal,mass:report.summary.timberMass-baseline.summary.timberMass},score:report.summary.failedChecks*1e9+report.summary.unplaced*1e9+report.summary.estimateTotal,operations:v.operations};}catch(e){return {index,name:v.name,error:{code:e.code??'INVALID_VARIANT',message:e.message},score:null};}});const ranked=outcomes.filter(x=>x.score!==null).sort((a,b)=>a.summary.failedChecks-b.summary.failedChecks||a.summary.unplaced-b.summary.unplaced||a.summary.estimateTotal-b.summary.estimateTotal);return {project_id:id,revision:record.revision,baseline:baseline.summary,variants:outcomes,ranking:ranked.map(x=>x.index),selectedIndex:ranked[0]?.index??null,rankingCriteria:['failedChecks','unplaced','estimateTotal'],method:'Bounded enumeration; lexicographic failed checks first, then unplaced pieces, then illustrative procurement cost. No variant is applied or certified.'};},
-  async export(id,revision,formats=['report_json','project_json','plan_svg','boards_csv','cutting_csv','estimate_csv','cutting_html','model_obj','fabrication_parts_csv','fabrication_stocks_csv']){const report=await analyze(id,revision),destination=path.join(root,'exports',id,'r'+report.engine.revision);await mkdir(destination,{recursive:true});const payloads={report_json:['report.json',()=>JSON.stringify(report)],project_json:['project.json',()=>JSON.stringify({version:2,project:report.project},null,2)],plan_svg:['plan.svg',()=>exportPlanSVG(report)],boards_csv:['boards.csv',()=>exportBoardsCSV(report)],cutting_csv:['cutting.csv',()=>cuttingRowsToCSV(report.cutting)],estimate_csv:['estimate.csv',()=>estimateRowsToCSV(report.estimate,report.project.name)],cutting_html:['cutting.html',()=>cuttingToPrintHTML(report.cutting,report.project.name,report.fabrication)],model_obj:['model.obj',()=>exportModelOBJ(report)],fabrication_parts_csv:['fabrication-parts.csv',()=>fabricationPartsToCSV(report.fabrication)],fabrication_stocks_csv:['fabrication-stocks.csv',()=>fabricationStocksToCSV(report.fabrication)]};const artifacts=[];for(const format of [...new Set(formats)]){
-   if(format==='structural_pdf'){
-    const file=path.join(destination,'structural-album.pdf'),source=path.join(destination,'.structural-source-'+randomUUID()+'.json');await writeFile(source,JSON.stringify(report));
-    const bundledPython=path.resolve(path.dirname(process.execPath),'../../python/bin/python3'),python=process.env.KARKAS_PYTHON??await access(bundledPython).then(()=>bundledPython,()=> 'python3'),script=fileURLToPath(new URL('../scripts/structural-album.py',import.meta.url));
-    try{await promisify(execFile)(python,[script,source,file],{timeout:120000,maxBuffer:1024*1024});}catch(e){throw new EngineError('PDF_EXPORT_FAILED','Не удалось сформировать PDF. Нужны Python с reportlab и шрифтами кириллицы.',{message:e.message,stderr:e.stderr});}finally{await unlink(source).catch(()=>{});}
-    const bytes=await readFile(file);artifacts.push({format,path:file,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')});continue;
-   }
-if(!payloads[format])throw new EngineError('INVALID_FORMAT','Неизвестный формат.',format);const [name,fn]=payloads[format],file=path.join(destination,name),text=fn();await writeFile(file,text);artifacts.push({format,path:file,bytes:Buffer.byteLength(text),sha256:createHash('sha256').update(text).digest('hex')});}return {project_id:id,revision:report.engine.revision,hash:report.engine.hash,artifacts};}
- };
+export function engineCatalog() {
+  return {
+    engine: "КАРКАС ENGINE",
+    version: ENGINE_VERSION,
+    units: {
+      plan: "m (x,y)",
+      world: "m [x,height,z]",
+      sections: "mm b×h",
+      loads: "kN/m²",
+      forces: "kN",
+      E: "MPa",
+    },
+    insulationProducts,
+    sections: timberSections,
+    profiledBeam: {
+      sections: profiledBeamSections,
+      profiles: beamProfiles,
+      moisture: beamMoistures,
+      cornerJoints: beamCornerJoints,
+      defaults: beamDefaults,
+    },
+    note: sectionCatalogNote,
+    sheetProducts,
+    sheetSources,
+    stockLength: 6,
+    parameterGuide: {
+      insulation: {
+        input:
+          "insulation.walls/floor/roof/partitions: {thickness (м), product: wool-50|wool-100, enabled}; roof.boundary: ceiling|slopes; wasteFactor по умолчанию 0,05 (пример). Перегородки включаются явно.",
+        calculation:
+          "Из объёма слоя вычитаются проёмы и объединение реальных досок. Толщина: явная → первый подходящий утепляющий слой envelope → глубина полости. Все допущения — в теме отчёта insulation.",
+        purchase:
+          "Полные слои плит и округление упаковок один раз на продукт. prices.insulationPack — за упаковку; прежняя insulationM2 пересчитывается через условную бюджетную толщину 150 мм.",
+        loads:
+          "Масса сравнивается с существующими нагрузками слоёв и повторно не добавляется. envelope.assemblies[].layers[].density позволяет сравнить полный вес слоёв; недостаточная нагрузка даёт предупреждение.",
+      },
+      sourceRoof: {
+        input:
+          "roof.sourceModel replaces automatic roof zones; do not supply zones or type none. source requires title and pageRefs.",
+        members:
+          "Physical timber only: id, name, role, section (mm b×h), start/end absolute world [x,height,z] metres, nonparallel crossAxis. Optional butt/miter cuts, sourceMark/sourcePage, level, ready shape (plane depth/width; layeredProfile with nonoverlapping from/to/points layers) and blankLength metres (at least finished extent; retains pre-machining stock allowance).",
+        surfaces:
+          "Nonoverlapping planar polygons: id, kind, points absolute world XYZ; optional explicit snowMu. Actual slope area and horizontal snow projection are computed.",
+        missingItems:
+          "List absent source positions explicitly. They make global loads/estimate incomplete; the engine never turns missing quantities into zero with a complete claim.",
+        limits:
+          "Coordinates ±40m (height0..40), max5000boards/1000surfaces; no automatic rafters/trusses/supports. Boards over6m remain unplaced. Source geometry, counts and partial balance do not validate strength, joints, load paths or full source fidelity.",
+      },
+      annexes: {
+        kinds: ["openTerrace", "coveredTerrace", "glazedVeranda"],
+        coordinates:
+          "attachedWallId + offset/width along the real first-floor exterior wall; depth extends outward",
+        foundation:
+          "foundation.mode=independent retains separate support rows; shared creates one physical grillage graph with house connectors, canonical pile IDs and a combined vertical-load solve. Sections, package plies, cap, level and adopted capacity must be compatible.",
+        loads:
+          "Own wood, glass, dead/live and adopted snow scenario. Uncovered deck uses full ground snow × deckSnowFactor; roofed modes use snowMu on roof. Local drift, sliding snow, uplift, connections and geotechnics remain unverified.",
+        procurement:
+          "All physical timber enters the same 6 m stock optimization once. Roofing/glazing/drainage receive separate annex-tagged estimate rows. No automatic warm-envelope claim.",
+      },
+      secondLight: {
+        frame:
+          "void.edgeSection is one standard board; edgePlies=1..6 creates actual parallel boards. Clear opening is axis polygon inset by half the total frame width; equal load sharing and connections remain unverified.",
+        configuration:
+          "One upper opening references the lower room, physical U stair, clear gallery paths and real upper daylight openings.",
+        geometry:
+          "Floor and flight guards, treads, risers, landing, cleats and notched stringers are actual spatial timber with cutting identities.",
+        limits:
+          "Geometric and adopted clearance screens do not certify stair strength, guard connections, fire escape or accessibility.",
+      },
+      partitions: {
+        topAttachment:
+          "Per wall: {target: roofTieUnderside|ceilingFrameUnderside, gap: metres, mode: sliding, zoneId?: string}. Non-bearing only. Effective height follows actual physical members; no bounding-box/eave fallback. Gap is adopted, connection and relative-movement allowance remain unverified.",
+        ceiling:
+          "Tall partitions trim full ceiling paths. Rail ends hang from actual bottom chords or new side-supported transfer headers. Full ceiling assembly has its own visibility layer; its mass is never removed by hiding it.",
+      },
+      floor: {
+        rimSection:
+          "Full-depth rim band, null uses floor.section; outside face aligns to exterior wall structural frame, not its axis",
+        edgeReference:
+          "Wall coordinates remain axes. Derived platform outerPolygon follows each actual exterior wall depth; grillage retains its own width and support axes. Geometric bearing overlap is screened, connections and load spreading are unverified",
+        areas:
+          "Planning/live area is net wall-axis area; deck layers, floor dead loads and procurement use net physical platform area",
+        blocking: "Full-depth transverse restraint, does not create a bearing",
+        blockingStep: "0.3..3 m row spacing; default 1.2",
+        wallSupportFraming:
+          "Boolean: actual full-depth parallel joist packages and transverse transfer blocks beneath wall footprints. Enabled for new generation; legacy projects opt in. wallSupports exposes physical coverage; wallLoadTransfers separates wall self-weight reactions from unknown connections and bearing-wall superstructure loads.",
+      },
+      tiedRafters: {
+        framing:
+          "tiedRafters: continuous rafters and lower tie, upper collar and internal knees; 2D EA/EI beam-column screen with explicit joint assumptions",
+        geometry:
+          "kneeRun, collarHeightRatio, tieSection, kneeSection, collarSection; collarConnection=inPlane|faceLap, collarEndInset metres; ceilingDrop creates real suspended ceiling timber",
+        limits:
+          "Sections, real bearing/notches, connection stiffness and roof/annex clearance must be inspected. A matching photograph is not a structural validation.",
+      },
+      roofOverhangs: {
+        coordinates: "Horizontal metres in local U=(cos azimuth,sin azimuth), V=(-sin azimuth,cos azimuth)",
+        keys: { start: "minU", end: "maxU", low: "minV", high: "maxV" },
+        support:
+          "Bearing polygon remains unchanged; rect-mono rafters and symmetric rect-gable raised-heel trusses support independent eaves. Unsupported configurations fail explicitly",
+        coldAttic:
+          "heelClearance raises the physical heel; ceilingDead is the flat ceiling component already included in roofDead; roofInterior=false with ceilingBattens=true creates actual flat ceiling rails",
+      },
+      fabrication: {
+        partGroups: "Exact local machining identity, quantities and applications",
+        patternGroups: "Repeated ordered layout on 6 m stock",
+        maps: "fabrication_parts_csv and fabrication_stocks_csv",
+      },
+    },
+    templates: ["rectangle", "l-shape", "custom polygon"],
+    layoutStrategies: LAYOUT_STRATEGIES,
+    roofShapes: ["mono", "gable", "hip"],
+    roofFraming: ["auto", "rafters", "truss", "tiedRafters"],
+    bracing: ["sheathing", "letIn", "none"],
+    capabilities: [
+      "Explicit source roof geometry imported without substituting a truss; strength remains unverified",
+      "Polygon footprints and independent 1–2 floors",
+      "Room program with several layout strategies on rectangular and L floors; bearing corridor/spine walls stacked under upper floors; U-stair opening for two storeys",
+      "Site → SP 20.13330.2016 snow/wind regions and normative frost depth (reference city table)",
+      "Double-height rooms with physical U stairs, galleries, guards and upper daylight relationships",
+      "Independent open terraces, covered terraces and unheated glazed verandas",
+      "Built-up grillage with transverse ties, shared house/annex graph, real piles, ply boards and supported joints",
+      "Inclined rafters / multiple truss schemes and full-height walls",
+      "Density, self weight, bending, shear, SP 64 buckling (φ, λmax, Mд = M/ξ), bearing across grain, creep and deflection checks",
+      "Stock lengths 6 m, joint geometry, kerf and cut schedules",
+      "Procurement estimate from actual cutting, editable prices",
+      "Floor rim bands on both platforms, full-depth blocking and real bearing spans",
+      "Independent mono-rafter and symmetric gable-truss eaves with actual continuous chords, raised heels, auxiliary timber and flat-ceiling loads",
+      "Fabrication part groups, repeated stock patterns and exact CSV placement maps",
+      "Versioned transactions, bounded variants, JSON/CSV/SVG/OBJ/HTML export",
+    ],
+    limits: [
+      "Not a certified working structural project; normative combinations, soil and engineered connections remain explicit unknowns.",
+      "Grillage: nearest-span load transfer and independent simple spans, not a spatial grillage stiffness solution.",
+      "Ply load sharing and support connections require design; equal sharing is a stated assumption.",
+      "Room generation is deterministic geometric zoning, not a fire/egress or building-code approval.",
+      "Timber assortment is nominal; strength values and density must be supplied for the actual product.",
+    ],
+    defaults: clone(defaultDesignerProject),
+    additionalTools: [
+      "karkas_generate_options",
+      "karkas_site_loads",
+      "karkas_add_annex",
+      "karkas_update_annex",
+      "karkas_remove_annex",
+      "karkas_set_second_light",
+      "karkas_compare_foundations",
+      "karkas_check_envelope",
+      "karkas_snow_cases",
+    ],
+    exports: [
+      "JSON",
+      "CSV",
+      "SVG",
+      "OBJ",
+      "HTML",
+      "structural_pdf (A3 construction study)",
+      "fabrication_parts_csv",
+      "fabrication_stocks_csv",
+    ],
+    workflow: [
+      "karkas_site_loads",
+      "karkas_generate_options",
+      "karkas_generate",
+      "karkas_report(checks)",
+      "karkas_get_project",
+      "karkas_set_second_light(expected_revision)",
+      "karkas_add_annex(expected_revision)",
+      "karkas_apply_patch(expected_revision)",
+      "karkas_compare_variants",
+      "karkas_export",
+    ],
+  };
+}
+const validId = (id) => typeof id === "string" && /^house-[a-f0-9-]{36}$/.test(id);
+export function createHouseEngine({
+  dataDir = process.env.KARKAS_DATA_DIR ?? fileURLToPath(new URL("../work/engine-data/", import.meta.url)),
+} = {}) {
+  const root = path.resolve(dataDir),
+    cache = new Map();
+  const projectDir = (id) => {
+    if (!validId(id)) throw new EngineError("NOT_FOUND", "Некорректный ID проекта.");
+    return path.join(root, "projects", id);
+  };
+  async function read(id, revision) {
+    const dir = projectDir(id);
+    let rev = revision;
+    if (rev === undefined) {
+      let files;
+      try {
+        files = await readdir(path.join(dir, "revisions"));
+      } catch {
+        throw new EngineError("NOT_FOUND", "Проект не найден.");
+      }
+      rev = Math.max(0, ...files.filter((x) => /^\d{6}\.json$/.test(x)).map((x) => Number(x.slice(0, 6))));
+    }
+    if (!Number.isInteger(rev) || rev < 1) throw new EngineError("NOT_FOUND", "Ревизия не найдена.");
+    try {
+      return JSON.parse(
+        await readFile(path.join(dir, "revisions", String(rev).padStart(6, "0") + ".json"), "utf8"),
+      );
+    } catch {
+      throw new EngineError("NOT_FOUND", "Ревизия не найдена.");
+    }
+  }
+  async function save(record) {
+    const dir = path.join(projectDir(record.id), "revisions");
+    await mkdir(dir, { recursive: true });
+    const destination = path.join(dir, String(record.revision).padStart(6, "0") + ".json"),
+      temp = path.join(dir, "." + randomUUID() + ".tmp");
+    // Publish a completed, synced file by exclusive hard-link creation. Two
+    // writers of revision N cannot overwrite each other. A crash leaves only an
+    // ignored temporary file; no stale lock can block future transactions.
+    const handle = await open(temp, "wx");
+    try {
+      await handle.writeFile(JSON.stringify(record, null, 2));
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    try {
+      await link(temp, destination);
+    } catch (e) {
+      if (e.code === "EEXIST")
+        throw new EngineError(
+          "REVISION_CONFLICT",
+          "Ревизию уже создал другой запрос. Прочитайте актуальный проект.",
+          { expected: record.revision - 1, actual: record.revision },
+        );
+      throw e;
+    } finally {
+      await unlink(temp).catch(() => {});
+    }
+  }
+  async function create(project, planning = {}) {
+    const p = validated(project),
+      id = "house-" + randomUUID(),
+      record = {
+        id,
+        revision: 1,
+        project: p,
+        planning,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        hash: modelHash({ project: p, planning }),
+      };
+    const report = evaluateHouse(p, planning);
+    await save(record);
+    cache.set(record.hash, report);
+    return metadata(record, report);
+  }
+  function analyzed(record) {
+    let report = cache.get(record.hash);
+    if (!report) {
+      report = evaluateHouse(record.project, record.planning);
+      if (cache.size >= 6) cache.delete(cache.keys().next().value);
+      cache.set(record.hash, report);
+    }
+    return {
+      ...report,
+      engine: { ...report.engine, projectId: record.id, revision: record.revision, hash: record.hash },
+    };
+  }
+  function metadata(record, report) {
+    return {
+      project_id: record.id,
+      revision: record.revision,
+      hash: record.hash,
+      summary: report.summary,
+      next: "Inspect failed and unverified checks using karkas_report before selecting a variant.",
+    };
+  }
+  async function analyze(id, revision) {
+    return analyzed(await read(id, revision));
+  }
+  return {
+    dataDir: root,
+    create,
+    async generate(spec) {
+      assertSafeJSON(spec);
+      const { project, planning } = generateHouse(spec);
+      const meta = await create(project, planning);
+      return {
+        ...meta,
+        strategy: planning.strategy,
+        structure: planning.structure ?? null,
+        site: planning.site
+          ? {
+              ...planning.site,
+              loads: { snow: project.loads.snow, wind: project.loads.wind, terrain: project.loads.terrain },
+              fromSite: Object.entries(planning.site.applied ?? {})
+                .filter(([, origin]) => origin === "site")
+                .map(([k]) => k),
+            }
+          : null,
+        layoutScore: planning.score ?? null,
+      };
+    },
+    /** Generate up to `count` layout strategies and evaluate each without persisting. */
+    async generateOptions(spec, count = 4) {
+      assertSafeJSON(spec);
+      const { options, rejected, rankingBasis } = generateHouseOptions(spec, { count });
+      const rows = options.map((o) => {
+        const report = evaluateHouse(o.project, o.planning),
+          checks = report.result.checks,
+          failed = checks.filter((c) => c.status === "fail"),
+          utilizations = checks.map((c) => c.utilization).filter((u) => Number.isFinite(u));
+        return {
+          strategy: o.strategy,
+          description: o.description,
+          hash: report.engine.hash,
+          failedChecks: failed.length,
+          failedCheckIds: failed.map((c) => c.id),
+          maxUtilization: utilizations.length ? Math.max(...utilizations) : null,
+          excessUtilization: utilizations.reduce((sum, u) => sum + Math.max(0, u - 1), 0),
+          estimateTotal: report.summary.estimateTotal,
+          currency: report.summary.currency,
+          timberVolume: report.summary.timberVolume,
+          area: report.summary.area,
+          rooms: report.summary.rooms,
+          staircases: report.summary.staircases,
+          layout: o.score,
+          warnings: o.planning.warnings,
+        };
+      });
+      rows.sort(
+        (a, b) =>
+          a.failedChecks - b.failedChecks ||
+          a.excessUtilization - b.excessUtilization ||
+          a.layout.roomsWithoutWindow - b.layout.roomsWithoutWindow ||
+          Number(a.layout.stair === false) - Number(b.layout.stair === false) ||
+          a.estimateTotal - b.estimateTotal,
+      );
+      rows.forEach((r, i) => (r.rank = i + 1));
+      return {
+        options: rows,
+        rejected,
+        selectedStrategy: rows[0]?.strategy ?? null,
+        rankingCriteria: [
+          "failedChecks",
+          "excessUtilization",
+          "roomsWithoutWindow",
+          "stair",
+          "estimateTotal",
+        ],
+        layoutRankingBasis: rankingBasis,
+        next: "Сохраните выбранный вариант: karkas_generate с той же спецификацией и strategy из таблицы. Варианты не записаны и не сертифицированы.",
+      };
+    },
+    async get(id, revision) {
+      return read(id, revision);
+    },
+    analyze,
+    async list() {
+      let ids;
+      try {
+        ids = await readdir(path.join(root, "projects"));
+      } catch {
+        return { projects: [] };
+      }
+      const projects = [];
+      for (const id of ids.filter(validId)) {
+        const r = await read(id);
+        projects.push({
+          project_id: id,
+          revision: r.revision,
+          name: r.project.name,
+          hash: r.hash,
+          updatedAt: r.updatedAt,
+        });
+      }
+      return { projects };
+    },
+    async patch(id, expectedRevision, operations) {
+      const prior = await read(id);
+      if (prior.revision !== expectedRevision)
+        throw new EngineError("REVISION_CONFLICT", "Проект изменился: прочитайте актуальную ревизию.", {
+          expected: expectedRevision,
+          actual: prior.revision,
+        });
+      const p = applyProjectPatch(prior.project, operations),
+        geometryChanged = operations.some(
+          (o) =>
+            /^\/(walls|levels|floors|voids|openings)/.test(o.path) &&
+            !/^\/(walls|levels)\/\d+\/height$/.test(o.path),
+        ),
+        planning = geometryChanged
+          ? {
+              ...prior.planning,
+              checks: [],
+              warnings: [
+                ...(prior.planning.warnings ?? []),
+                "Room-program metadata predates a geometry edit; inspect the actual revised walls and openings.",
+              ],
+              stale: true,
+            }
+          : prior.planning,
+        record = {
+          ...prior,
+          project: p,
+          planning,
+          revision: prior.revision + 1,
+          updatedAt: new Date().toISOString(),
+        };
+      record.hash = modelHash({ project: p, planning });
+      const report = evaluateHouse(p, planning);
+      await save(record);
+      cache.set(record.hash, report);
+      return metadata(record, report);
+    },
+    async addAnnex(id, expectedRevision, annex) {
+      assertSafeJSON(annex);
+      const prior = await read(id);
+      if (prior.revision !== expectedRevision)
+        throw new EngineError("REVISION_CONFLICT", "Проект изменился: прочитайте актуальную ревизию.", {
+          expected: expectedRevision,
+          actual: prior.revision,
+        });
+      if (!annex || typeof annex.id !== "string")
+        throw new EngineError("INVALID_ANNEX", "Нужен объект пристройки с ID.");
+      const items = prior.project.annexes ?? [];
+      if (items.some((a) => a.id === annex.id))
+        throw new EngineError("DUPLICATE_ANNEX", "Пристройка с таким ID уже существует.");
+      return this.patch(id, expectedRevision, [
+        {
+          op: prior.project.annexes === undefined ? "add" : "replace",
+          path: "/annexes",
+          value: [...items, clone(annex)],
+        },
+      ]);
+    },
+    async updateAnnex(id, expectedRevision, annexId, changes) {
+      assertSafeJSON(changes);
+      const prior = await read(id);
+      if (prior.revision !== expectedRevision)
+        throw new EngineError("REVISION_CONFLICT", "Проект изменился: прочитайте актуальную ревизию.", {
+          expected: expectedRevision,
+          actual: prior.revision,
+        });
+      const items = prior.project.annexes ?? [],
+        index = items.findIndex((a) => a.id === annexId);
+      if (index < 0) throw new EngineError("NOT_FOUND", "Пристройка не найдена.");
+      if (
+        !changes ||
+        typeof changes !== "object" ||
+        Array.isArray(changes) ||
+        !Object.keys(changes).length ||
+        changes.id !== undefined
+      )
+        throw new EngineError("INVALID_ANNEX", "Нужны изменения параметров; ID пристройки не меняется.");
+      const merge = (a, b) =>
+        Object.fromEntries(
+          [...new Set([...Object.keys(a ?? {}), ...Object.keys(b)])].map((k) => [
+            k,
+            Object.hasOwn(b, k)
+              ? b[k] &&
+                typeof b[k] === "object" &&
+                !Array.isArray(b[k]) &&
+                a?.[k] &&
+                typeof a[k] === "object" &&
+                !Array.isArray(a[k])
+                ? merge(a[k], b[k])
+                : clone(b[k])
+              : clone(a[k]),
+          ]),
+        );
+      return this.patch(id, expectedRevision, [
+        { op: "replace", path: "/annexes/" + index, value: merge(items[index], changes) },
+      ]);
+    },
+    async removeAnnex(id, expectedRevision, annexId) {
+      const prior = await read(id);
+      if (prior.revision !== expectedRevision)
+        throw new EngineError("REVISION_CONFLICT", "Проект изменился: прочитайте актуальную ревизию.", {
+          expected: expectedRevision,
+          actual: prior.revision,
+        });
+      const index = (prior.project.annexes ?? []).findIndex((a) => a.id === annexId);
+      if (index < 0) throw new EngineError("NOT_FOUND", "Пристройка не найдена.");
+      return this.patch(id, expectedRevision, [{ op: "remove", path: "/annexes/" + index }]);
+    },
+    async configureDoubleHeight(id, expectedRevision, configuration) {
+      assertSafeJSON(configuration);
+      const prior = await read(id);
+      if (prior.revision !== expectedRevision)
+        throw new EngineError("REVISION_CONFLICT", "Проект изменился: прочитайте актуальную ревизию.", {
+          expected: expectedRevision,
+          actual: prior.revision,
+        });
+      const { opening, space, staircase, spatialLayout, replaceVoidIds = [] } = configuration ?? {};
+      if (
+        !opening ||
+        opening.kind !== "doubleHeight" ||
+        !space ||
+        space.voidId !== opening.id ||
+        (staircase && staircase.voidId !== opening.id)
+      )
+        throw new EngineError(
+          "INVALID_SPATIAL_LAYOUT",
+          "Пространство и лестница должны ссылаться на один проём второго света.",
+        );
+      const removed = new Set([...replaceVoidIds, opening.id]),
+        voids = [...(prior.project.voids ?? []).filter((v) => !removed.has(v.id)), clone(opening)],
+        spaces = [
+          ...(prior.project.doubleHeightSpaces ?? []).filter(
+            (v) => v.id !== space.id && !removed.has(v.voidId),
+          ),
+          clone(space),
+        ];
+      const operations = [
+        { op: "replace", path: "/voids", value: voids },
+        {
+          op: prior.project.doubleHeightSpaces === undefined ? "add" : "replace",
+          path: "/doubleHeightSpaces",
+          value: spaces,
+        },
+      ];
+      if (staircase)
+        operations.push({
+          op: prior.project.staircase === undefined ? "add" : "replace",
+          path: "/staircase",
+          value: clone(staircase),
+        });
+      if (spatialLayout)
+        operations.push({
+          op: prior.project.spatialLayout === undefined ? "add" : "replace",
+          path: "/spatialLayout",
+          value: { ...prior.project.spatialLayout, ...clone(spatialLayout) },
+        });
+      return this.patch(id, expectedRevision, operations);
+    },
+    async report(
+      id,
+      revision,
+      {
+        topic = "summary",
+        offset = 0,
+        limit = 50,
+        category,
+        wallId,
+        annexId,
+        level,
+        status,
+        beamId,
+        memberIds,
+      } = {},
+    ) {
+      const report = await analyze(id, revision),
+        r = report.result;
+      let data;
+      switch (topic) {
+        case "summary":
+          data = report.summary;
+          break;
+        case "geometry":
+          data = r.geometry;
+          break;
+        case "loads":
+          data = r.loads;
+          break;
+        case "foundation":
+          data = r.grillageModel;
+          break;
+        case "roof":
+          data = r.roofModel;
+          break;
+        case "bracing":
+          data = r.bracingModel;
+          break;
+        case "rooms":
+          data = report.planning;
+          break;
+        case "checks":
+          data = r.checks;
+          break;
+        case "sheets":
+          data = r.sheetModel;
+          break;
+        case "members":
+          data = r.timber.instances;
+          break;
+        case "cutting":
+          data = report.cutting.stocks.map((s) => ({
+            id: s.id,
+            section: s.section,
+            length: s.length,
+            used: s.used,
+            consumed: s.consumed,
+            remainder: s.remainder,
+            kerfWaste: s.kerfWaste,
+            reusable: s.reusable,
+            pieces: s.pieces.map((q) => ({
+              id: q.id,
+              name: q.name,
+              length: q.length,
+              start: q.start,
+              end: q.end,
+              endStart: q.endStart,
+              endEnd: q.endEnd,
+            })),
+          }));
+          break;
+        case "estimate":
+          data = report.estimate.rows;
+          break;
+        case "assumptions":
+          data = r.assumptions;
+          break;
+        case "snow":
+          data = r.snowAssessment;
+          break;
+        case "insulation":
+          data = r.insulation;
+          break;
+        case "envelope":
+          data = r.envelope;
+          break;
+        case "foundation_selection":
+          data = r.foundationSelection;
+          break;
+        case "floor_platform":
+          data = r.floorPlatform;
+          break;
+        case "profiled_beam":
+          data = r.profiledBeam;
+          break;
+        case "partition_heads":
+          data = r.partitionHeads;
+          break;
+        case "annexes":
+          data = r.annexes;
+          break;
+        case "spatial_layout":
+          data = r.spatialLayout;
+          break;
+        case "fabrication_parts":
+          data = report.fabrication.partGroups;
+          break;
+        case "fabrication_patterns":
+          data = report.fabrication.patternGroups;
+          break;
+        default:
+          throw new EngineError("INVALID_TOPIC", "Неизвестная тема отчёта.");
+      }
+      if (["foundation", "roof", "bracing"].includes(topic)) {
+        // Return compact subsystem records; physical geometry is paged via members.
+        if (topic === "foundation")
+          data = {
+            pileHeadY: data.pileHeadY,
+            topY: data.topY,
+            quantities: data.quantities,
+            loadMethod: data.loadMethod,
+            worstSpan: data.worstSpan
+              ? {
+                  id: data.worstSpan.id,
+                  length: data.worstSpan.length,
+                  designTotal: data.worstSpan.designTotal,
+                  check: data.worstSpan.check,
+                }
+              : null,
+            beams: data.beams.map((b) => ({
+              id: b.id,
+              a: b.a,
+              b: b.b,
+              length: b.length,
+              section: b.section,
+              stations: b.stations,
+            })),
+            piles: data.piles,
+            joints: data.joints,
+            checks: [...data.checks, ...(data.loadChecks ?? [])],
+          };
+        if (topic === "roof")
+          data = {
+            sourceMode: data.sourceMode ?? false,
+            source: data.source ?? null,
+            importedMemberCount: data.sourceMode ? data.instances.length : 0,
+            importedSurfaces: data.sourceMode ? data.surfaces : undefined,
+            zones: data.zones.map((z) => ({
+              id: z.id,
+              name: z.name,
+              shape: z.shape,
+              framing: z.effectiveFraming,
+              requestedSection: z.requestedSection,
+              selectedSection: z.selectedSection,
+              pitchLeft: z.pitchLeft,
+              pitchRight: z.pitchRight,
+              ridgeAngle: z.ridgeAngle,
+              overhangs: z.overhangs,
+              bearingPolygon: z.bearingPolygon ?? z.polygon,
+              coverPolygon: z.coverPolygon,
+              area: z.surfaceArea,
+              checks: z.frameAnalysis?.checks ?? z.rafterAnalysis?.checks,
+              frame: z.frameAnalysis
+                ? {
+                    method: "Linear 2D EA/EI frame with explicit end releases; connections unverified",
+                    stable: z.frameAnalysis.stable,
+                    input: z.frameAnalysis.input,
+                    nodes: z.frameAnalysis.nodes,
+                    elements: z.frameAnalysis.elements,
+                    members: z.frameAnalysis.members,
+                    connections: z.frameAnalysis.connections ?? [],
+                    lapConnections: (z.frameRows ?? []).flatMap((r) => r.lapConnections ?? []),
+                    reactions: z.frameAnalysis.design?.reactions,
+                    serviceDisplacements: z.frameAnalysis.service?.displacements,
+                    equilibrium: z.frameAnalysis.design?.equilibrium,
+                    assumptions: z.frameAnalysis.assumptions,
+                  }
+                : undefined,
+              ceiling: z.tiedRafters
+                ? {
+                    drop: z.ceilingDrop,
+                    battenTopY: z.ceilingDatumY,
+                    insulationTopY: z.ceilingInsulationTopY,
+                  }
+                : undefined,
+              warnings: z.warnings,
+            })),
+            checks: data.checks,
+            warnings: data.warnings,
+          };
+        if (topic === "bracing")
+          data = {
+            method: data.method,
+            quantities: data.quantities,
+            wallLines: data.wallLines,
+            checks: data.checks,
+          };
+      }
+      if (topic === "annexes")
+        data = data
+          ? {
+              ...data,
+              instances: undefined,
+              items: (data.items ?? [])
+                .filter((a) => !annexId || a.id === annexId)
+                .map(({ instances, ...a }) => a),
+            }
+          : { items: [], quantities: {} };
+      if (topic === "spatial_layout")
+        data = data
+          ? { ...data, instances: undefined }
+          : { staircases: [], doubleHeightSpaces: [], galleries: [], guards: [] };
+      if (Array.isArray(data)) {
+        const filtered = data.filter(
+          (x) =>
+            (!category || x.category === category) &&
+            (!wallId || x.wallId === wallId) &&
+            (!annexId || x.annexId === annexId) &&
+            (!level || (x.level ?? x.floor) === level) &&
+            (!status || x.status === status) &&
+            (!beamId || x.beamId === beamId) &&
+            (!memberIds || memberIds.includes(x.id)),
+        );
+        return {
+          project_id: id,
+          revision: report.engine.revision,
+          hash: report.engine.hash,
+          topic,
+          total: filtered.length,
+          offset,
+          items: filtered.slice(offset, offset + Math.min(100, limit)),
+          nextOffset: offset + limit < filtered.length ? offset + limit : null,
+        };
+      }
+      return { project_id: id, revision: report.engine.revision, hash: report.engine.hash, topic, data };
+    },
+    async variants(id, revision, variants) {
+      if (!Array.isArray(variants) || !variants.length || variants.length > 12)
+        throw new EngineError("INVALID_INPUT", "Сравнивайте от 1 до 12 вариантов.");
+      const record = await read(id, revision),
+        baseline = analyzed(record),
+        baselineMetrics = evaluationMetrics(baseline);
+      const outcomes = variants.map((v, index) => {
+        try {
+          const p = applyProjectPatch(record.project, v.operations),
+            report = evaluateHouse(p, record.planning),
+            metrics = evaluationMetrics(report);
+          return {
+            index,
+            name: v.name,
+            hash: report.engine.hash,
+            summary: report.summary,
+            delta: {
+              cost: report.summary.estimateTotal - baseline.summary.estimateTotal,
+              mass: report.summary.timberMass - baseline.summary.timberMass,
+              failedChecks: metrics.failedChecks - baselineMetrics.failedChecks,
+              excessUtilization: metrics.excessUtilization - baselineMetrics.excessUtilization,
+            },
+            metrics,
+            maxUtilization: metrics.maxUtilization,
+            maxUtilizationCheckId: metrics.maxUtilizationCheckId,
+            excessUtilization: metrics.excessUtilization,
+            score:
+              report.summary.failedChecks * 1e9 +
+              report.summary.unplaced * 1e9 +
+              report.summary.estimateTotal,
+            operations: v.operations,
+          };
+        } catch (e) {
+          return {
+            index,
+            name: v.name,
+            error: { code: e.code ?? "INVALID_VARIANT", message: e.message },
+            score: null,
+          };
+        }
+      });
+      // Lexicographic: failed count, Σ max(0,u−1) over failed checks, unplaced parts, cost.
+      // A variant that brings u from 6.0 to 1.05 now ranks above one that leaves it at 6.0.
+      const ranked = outcomes
+        .filter((x) => x.score !== null)
+        .sort((a, b) => compareMetrics(a.metrics, b.metrics) || a.index - b.index);
+      return {
+        project_id: id,
+        revision: record.revision,
+        baseline: baseline.summary,
+        baselineMetrics,
+        variants: outcomes,
+        ranking: ranked.map((x) => x.index),
+        selectedIndex: ranked[0]?.index ?? null,
+        rankingCriteria: ["failedChecks", "excessUtilization", "unplaced", "estimateTotal"],
+        method:
+          "Bounded enumeration; lexicographic failed checks first, then Σ max(0, utilization − 1) over failed checks, then unplaced pieces, then illustrative procurement cost. No variant is applied or certified. For engine-generated, verified variants use karkas_propose_fixes / karkas_optimize.",
+      };
+    },
+    async export(
+      id,
+      revision,
+      formats = [
+        "report_json",
+        "project_json",
+        "plan_svg",
+        "boards_csv",
+        "cutting_csv",
+        "estimate_csv",
+        "cutting_html",
+        "model_obj",
+        "fabrication_parts_csv",
+        "fabrication_stocks_csv",
+      ],
+    ) {
+      const report = await analyze(id, revision),
+        destination = path.join(root, "exports", id, "r" + report.engine.revision);
+      await mkdir(destination, { recursive: true });
+      const payloads = {
+        report_json: ["report.json", () => JSON.stringify(report)],
+        project_json: [
+          "project.json",
+          () => JSON.stringify({ version: 2, project: report.project }, null, 2),
+        ],
+        plan_svg: ["plan.svg", () => exportPlanSVG(report)],
+        boards_csv: ["boards.csv", () => exportBoardsCSV(report)],
+        cutting_csv: ["cutting.csv", () => cuttingRowsToCSV(report.cutting)],
+        estimate_csv: ["estimate.csv", () => estimateRowsToCSV(report.estimate, report.project.name)],
+        cutting_html: [
+          "cutting.html",
+          () => cuttingToPrintHTML(report.cutting, report.project.name, report.fabrication),
+        ],
+        model_obj: ["model.obj", () => exportModelOBJ(report)],
+        fabrication_parts_csv: ["fabrication-parts.csv", () => fabricationPartsToCSV(report.fabrication)],
+        fabrication_stocks_csv: ["fabrication-stocks.csv", () => fabricationStocksToCSV(report.fabrication)],
+      };
+      const artifacts = [];
+      for (const format of [...new Set(formats)]) {
+        if (format === "structural_pdf") {
+          const file = path.join(destination, "structural-album.pdf"),
+            source = path.join(destination, ".structural-source-" + randomUUID() + ".json");
+          await writeFile(source, JSON.stringify(report));
+          const bundledPython = path.resolve(path.dirname(process.execPath), "../../python/bin/python3"),
+            python =
+              process.env.KARKAS_PYTHON ??
+              (await access(bundledPython).then(
+                () => bundledPython,
+                () => "python3",
+              )),
+            script = fileURLToPath(new URL("../scripts/structural-album.py", import.meta.url));
+          try {
+            await promisify(execFile)(python, [script, source, file], {
+              timeout: 120000,
+              maxBuffer: 1024 * 1024,
+            });
+          } catch (e) {
+            throw new EngineError(
+              "PDF_EXPORT_FAILED",
+              "Не удалось сформировать PDF. Нужны Python с reportlab и шрифтами кириллицы.",
+              { message: e.message, stderr: e.stderr },
+            );
+          } finally {
+            await unlink(source).catch(() => {});
+          }
+          const bytes = await readFile(file);
+          artifacts.push({
+            format,
+            path: file,
+            bytes: bytes.length,
+            sha256: createHash("sha256").update(bytes).digest("hex"),
+          });
+          continue;
+        }
+        if (!payloads[format]) throw new EngineError("INVALID_FORMAT", "Неизвестный формат.", format);
+        const [name, fn] = payloads[format],
+          file = path.join(destination, name),
+          text = fn();
+        await writeFile(file, text);
+        artifacts.push({
+          format,
+          path: file,
+          bytes: Buffer.byteLength(text),
+          sha256: createHash("sha256").update(text).digest("hex"),
+        });
+      }
+      return { project_id: id, revision: report.engine.revision, hash: report.engine.hash, artifacts };
+    },
+  };
 }

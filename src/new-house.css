@@ -1,0 +1,439 @@
+/* «Новый дом» wizard — same palette as engine-viewer.css */
+.nh-app {
+  min-height: calc(100dvh - 34px);
+}
+.nh-wizard {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 28px 32px 40px;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+.nh-steps h1 {
+  font-size: 21px;
+  font-weight: 450;
+  color: #526d3d;
+  line-height: 1.35;
+  margin: 8px 0 20px;
+}
+.nh-steps ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nh-steps ol button {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #7e8d70;
+  font-size: 12px;
+  text-align: left;
+}
+.nh-steps ol button:hover {
+  background: #f3f7eb;
+}
+.nh-steps ol button.active {
+  background: #fbfdf7;
+  border-color: #d2e0bf;
+  color: #3f5d2d;
+}
+.nh-steps ol button i {
+  font-style: normal;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-content: center;
+  background: #e4ecd8;
+  color: #6f8a56;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.nh-steps ol button.active i {
+  background: #95b567;
+  color: #fff;
+}
+.nh-steps ol button span {
+  flex: 1;
+}
+.nh-steps ol button small {
+  font-size: 9px;
+  color: #aa6e48;
+  background: #f4e5d6;
+  border-radius: 8px;
+  padding: 2px 6px;
+}
+.nh-summary {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid #dce5d0;
+  border-radius: 7px;
+  background: #fbfdf8;
+}
+.nh-summary > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #e9efdf;
+  font-size: 11px;
+}
+.nh-summary > div:last-child {
+  border-bottom: 0;
+}
+.nh-summary span {
+  color: #98a98a;
+}
+.nh-summary strong {
+  font-weight: 450;
+  color: #6d8757;
+  text-align: right;
+}
+.nh-preview {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  margin-bottom: 8px;
+}
+.nh-preview polygon {
+  fill: #eef5e1;
+  stroke: #7f9d61;
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+.nh-preview .ridge {
+  stroke: #b99866;
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+.nh-preview text {
+  font-size: 11px;
+  fill: #8fa17b;
+}
+.nh-restore {
+  margin-top: 14px;
+  width: 100%;
+}
+.nh-card {
+  padding: 28px;
+  border: 1px solid #dbe4ce;
+  border-radius: 8px;
+  background: #fbfdf7;
+  min-width: 0;
+}
+.nh-card h2 {
+  font-size: 25px;
+  font-weight: 450;
+  color: #526d3d;
+  margin: 0 0 8px;
+}
+.nh-lead {
+  font-size: 12px;
+  color: #8d9e7d;
+  line-height: 1.8;
+  margin: 0 0 22px;
+  max-width: 720px;
+}
+.nh-note {
+  font-size: 11px;
+  color: #98a98a;
+  line-height: 1.8;
+  margin: 16px 0 0;
+}
+.nh-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+.nh-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 11px;
+  color: #7f9868;
+}
+.nh-field.wide {
+  margin-bottom: 20px;
+  max-width: 620px;
+}
+.nh-field > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nh-field input,
+.nh-field select,
+.nh-room input,
+.nh-room select {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 14px;
+  color: #3e4b3c;
+  padding: 10px 12px;
+  border: 1px solid #d3dfc4;
+  border-radius: 5px;
+  background: #fff;
+}
+.nh-field input:focus,
+.nh-field select:focus,
+.nh-room input:focus,
+.nh-room select:focus {
+  outline: 2px solid #b9d098;
+  outline-offset: 0;
+  border-color: #9cba77;
+}
+.nh-field.invalid input,
+.nh-room input.invalid {
+  border-color: #d9a77d;
+  background: #fffaf4;
+}
+.nh-field em,
+.nh-room em {
+  font-style: normal;
+  color: #9aab8a;
+  font-size: 11px;
+  min-width: 22px;
+}
+.nh-field small {
+  font-size: 10px;
+  color: #a4b294;
+  line-height: 1.6;
+}
+.nh-error-text {
+  color: #b67a51 !important;
+  font-size: 11px;
+}
+.nh-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.nh-choice button {
+  min-width: 170px;
+  text-align: left;
+  padding: 13px 15px;
+  border: 1px solid #d8e3ca;
+  border-radius: 6px;
+  background: #fff;
+  color: #7e8d70;
+}
+.nh-choice button strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 450;
+}
+.nh-choice button small {
+  display: block;
+  font-size: 10px;
+  color: #a4b294;
+  margin-top: 4px;
+}
+.nh-choice button.active {
+  border-color: #9cba77;
+  background: #eef5e1;
+  color: #3f5d2d;
+  box-shadow: inset 0 0 0 1px #9cba77;
+}
+.nh-rooms {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.nh-room {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  max-width: 640px;
+}
+.nh-room > input {
+  flex: 2;
+}
+.nh-room label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+.nh-room select {
+  flex: 0 0 110px;
+}
+.nh-info {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 13px 15px;
+  border: 1px solid #d2e0bf;
+  background: #f1f6e8;
+  color: #6f8a56;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.8;
+  margin-bottom: 6px;
+  max-width: 720px;
+}
+.nh-info svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.nh-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid #e2ead6;
+  flex-wrap: wrap;
+}
+.nh-card-footer > span {
+  flex: 1;
+  min-width: 200px;
+}
+.nh-card-footer > .nh-primary {
+  margin-left: auto;
+}
+.engine-button.nh-primary {
+  background: #6f8f4f;
+  border-color: #5f7f42;
+  color: #fff;
+  font-size: 12px !important;
+  padding: 11px 18px;
+}
+.engine-button.nh-primary:hover {
+  background: #5f7f42;
+}
+.nh-card .engine-alert {
+  margin: 18px 0 0;
+}
+.nh-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: stretch;
+  padding: 14px 32px;
+  background: #e9f0dd;
+  border-bottom: 1px solid #d3dfc2;
+}
+.nh-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid #cddcb9;
+  background: #f6faef;
+  font-size: 10px;
+  color: #7f9868;
+  line-height: 1.6;
+  max-width: 520px;
+}
+.nh-status strong {
+  font-size: 12px;
+  font-weight: 500;
+  color: #55713f;
+}
+.nh-status.fail {
+  border-color: #e7c6a4;
+  background: #fcf3e8;
+  color: #ad8a5c;
+}
+.nh-status.fail strong {
+  color: #a5683f;
+}
+.nh-status.pending {
+  border-color: #e5d9b5;
+  background: #faf6e8;
+}
+.nh-status.info {
+  justify-content: center;
+  font-size: 11px;
+}
+.nh-banner > .engine-button {
+  align-self: center;
+}
+.nh-warnings {
+  flex-basis: 100%;
+  margin: 0;
+}
+.nh-fix-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.nh-fix {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid #e0e8d5;
+  background: #fff;
+  border-radius: 6px;
+}
+.nh-fix strong {
+  font-size: 12px;
+  font-weight: 500;
+  color: #5d7a45;
+}
+.nh-fix p {
+  font-size: 11px;
+  color: #8d9e7d;
+  line-height: 1.7;
+  margin: 5px 0;
+}
+.nh-fix small {
+  font-size: 9px;
+  color: #a4b294;
+}
+@media (max-width: 950px) {
+  .nh-wizard {
+    grid-template-columns: 1fr;
+    padding: 20px;
+  }
+  .nh-steps ol {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+  .nh-steps ol button {
+    white-space: nowrap;
+  }
+  .nh-summary {
+    display: none;
+  }
+  .nh-banner {
+    padding: 12px 20px;
+  }
+}
+@media (max-width: 650px) {
+  .nh-card {
+    padding: 18px 14px;
+  }
+  .nh-room {
+    flex-wrap: wrap;
+  }
+  .nh-room > input {
+    flex-basis: 100%;
+  }
+}
+.nh-app .engine-top-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-shrink: 1;
+  min-width: 0;
+}
+.nh-app .engine-project-title {
+  flex-shrink: 0;
+}

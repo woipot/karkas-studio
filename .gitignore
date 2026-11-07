@@ -8,3 +8,4 @@ work/mcp-smoke/
 __pycache__/
 *.pyc
 tmp/
+.claude/

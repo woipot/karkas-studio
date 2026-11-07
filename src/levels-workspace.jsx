@@ -1,3 +1,226 @@
-import React from 'react';import Icon from './icons.jsx';
-const n=(v,d=1)=>Number.isFinite(v)?v.toLocaleString('ru-RU',{maximumFractionDigits:d}):'—';
-export default function LevelsWorkspace({project:p,result:r,activeLevel,onLevel,onAdd,onRemove,onHeight,onDrawVoid,onDeleteVoid,onPlan,onThree}){const levels=r.geometry.levels||[];const [copy,setCopy]=React.useState(true);return <div className="levels-workspace"><div className="levels-intro"><div className="eyebrow">ЭТАЖИ — ОТДЕЛЬНЫЕ ПЛАНЫ</div><h2>Дом растёт по вашему сценарию</h2><p>У каждого этажа свои стены, проёмы, высота и площадь. Верхний этаж может быть меньше первого. Второй свет вырезает часть межэтажного перекрытия.</p></div><div className="levels-two-cols"><div className="level-cards">{p.levels.map(l=>{const g=levels.find(x=>x.index===l.index);return <article className={`level-card ${activeLevel===l.index?'active':''}`} key={l.id}><div className="level-card-header"><button onClick={()=>onLevel(l.index)}><span>{String(l.index).padStart(2,'0')}</span><strong>{l.name}</strong></button><span>{g?.closed?'Контур замкнут':'Контур открыт'}</span></div><div className="level-area-row"><div><small>Площадь пола</small><strong>{n(g?.netFloorArea)} <em>м²</em></strong></div><div><small>Второй свет / вырез</small><strong>{n(g?.voidArea)} <em>м²</em></strong></div></div><label className="level-height">Высота стен<input type="number" min="2" max="5" step=".1" value={l.height} aria-label={`Высота этажа ${l.index}`} onChange={e=>{const v=Number(e.target.value);if(v>=2&&v<=5)onHeight(l.index,v)}}/><span>м</span></label><div className="level-actions"><button className="button secondary" onClick={()=>onPlan(l.index)}><Icon name="layers" size={14}/>Редактировать план</button>{l.index>1&&<button className="text-button" onClick={()=>onDrawVoid(l.index)}><Icon name="expand" size={15}/>Второй свет</button>}</div>{l.index>1&&<button className="level-remove" onClick={()=>onRemove(l.index)}>Удалить верхний этаж</button>}</article>})}{p.levels.length<2&&<div className="add-level-card"><label><input type="checkbox" checked={copy} onChange={e=>setCopy(e.target.checked)}/>Скопировать стены и проёмы первого этажа</label><button className="button lime full" onClick={()=>onAdd(copy)}><Icon name="plus" size={17}/>Добавить второй этаж</button><p>Без копирования верхний этаж начнётся с пустого плана.</p></div>}</div><div className="levels-section"><div className="eyebrow">ВЕРТИКАЛЬНАЯ СХЕМА</div><h3>Этажи и второй свет</h3><svg viewBox="0 0 350 315" role="img" aria-label="Разрез этажей и второго света"><rect width="350" height="315" fill="#f8fbf3"/><path d="M25 275H325" stroke="#bdcca9" strokeWidth="1"/>{p.levels.length===1?<><rect x="54" y="250" width="240" height="12" fill="#c2ab81"/><path d="M60 250V106h228v144" fill="#f0f5e7" stroke="#9fb68a" strokeWidth="5"/><path d="m45 105 129-67 129 67" fill="none" stroke="#bc9f6d" strokeWidth="7"/><text x="174" y="179" textAnchor="middle">Первый этаж</text></>:<><rect x="54" y="250" width="240" height="12" fill="#c2ab81"/><path d="M60 250V78h228v172" fill="#f0f5e7" stroke="#9fb68a" strokeWidth="5"/><path d="m45 76 129-45 129 45" fill="none" stroke="#bc9f6d" strokeWidth="7"/>{(p.voids?.length||0)>0?<><rect x="60" y="163" width="105" height="10" fill="#bc9f70"/><rect x="252" y="163" width="36" height="10" fill="#bc9f70"/><path d="M181 230V103m-5 7 5-7 5 7m-10 113 5 7 5-7" stroke="#a7bc8c" fill="none" strokeWidth="2"/><text x="216" y="193" textAnchor="middle">Второй</text><text x="216" y="211" textAnchor="middle">свет</text></>:<rect x="60" y="163" width="228" height="10" fill="#bc9f70"/>}<text x="115" y="213" textAnchor="middle">1 этаж</text><text x="115" y="126" textAnchor="middle">2 этаж</text></>}<text x="175" y="300" textAnchor="middle" className="section-note">Условный разрез, без масштаба</text></svg><div className="level-elevations">{levels.map(g=><div key={g.index}><span>{g.index} этаж · низ стен</span><strong>+{n(g.wallBaseY??g.elevation,3)} м</strong></div>)}</div><button className="button secondary full mt" onClick={onThree}><Icon name="cube" size={16}/>Проверить в 3D</button></div></div><div className="voids-register"><div><h3>Зоны второго света</h3><p>Рамка выреза создаётся в уровне перекрытия. Балки внутри выреза удаляются; по его границе добавляется обрамление.</p></div>{p.levels.length>1&&<button className="button lime" onClick={()=>onDrawVoid(2)}><Icon name="plus" size={16}/>Нарисовать второй свет</button>}{p.voids?.length?<table><thead><tr><th>Зона</th><th>Этаж без пола</th><th>Контур</th><th/></tr></thead><tbody>{p.voids.map((v,i)=><tr key={v.id}><td>Второй свет {i+1}</td><td>{v.level} этаж</td><td>{v.polygon.length} вершины</td><td><button onClick={()=>onDeleteVoid(v.id)}><Icon name="trash" size={14}/></button></td></tr>)}</tbody></table>:<div className="void-empty">Вырезов нет. Добавьте второй этаж и нарисуйте нужную зону на его плане.</div>}</div><div className="notice"><Icon name="info" size={18}/><p>Второй свет меняет площадь пола, балки, массу и смету. Высокие стойки, обрамление выреза, опирание верхнего этажа и жёсткость фасада требуют отдельных конструктивных проверок.</p></div></div>}
+import React from "react";
+import Icon from "./icons.jsx";
+const n = (v, d = 1) => (Number.isFinite(v) ? v.toLocaleString("ru-RU", { maximumFractionDigits: d }) : "—");
+export default function LevelsWorkspace({
+  project: p,
+  result: r,
+  activeLevel,
+  onLevel,
+  onAdd,
+  onRemove,
+  onHeight,
+  onDrawVoid,
+  onDeleteVoid,
+  onPlan,
+  onThree,
+}) {
+  const levels = r.geometry.levels || [];
+  const [copy, setCopy] = React.useState(true);
+  return (
+    <div className="levels-workspace">
+      <div className="levels-intro">
+        <div className="eyebrow">ЭТАЖИ — ОТДЕЛЬНЫЕ ПЛАНЫ</div>
+        <h2>Дом растёт по вашему сценарию</h2>
+        <p>
+          У каждого этажа свои стены, проёмы, высота и площадь. Верхний этаж может быть меньше первого. Второй
+          свет вырезает часть межэтажного перекрытия.
+        </p>
+      </div>
+      <div className="levels-two-cols">
+        <div className="level-cards">
+          {p.levels.map((l) => {
+            const g = levels.find((x) => x.index === l.index);
+            return (
+              <article className={`level-card ${activeLevel === l.index ? "active" : ""}`} key={l.id}>
+                <div className="level-card-header">
+                  <button onClick={() => onLevel(l.index)}>
+                    <span>{String(l.index).padStart(2, "0")}</span>
+                    <strong>{l.name}</strong>
+                  </button>
+                  <span>{g?.closed ? "Контур замкнут" : "Контур открыт"}</span>
+                </div>
+                <div className="level-area-row">
+                  <div>
+                    <small>Площадь пола</small>
+                    <strong>
+                      {n(g?.netFloorArea)} <em>м²</em>
+                    </strong>
+                  </div>
+                  <div>
+                    <small>Второй свет / вырез</small>
+                    <strong>
+                      {n(g?.voidArea)} <em>м²</em>
+                    </strong>
+                  </div>
+                </div>
+                <label className="level-height">
+                  Высота стен
+                  <input
+                    type="number"
+                    min="2"
+                    max="5"
+                    step=".1"
+                    value={l.height}
+                    aria-label={`Высота этажа ${l.index}`}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      if (v >= 2 && v <= 5) onHeight(l.index, v);
+                    }}
+                  />
+                  <span>м</span>
+                </label>
+                <div className="level-actions">
+                  <button className="button secondary" onClick={() => onPlan(l.index)}>
+                    <Icon name="layers" size={14} />
+                    Редактировать план
+                  </button>
+                  {l.index > 1 && (
+                    <button className="text-button" onClick={() => onDrawVoid(l.index)}>
+                      <Icon name="expand" size={15} />
+                      Второй свет
+                    </button>
+                  )}
+                </div>
+                {l.index > 1 && (
+                  <button className="level-remove" onClick={() => onRemove(l.index)}>
+                    Удалить верхний этаж
+                  </button>
+                )}
+              </article>
+            );
+          })}
+          {p.levels.length < 2 && (
+            <div className="add-level-card">
+              <label>
+                <input type="checkbox" checked={copy} onChange={(e) => setCopy(e.target.checked)} />
+                Скопировать стены и проёмы первого этажа
+              </label>
+              <button className="button lime full" onClick={() => onAdd(copy)}>
+                <Icon name="plus" size={17} />
+                Добавить второй этаж
+              </button>
+              <p>Без копирования верхний этаж начнётся с пустого плана.</p>
+            </div>
+          )}
+        </div>
+        <div className="levels-section">
+          <div className="eyebrow">ВЕРТИКАЛЬНАЯ СХЕМА</div>
+          <h3>Этажи и второй свет</h3>
+          <svg viewBox="0 0 350 315" role="img" aria-label="Разрез этажей и второго света">
+            <rect width="350" height="315" fill="#f8fbf3" />
+            <path d="M25 275H325" stroke="#bdcca9" strokeWidth="1" />
+            {p.levels.length === 1 ? (
+              <>
+                <rect x="54" y="250" width="240" height="12" fill="#c2ab81" />
+                <path d="M60 250V106h228v144" fill="#f0f5e7" stroke="#9fb68a" strokeWidth="5" />
+                <path d="m45 105 129-67 129 67" fill="none" stroke="#bc9f6d" strokeWidth="7" />
+                <text x="174" y="179" textAnchor="middle">
+                  Первый этаж
+                </text>
+              </>
+            ) : (
+              <>
+                <rect x="54" y="250" width="240" height="12" fill="#c2ab81" />
+                <path d="M60 250V78h228v172" fill="#f0f5e7" stroke="#9fb68a" strokeWidth="5" />
+                <path d="m45 76 129-45 129 45" fill="none" stroke="#bc9f6d" strokeWidth="7" />
+                {(p.voids?.length || 0) > 0 ? (
+                  <>
+                    <rect x="60" y="163" width="105" height="10" fill="#bc9f70" />
+                    <rect x="252" y="163" width="36" height="10" fill="#bc9f70" />
+                    <path
+                      d="M181 230V103m-5 7 5-7 5 7m-10 113 5 7 5-7"
+                      stroke="#a7bc8c"
+                      fill="none"
+                      strokeWidth="2"
+                    />
+                    <text x="216" y="193" textAnchor="middle">
+                      Второй
+                    </text>
+                    <text x="216" y="211" textAnchor="middle">
+                      свет
+                    </text>
+                  </>
+                ) : (
+                  <rect x="60" y="163" width="228" height="10" fill="#bc9f70" />
+                )}
+                <text x="115" y="213" textAnchor="middle">
+                  1 этаж
+                </text>
+                <text x="115" y="126" textAnchor="middle">
+                  2 этаж
+                </text>
+              </>
+            )}
+            <text x="175" y="300" textAnchor="middle" className="section-note">
+              Условный разрез, без масштаба
+            </text>
+          </svg>
+          <div className="level-elevations">
+            {levels.map((g) => (
+              <div key={g.index}>
+                <span>{g.index} этаж · низ стен</span>
+                <strong>+{n(g.wallBaseY ?? g.elevation, 3)} м</strong>
+              </div>
+            ))}
+          </div>
+          <button className="button secondary full mt" onClick={onThree}>
+            <Icon name="cube" size={16} />
+            Проверить в 3D
+          </button>
+        </div>
+      </div>
+      <div className="voids-register">
+        <div>
+          <h3>Зоны второго света</h3>
+          <p>
+            Рамка выреза создаётся в уровне перекрытия. Балки внутри выреза удаляются; по его границе
+            добавляется обрамление.
+          </p>
+        </div>
+        {p.levels.length > 1 && (
+          <button className="button lime" onClick={() => onDrawVoid(2)}>
+            <Icon name="plus" size={16} />
+            Нарисовать второй свет
+          </button>
+        )}
+        {p.voids?.length ? (
+          <table>
+            <thead>
+              <tr>
+                <th>Зона</th>
+                <th>Этаж без пола</th>
+                <th>Контур</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {p.voids.map((v, i) => (
+                <tr key={v.id}>
+                  <td>Второй свет {i + 1}</td>
+                  <td>{v.level} этаж</td>
+                  <td>{v.polygon.length} вершины</td>
+                  <td>
+                    <button onClick={() => onDeleteVoid(v.id)}>
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="void-empty">
+            Вырезов нет. Добавьте второй этаж и нарисуйте нужную зону на его плане.
+          </div>
+        )}
+      </div>
+      <div className="notice">
+        <Icon name="info" size={18} />
+        <p>
+          Второй свет меняет площадь пола, балки, массу и смету. Высокие стойки, обрамление выреза, опирание
+          верхнего этажа и жёсткость фасада требуют отдельных конструктивных проверок.
+        </p>
+      </div>
+    </div>
+  );
+}

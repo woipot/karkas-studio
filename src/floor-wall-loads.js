@@ -1,68 +1,774 @@
+import { loadFactors } from "./load-profile.js";
 /** Partition gravity -> real floor framing -> real L1 grillage supports.
  * Coordinates m, load kN/kN per m, b/h mm, stresses MPa. No connector capacity. */
-const EPS=1e-7,G=9.80665,finite=Number.isFinite,sum=a=>a.reduce((s,x)=>s+x,0),plus=x=>Math.max(0,x),unique=a=>[...a].sort((a,b)=>a-b).filter((v,i,s)=>!i||v-s[i-1]>EPS);
-const norm=(a,b)=>Math.hypot(b.x-a.x,b.y-a.y);
+const EPS = 1e-7,
+  G = 9.80665,
+  finite = Number.isFinite,
+  sum = (a) => a.reduce((s, x) => s + x, 0),
+  plus = (x) => Math.max(0, x),
+  unique = (a) => [...a].sort((a, b) => a - b).filter((v, i, s) => !i || v - s[i - 1] > EPS);
+const norm = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
 /** Exact Macaulay simple beam under a floor UDL, partial UDLs and point loads. */
-export function solveFloorWallBeam({length:L,b,h,E,Fb=13,Fv=1.5,deflectionRatio=300,uniformService=0,uniformDesign=0,loads=[]}={}){
- const errors=[];for(const [k,v]of Object.entries({length:L,b,h,E,Fb,Fv,deflectionRatio}))if(!finite(v)||v<=0)errors.push(k+': требуется положительное конечное число.');for(const v of[uniformService,uniformDesign])if(!finite(v)||v<0)errors.push('Нагрузка должна быть конечной и неотрицательной.');
- const points=[],segments=[];if(uniformService||uniformDesign)segments.push({a:0,b:L,service:uniformService,design:uniformDesign});
- if(!Array.isArray(loads))errors.push('loads: массив.');else for(const q of loads){if(!q||typeof q!=='object'){errors.push('Элемент loads должен быть объектом.');continue;}if(q.type==='point'){if(![q.at,q.service,q.design].every(finite)||q.at<-EPS||q.at>L+EPS||q.service<0||q.design<0)errors.push('Сосредоточенная нагрузка вне пролёта или некорректна.');else points.push({at:Math.max(0,Math.min(L,q.at)),service:q.service,design:q.design});}else if(q.type==='partialUDL'){if(![q.from,q.to,q.qService,q.qDesign].every(finite)||q.from<-EPS||q.to>L+EPS||q.to<=q.from||q.qService<0||q.qDesign<0)errors.push('Участок распределённой нагрузки вне пролёта или некорректен.');else segments.push({a:Math.max(0,q.from),b:Math.min(L,q.to),service:q.qService,design:q.qDesign});}else errors.push('Неизвестный тип нагрузки.');}
- if(errors.length)return{valid:false,status:'unverified',errors,utilization:null};
- const I=b*h**3/12,Z=b*h*h/6,A=b*h,EI=E*I/1e9;if(![I,Z,A,EI].every(x=>finite(x)&&x>0)||L<=EPS)return{valid:false,status:'unverified',errors:['Сечение, EI или пролёт вне численно допустимой области.'],utilization:null};const breaks=unique([0,L,...points.map(p=>p.at),...segments.flatMap(s=>[s.a,s.b])]);
- function model(field){const total=sum(points.map(p=>p[field]))+sum(segments.map(s=>s[field]*(s.b-s.a))),RA=sum(points.map(p=>p[field]*(L-p.at)/L))+sum(segments.map(s=>s[field]*(s.b-s.a)*(L-(s.a+s.b)/2)/L)),RB=total-RA;
-  const M=x=>RA*x-sum(points.map(p=>p[field]*plus(x-p.at)))-sum(segments.map(s=>s[field]*(plus(x-s.a)**2-plus(x-s.b)**2)/2));
-  const V=(x,side=1)=>RA-sum(points.filter(p=>side>0?p.at<=x+1e-10:p.at<x-1e-10).map(p=>p[field]))-sum(segments.map(s=>s[field]*(plus(x-s.a)-plus(x-s.b))));
-  const rawY=x=>RA*x**3/6-sum(points.map(p=>p[field]*plus(x-p.at)**3/6))-sum(segments.map(s=>s[field]*(plus(x-s.a)**4-plus(x-s.b)**4)/24)),C=-rawY(L)/L;
-  const deflection=x=>(rawY(x)+C*x)/EI*1000,theta=x=>(RA*x*x/2-sum(points.map(p=>p[field]*plus(x-p.at)**2/2))-sum(segments.map(s=>s[field]*(plus(x-s.a)**3-plus(x-s.b)**3)/6))+C)/EI;
-  const moments=[...breaks],turns=[...breaks];for(let i=1;i<breaks.length;i++){const a=breaks[i-1],z=breaks[i],qa=sum(segments.filter(s=>(a+z)/2>s.a&&(a+z)/2<s.b).map(s=>s[field])),va=V(a,1);if(qa>0){const x=a+va/qa;if(x>a&&x<z)moments.push(x);}const ma=M(a),D=va*va+2*qa*ma,roots=qa>0&&D>=0?[(va-Math.sqrt(D))/qa,(va+Math.sqrt(D))/qa]:Math.abs(va)>0?[-ma/va]:[];for(const d of roots)if(d>EPS&&d<z-a-EPS)turns.push(a+d);}
-  const ordered=unique(turns),positions=[...ordered];for(let i=1;i<ordered.length;i++){let a=ordered[i-1],z=ordered[i],fa=theta(a),fz=theta(z);if(fa*fz<0){for(let k=0;k<60;k++){const m=(a+z)/2,f=theta(m);if(fa*f<=0){z=m;fz=f;}else{a=m;fa=f;}}positions.push((a+z)/2);}}
-  const shears=breaks.flatMap(x=>x<EPS?[Math.abs(V(x,1))]:x>L-EPS?[Math.abs(V(x,-1))]:[Math.abs(V(x,-1)),Math.abs(V(x,1))]);return{total,reactionStart:RA,reactionEnd:RB,maxMoment:Math.max(...moments.map(x=>Math.abs(M(x)))),maxShear:Math.max(...shears),maxDeflection:Math.max(...positions.map(x=>Math.abs(deflection(x)))),at:x=>({moment:M(x),shear:V(x),deflection:deflection(x),rotation:theta(x)}),criticalMomentPositions:unique(moments),criticalDeflectionPositions:unique(positions)};
- }
- const design=model('design'),service=model('service');if(![design.total,design.reactionStart,design.reactionEnd,design.maxMoment,design.maxShear,design.maxDeflection,service.total,service.reactionStart,service.reactionEnd,service.maxMoment,service.maxShear,service.maxDeflection].every(finite))return{valid:false,status:'unverified',errors:['Переполнение численного расчёта нагрузки.'],utilization:null};const bendingStress=design.maxMoment*1e6/Z,shearStress=1.5*design.maxShear*1000/A,deflection=service.maxDeflection,deflectionLimit=L*1000/deflectionRatio,utilization=Math.max(bendingStress/Fb,shearStress/Fv,deflection/deflectionLimit);
- return{valid:true,status:utilization>1?'fail':'pass',errors:[],length:L,I,Z,A,design,service,moment:design.maxMoment,shear:design.maxShear,bendingStress,shearStress,deflection,deflectionLimit,bendingUtilization:bendingStress/Fb,shearUtilization:shearStress/Fv,deflectionUtilization:deflection/deflectionLimit,utilization,reactions:{designA:design.reactionStart,designB:design.reactionEnd,serviceA:service.reactionStart,serviceB:service.reactionEnd},basis:'Exact piecewise Macaulay moments/shears/quartic deflection; derivative extrema bracketed on moment-root intervals. Simply supported individual board; no composite ply credit.',partial:true};
+export function solveFloorWallBeam({
+  length: L,
+  b,
+  h,
+  E,
+  Fb = 13,
+  Fv = 1.5,
+  deflectionRatio = 300,
+  uniformService = 0,
+  uniformDesign = 0,
+  loads = [],
+} = {}) {
+  const errors = [];
+  for (const [k, v] of Object.entries({ length: L, b, h, E, Fb, Fv, deflectionRatio }))
+    if (!finite(v) || v <= 0) errors.push(k + ": требуется положительное конечное число.");
+  for (const v of [uniformService, uniformDesign])
+    if (!finite(v) || v < 0) errors.push("Нагрузка должна быть конечной и неотрицательной.");
+  const points = [],
+    segments = [];
+  if (uniformService || uniformDesign)
+    segments.push({ a: 0, b: L, service: uniformService, design: uniformDesign });
+  if (!Array.isArray(loads)) errors.push("loads: массив.");
+  else
+    for (const q of loads) {
+      if (!q || typeof q !== "object") {
+        errors.push("Элемент loads должен быть объектом.");
+        continue;
+      }
+      if (q.type === "point") {
+        if (
+          ![q.at, q.service, q.design].every(finite) ||
+          q.at < -EPS ||
+          q.at > L + EPS ||
+          q.service < 0 ||
+          q.design < 0
+        )
+          errors.push("Сосредоточенная нагрузка вне пролёта или некорректна.");
+        else points.push({ at: Math.max(0, Math.min(L, q.at)), service: q.service, design: q.design });
+      } else if (q.type === "partialUDL") {
+        if (
+          ![q.from, q.to, q.qService, q.qDesign].every(finite) ||
+          q.from < -EPS ||
+          q.to > L + EPS ||
+          q.to <= q.from ||
+          q.qService < 0 ||
+          q.qDesign < 0
+        )
+          errors.push("Участок распределённой нагрузки вне пролёта или некорректен.");
+        else
+          segments.push({
+            a: Math.max(0, q.from),
+            b: Math.min(L, q.to),
+            service: q.qService,
+            design: q.qDesign,
+          });
+      } else errors.push("Неизвестный тип нагрузки.");
+    }
+  if (errors.length) return { valid: false, status: "unverified", errors, utilization: null };
+  const I = (b * h ** 3) / 12,
+    Z = (b * h * h) / 6,
+    A = b * h,
+    EI = (E * I) / 1e9;
+  if (![I, Z, A, EI].every((x) => finite(x) && x > 0) || L <= EPS)
+    return {
+      valid: false,
+      status: "unverified",
+      errors: ["Сечение, EI или пролёт вне численно допустимой области."],
+      utilization: null,
+    };
+  const breaks = unique([0, L, ...points.map((p) => p.at), ...segments.flatMap((s) => [s.a, s.b])]);
+  function model(field) {
+    const total = sum(points.map((p) => p[field])) + sum(segments.map((s) => s[field] * (s.b - s.a))),
+      RA =
+        sum(points.map((p) => (p[field] * (L - p.at)) / L)) +
+        sum(segments.map((s) => (s[field] * (s.b - s.a) * (L - (s.a + s.b) / 2)) / L)),
+      RB = total - RA;
+    const M = (x) =>
+      RA * x -
+      sum(points.map((p) => p[field] * plus(x - p.at))) -
+      sum(segments.map((s) => (s[field] * (plus(x - s.a) ** 2 - plus(x - s.b) ** 2)) / 2));
+    const V = (x, side = 1) =>
+      RA -
+      sum(points.filter((p) => (side > 0 ? p.at <= x + 1e-10 : p.at < x - 1e-10)).map((p) => p[field])) -
+      sum(segments.map((s) => s[field] * (plus(x - s.a) - plus(x - s.b))));
+    const rawY = (x) =>
+        (RA * x ** 3) / 6 -
+        sum(points.map((p) => (p[field] * plus(x - p.at) ** 3) / 6)) -
+        sum(segments.map((s) => (s[field] * (plus(x - s.a) ** 4 - plus(x - s.b) ** 4)) / 24)),
+      C = -rawY(L) / L;
+    const deflection = (x) => ((rawY(x) + C * x) / EI) * 1000,
+      theta = (x) =>
+        ((RA * x * x) / 2 -
+          sum(points.map((p) => (p[field] * plus(x - p.at) ** 2) / 2)) -
+          sum(segments.map((s) => (s[field] * (plus(x - s.a) ** 3 - plus(x - s.b) ** 3)) / 6)) +
+          C) /
+        EI;
+    const moments = [...breaks],
+      turns = [...breaks];
+    for (let i = 1; i < breaks.length; i++) {
+      const a = breaks[i - 1],
+        z = breaks[i],
+        qa = sum(segments.filter((s) => (a + z) / 2 > s.a && (a + z) / 2 < s.b).map((s) => s[field])),
+        va = V(a, 1);
+      if (qa > 0) {
+        const x = a + va / qa;
+        if (x > a && x < z) moments.push(x);
+      }
+      const ma = M(a),
+        D = va * va + 2 * qa * ma,
+        roots =
+          qa > 0 && D >= 0
+            ? [(va - Math.sqrt(D)) / qa, (va + Math.sqrt(D)) / qa]
+            : Math.abs(va) > 0
+              ? [-ma / va]
+              : [];
+      for (const d of roots) if (d > EPS && d < z - a - EPS) turns.push(a + d);
+    }
+    const ordered = unique(turns),
+      positions = [...ordered];
+    for (let i = 1; i < ordered.length; i++) {
+      let a = ordered[i - 1],
+        z = ordered[i],
+        fa = theta(a),
+        fz = theta(z);
+      if (fa * fz < 0) {
+        for (let k = 0; k < 60; k++) {
+          const m = (a + z) / 2,
+            f = theta(m);
+          if (fa * f <= 0) {
+            z = m;
+            fz = f;
+          } else {
+            a = m;
+            fa = f;
+          }
+        }
+        positions.push((a + z) / 2);
+      }
+    }
+    const shears = breaks.flatMap((x) =>
+      x < EPS
+        ? [Math.abs(V(x, 1))]
+        : x > L - EPS
+          ? [Math.abs(V(x, -1))]
+          : [Math.abs(V(x, -1)), Math.abs(V(x, 1))],
+    );
+    return {
+      total,
+      reactionStart: RA,
+      reactionEnd: RB,
+      maxMoment: Math.max(...moments.map((x) => Math.abs(M(x)))),
+      maxShear: Math.max(...shears),
+      maxDeflection: Math.max(...positions.map((x) => Math.abs(deflection(x)))),
+      at: (x) => ({ moment: M(x), shear: V(x), deflection: deflection(x), rotation: theta(x) }),
+      criticalMomentPositions: unique(moments),
+      criticalDeflectionPositions: unique(positions),
+    };
+  }
+  const design = model("design"),
+    service = model("service");
+  if (
+    ![
+      design.total,
+      design.reactionStart,
+      design.reactionEnd,
+      design.maxMoment,
+      design.maxShear,
+      design.maxDeflection,
+      service.total,
+      service.reactionStart,
+      service.reactionEnd,
+      service.maxMoment,
+      service.maxShear,
+      service.maxDeflection,
+    ].every(finite)
+  )
+    return {
+      valid: false,
+      status: "unverified",
+      errors: ["Переполнение численного расчёта нагрузки."],
+      utilization: null,
+    };
+  const bendingStress = (design.maxMoment * 1e6) / Z,
+    shearStress = (1.5 * design.maxShear * 1000) / A,
+    deflection = service.maxDeflection,
+    deflectionLimit = (L * 1000) / deflectionRatio,
+    utilization = Math.max(bendingStress / Fb, shearStress / Fv, deflection / deflectionLimit);
+  return {
+    valid: true,
+    status: utilization > 1 ? "fail" : "pass",
+    errors: [],
+    length: L,
+    I,
+    Z,
+    A,
+    design,
+    service,
+    moment: design.maxMoment,
+    shear: design.maxShear,
+    bendingStress,
+    shearStress,
+    deflection,
+    deflectionLimit,
+    bendingUtilization: bendingStress / Fb,
+    shearUtilization: shearStress / Fv,
+    deflectionUtilization: deflection / deflectionLimit,
+    utilization,
+    reactions: {
+      designA: design.reactionStart,
+      designB: design.reactionEnd,
+      serviceA: service.reactionStart,
+      serviceB: service.reactionEnd,
+    },
+    basis:
+      "Exact piecewise Macaulay moments/shears/quartic deflection; derivative extrema bracketed on moment-root intervals. Simply supported individual board; no composite ply credit.",
+    partial: true,
+  };
 }
 
-export function attachFloorWallLoads(p,{geometry,walls=p.walls??[],timber,floorPlatform}={}){
- const out={enabled:p.floor?.wallSupportFraming===true,walls:[],foundationSamples:[],routedBoardIds:[],routedWallLayerIds:[],routedJoistIds:[],transferMembers:[],unverifiedWallIds:[],checks:[],warnings:[],assumptions:[],sources:[{name:'AWC DA6 — simple beams under uniform, partial uniform and concentrated loads',url:'https://web-media.awc.org/wp-content/uploads/2021/12/17210710/AWC-DA6-BeamFormulas-0710.pdf'},{name:'APA B429 — partition load and qualified structural panel floor scope',url:'https://www.apawood.org/guides-tools-training/technical-document-library/technical-notes/non-load-bearing-partitions-on-apa-structural-panels-and-floor-joists/'}],balance:{force:0,momentX:0,momentY:0,convention:'momentX=first momentΣP*x; momentY=first momentΣP*y, kN*m'},status:'unverified',certified:false};
- if(!out.enabled)return out;
- const axis=p.floor.axis??'y',fixed=axis==='y'?0:2,along=axis==='y'?2:0,plan=(u,v)=>axis==='y'?{x:u,y:v}:{x:v,y:u},U=q=>axis==='y'?q.x:q.y,V=q=>axis==='y'?q.y:q.x,instances=timber?.instances??[],gamma=p.loads?.gammaG??1.1,fp=floorPlatform??{},supports=fp.wallSupports??[];
- const groups=new Map();for(const b of instances.filter(b=>b.role==='joist'&&!b.annexId)){delete b.wallLoads;delete b.wallLoadsComplete;delete b.wallLoadUnknownWallIds;const id=b.platformSpanId??b.memberId??b.id;if(!groups.has(id))groups.set(id,[]);groups.get(id).push(b);}
- const joists=[...groups].map(([id,parts])=>{const b=parts[0],A=b.supportStart,Z=b.supportEnd,vA=A?.station??(A?.point?V(A.point):Math.min(...parts.flatMap(b=>[b.start[along],b.end[along]]))),vB=Z?.station??(Z?.point?V(Z.point):Math.max(...parts.flatMap(b=>[b.start[along],b.end[along]])));b.wallLoads=[];b.wallLoadsComplete=true;return{id,parts,b,A,Z,u:b.start[fixed],vA,vB,width:b.b/1000,level:b.floor??b.level??1,aliases:new Set(parts.flatMap(b=>[b.id,b.sourceBoardId,b.memberId,b.platformSpanId].filter(Boolean)))};});
- const transfers=instances.filter(b=>b.role==='wallTransferBlocking'&&!b.annexId);for(const b of transfers)delete b.wallLoads;
- const resolve=ids=>joists.filter(j=>ids.some(id=>j.aliases.has(id))),within=(j,v)=>v>=j.vA-EPS&&v<=j.vB+EPS,uniqueRows=(list,key)=>{const out=[];for(const item of list.sort((a,b)=>key(a)-key(b)||String(a.id).localeCompare(String(b.id))))if(!out.some(x=>Math.abs(key(x)-key(item))<EPS))out.push(item);return out;};
- function shares(list,coord,key,width){const rows=uniqueRows(list,key);if(!rows.length)throw Error('Нет фактического элемента под участком стены.');const exact=rows.find(j=>Math.abs(key(j)-coord)<EPS);if(exact)return[{item:exact,f:1,coordinate:key(exact)}];const lo=[...rows].reverse().find(j=>key(j)<coord),hi=rows.find(j=>key(j)>coord);if(lo&&hi){const d=key(hi)-key(lo);return[{item:lo,f:(key(hi)-coord)/d,coordinate:key(lo)},{item:hi,f:(coord-key(lo))/d,coordinate:key(hi)}];}const j=lo??hi;if(Math.abs(key(j)-coord)>width(j)/2+EPS)throw Error('Нагрузка выходит за физическую ширину подстилающей доски.');return[{item:j,f:1,coordinate:coord}];}
- let sequence=0;const blockLoads=new Map();
- for(const wall of walls.filter(w=>w.kind==='partition')){
-  const entries=supports.filter(s=>s.wallId===wall.id),affected=resolve(entries.flatMap(s=>s.joistIds??[])),staged=[],samples=[],stagedBlocks=[],sourceBoards=[],expected={force:0,momentX:0,momentY:0};let layerWeight=0,woodWeight=0;
-  try{
-   if(!entries.length||entries.some(e=>e.level!==1||!e.geometryComplete||!['parallel','perpendicular'].includes(e.orientation)))throw Error('Нет полного подтверждённого ортогонального обрамления первого этажа.');
-   if(entries.length!==1)throw Error('Повторяемые стены по этажам требуют отдельного рекурсивного пути нагрузки.');const entry=entries[0],level=geometry?.levels?.find(l=>l.index===entry.level),H=wall.height??level?.height;if(!finite(H)||H<=0)throw Error('Не определена высота перегородки.');
-   const js=resolve(entry.joistIds??[]).filter(j=>j.level===1),bs=transfers.filter(b=>(entry.transferBoardIds??[]).some(id=>[b.id,b.sourceBoardId,b.memberId].includes(id)));
-   const valid=j=>j.b.supportStatus==='pass'&&j.vB-j.vA>EPS&&j.A?.kind==='grillage'&&j.Z?.kind==='grillage'&&typeof j.A.sourceId==='string'&&typeof j.Z.sourceId==='string';
-   const addJoist=(j,load,applicationU)=>{if(!valid(j))throw Error('Лага не имеет двух реальных опор ростверка; перемычка/нижняя стена не обходится автоматически.');const q={...load,id:`FWL-${wall.id}-${++sequence}`,wallId:wall.id,applicationU,source:'partitionOwnWeight'};if(q.type==='point'&&(q.at<-EPS||q.at>j.vB-j.vA+EPS)||q.type==='partialUDL'&&(q.from<-EPS||q.to>j.vB-j.vA+EPS))throw Error('Нагрузка попала на непроверенную концевую консоль лаги.');staged.push({j,load:q});const L=j.vB-j.vA,P=q.type==='point'?q.service:q.qService*(q.to-q.from),a=q.type==='point'?q.at:(q.from+q.to)/2;for(const [S,R]of[[j.A,P*(L-a)/L],[j.Z,P*a/L]]){const v=S.station??V(S.point);samples.push({point:plan(applicationU,v),characteristic:R,design:R*gamma,area:0,beamId:S.sourceId,wallId:wall.id,sourceBoardId:q.sourceBoardId,source:'partitionViaFloor',joistId:j.id});}};
-   function transferToBlock(b,primitive,f){const aa=b.start[fixed],zz=b.end[fixed],a=Math.min(aa,zz),z=Math.max(aa,zz),v=b.start[along],L=z-a,source=primitive.type==='point'?primitive.point:primitive.a,load=primitive.type==='point'?{type:'point',at:U(source)-a,service:primitive.weight*f,design:primitive.weight*f*gamma,sourceBoardId:primitive.sourceBoardId}:{type:'partialUDL',from:Math.min(U(primitive.a),U(primitive.b))-a,to:Math.max(U(primitive.a),U(primitive.b))-a,qService:primitive.weight*f/norm(primitive.a,primitive.b),qDesign:primitive.weight*f*gamma/norm(primitive.a,primitive.b),sourceBoardId:primitive.sourceBoardId};
-    if(L<=EPS||load.type==='point'&&(load.at<-EPS||load.at>L+EPS)||load.type==='partialUDL'&&(load.from<-EPS||load.to>L+EPS))throw Error('Опорная вставка не покрывает участок нагрузки.');stagedBlocks.push({board:b,load:{...load,id:`FWB-${wall.id}-${++sequence}`,wallId:wall.id}});const P=primitive.weight*f,x=primitive.type==='point'?U(primitive.point):(U(primitive.a)+U(primitive.b))/2,ends=[...(b.supports??[])].sort((s,t)=>U(s.point)-U(t.point));if(ends.length!==2)throw Error('У поперечной вставки не заданы две реальные грани лаг.');
-    for(const [end,R,face]of[[ends[0],P*(z-x)/L,a],[ends[1],P*(x-a)/L,z]]){const candidates=resolve(end.memberIds??[]).filter(j=>within(j,v)),j=candidates.sort((q,r)=>Math.abs(q.u-face)-Math.abs(r.u-face))[0];if(!j)throw Error('Конец поперечной вставки не связан с реальной лагой.');addJoist(j,{type:'point',at:v-j.vA,service:R,design:R*gamma,sourceBoardId:primitive.sourceBoardId,transferBoardId:b.id},face);}
-   }
-   function route(primitive){const center=primitive.type==='point'?primitive.point:{x:(primitive.a.x+primitive.b.x)/2,y:(primitive.a.y+primitive.b.y)/2};expected.force+=primitive.weight;expected.momentX+=primitive.weight*center.x;expected.momentY+=primitive.weight*center.y;
-    if(entry.orientation==='parallel'){
-     const parts=primitive.type==='point'?[primitive]:(()=>{const a=Math.min(V(primitive.a),V(primitive.b)),z=Math.max(V(primitive.a),V(primitive.b)),cuts=unique([a,z,...js.flatMap(j=>[j.vA,j.vB]).filter(x=>x>a+EPS&&x<z-EPS)]);return cuts.slice(1).map((v,i)=>({type:'line',a:plan(U(center),cuts[i]),b:plan(U(center),v),weight:primitive.weight*(v-cuts[i])/(z-a),sourceBoardId:primitive.sourceBoardId}));})();
-     for(const part of parts){const a=part.type==='point'?V(part.point):Math.min(V(part.a),V(part.b)),z=part.type==='point'?a:Math.max(V(part.a),V(part.b)),mid=(a+z)/2,rows=shares(js.filter(j=>within(j,mid)),U(center),j=>j.u,j=>j.width);for(const {item:j,f,coordinate}of rows)if(part.type==='point')addJoist(j,{type:'point',at:a-j.vA,service:part.weight*f,design:part.weight*f*gamma,sourceBoardId:part.sourceBoardId},coordinate);else addJoist(j,{type:'partialUDL',from:a-j.vA,to:z-j.vA,qService:part.weight*f/(z-a),qDesign:part.weight*f*gamma/(z-a),sourceBoardId:part.sourceBoardId},coordinate);}
-    }else{
-     const pieces=primitive.type==='point'?[primitive]:(()=>{const a=Math.min(U(primitive.a),U(primitive.b)),z=Math.max(U(primitive.a),U(primitive.b)),cuts=unique([a,z,...js.flatMap(j=>[j.u-j.width/2,j.u+j.width/2]).concat(bs.flatMap(b=>[b.start[fixed],b.end[fixed]])).filter(x=>x>a+EPS&&x<z-EPS)]);return cuts.slice(1).map((u,i)=>({type:'line',a:plan(cuts[i],V(center)),b:plan(u,V(center)),weight:primitive.weight*(u-cuts[i])/(z-a),sourceBoardId:primitive.sourceBoardId}));})();
-     for(const part of pieces){const point=part.type==='point'?part.point:{x:(part.a.x+part.b.x)/2,y:(part.a.y+part.b.y)/2},u=U(point),v=V(point),direct=js.filter(j=>within(j,v)&&Math.abs(j.u-u)<=j.width/2+EPS);if(direct.length){for(const {item:j,f,coordinate}of shares(direct,u,j=>j.u,j=>j.width))addJoist(j,{type:'point',at:v-j.vA,service:part.weight*f,design:part.weight*f*gamma,sourceBoardId:part.sourceBoardId},coordinate);}else{const rows=shares(bs.filter(b=>u>=Math.min(b.start[fixed],b.end[fixed])-EPS&&u<=Math.max(b.start[fixed],b.end[fixed])+EPS),v,b=>b.start[along],b=>b.b/1000);for(const {item:b,f}of rows)transferToBlock(b,part,f);}}
+export function attachFloorWallLoads(p, { geometry, walls = p.walls ?? [], timber, floorPlatform } = {}) {
+  const out = {
+    enabled: p.floor?.wallSupportFraming === true,
+    walls: [],
+    foundationSamples: [],
+    routedBoardIds: [],
+    routedWallLayerIds: [],
+    routedJoistIds: [],
+    transferMembers: [],
+    unverifiedWallIds: [],
+    checks: [],
+    warnings: [],
+    assumptions: [],
+    sources: [
+      {
+        name: "AWC DA6 — simple beams under uniform, partial uniform and concentrated loads",
+        url: "https://web-media.awc.org/wp-content/uploads/2021/12/17210710/AWC-DA6-BeamFormulas-0710.pdf",
+      },
+      {
+        name: "APA B429 — partition load and qualified structural panel floor scope",
+        url: "https://www.apawood.org/guides-tools-training/technical-document-library/technical-notes/non-load-bearing-partitions-on-apa-structural-panels-and-floor-joists/",
+      },
+    ],
+    balance: {
+      force: 0,
+      momentX: 0,
+      momentY: 0,
+      convention: "momentX=first momentΣP*x; momentY=first momentΣP*y, kN*m",
+    },
+    status: "unverified",
+    certified: false,
+  };
+  if (!out.enabled) return out;
+  const axis = p.floor.axis ?? "y",
+    fixed = axis === "y" ? 0 : 2,
+    along = axis === "y" ? 2 : 0,
+    plan = (u, v) => (axis === "y" ? { x: u, y: v } : { x: v, y: u }),
+    U = (q) => (axis === "y" ? q.x : q.y),
+    V = (q) => (axis === "y" ? q.y : q.x),
+    instances = timber?.instances ?? [],
+    // Member checks: the larger permanent factor (layers 1,2 / timber 1,1). The
+    // foundation samples are re-factored by kind in designer-engine pileField.
+    gamma = loadFactors(p.loads ?? {}).equivalentG,
+    fp = floorPlatform ?? {},
+    supports = fp.wallSupports ?? [];
+  const groups = new Map();
+  for (const b of instances.filter((b) => b.role === "joist" && !b.annexId)) {
+    delete b.wallLoads;
+    delete b.wallLoadsComplete;
+    delete b.wallLoadUnknownWallIds;
+    const id = b.platformSpanId ?? b.memberId ?? b.id;
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push(b);
+  }
+  const joists = [...groups].map(([id, parts]) => {
+    const b = parts[0],
+      A = b.supportStart,
+      Z = b.supportEnd,
+      vA =
+        A?.station ??
+        (A?.point ? V(A.point) : Math.min(...parts.flatMap((b) => [b.start[along], b.end[along]]))),
+      vB =
+        Z?.station ??
+        (Z?.point ? V(Z.point) : Math.max(...parts.flatMap((b) => [b.start[along], b.end[along]])));
+    b.wallLoads = [];
+    b.wallLoadsComplete = true;
+    return {
+      id,
+      parts,
+      b,
+      A,
+      Z,
+      u: b.start[fixed],
+      vA,
+      vB,
+      width: b.b / 1000,
+      level: b.floor ?? b.level ?? 1,
+      aliases: new Set(
+        parts.flatMap((b) => [b.id, b.sourceBoardId, b.memberId, b.platformSpanId].filter(Boolean)),
+      ),
+    };
+  });
+  const transfers = instances.filter((b) => b.role === "wallTransferBlocking" && !b.annexId);
+  for (const b of transfers) delete b.wallLoads;
+  const resolve = (ids) => joists.filter((j) => ids.some((id) => j.aliases.has(id))),
+    within = (j, v) => v >= j.vA - EPS && v <= j.vB + EPS,
+    uniqueRows = (list, key) => {
+      const out = [];
+      for (const item of list.sort((a, b) => key(a) - key(b) || String(a.id).localeCompare(String(b.id))))
+        if (!out.some((x) => Math.abs(key(x) - key(item)) < EPS)) out.push(item);
+      return out;
+    };
+  function shares(list, coord, key, width) {
+    const rows = uniqueRows(list, key);
+    if (!rows.length) throw Error("Нет фактического элемента под участком стены.");
+    const exact = rows.find((j) => Math.abs(key(j) - coord) < EPS);
+    if (exact) return [{ item: exact, f: 1, coordinate: key(exact) }];
+    const lo = [...rows].reverse().find((j) => key(j) < coord),
+      hi = rows.find((j) => key(j) > coord);
+    if (lo && hi) {
+      const d = key(hi) - key(lo);
+      return [
+        { item: lo, f: (key(hi) - coord) / d, coordinate: key(lo) },
+        { item: hi, f: (coord - key(lo)) / d, coordinate: key(hi) },
+      ];
     }
-   }
-   const L=norm(wall.a,wall.b),openings=(p.openings??[]).filter(o=>o.wallId===wall.id&&(o.floor??wall.level??1)===1),cuts=unique([0,L,...openings.flatMap(o=>[o.offset,o.offset+o.width]).filter(x=>x>0&&x<L)]);for(let i=1;i<cuts.length;i++){const a=cuts[i-1],b=cuts[i],oHeight=sum(openings.filter(o=>(a+b)/2>=o.offset&&(a+b)/2<=o.offset+o.width).map(o=>o.height)),q=(H-oHeight)*(p.loads.wallDead??0)+oHeight*(p.loads.openingDead??0),point=s=>({x:wall.a.x+(wall.b.x-wall.a.x)*s/L,y:wall.a.y+(wall.b.y-wall.a.y)*s/L}),weight=q*(b-a);if(weight>EPS){route({type:'line',a:point(a),b:point(b),weight});layerWeight+=weight;}}
-   const owned=instances.filter(b=>!b.annexId&&b.wallId===wall.id&&(b.floor??b.level??1)===1&&['walls','bracing'].includes(b.category));for(const b of owned){if(!finite(b.mass)||b.mass<0)throw Error('Нет корректной массы реальной стеновой доски.');sourceBoards.push(b.id);const weight=b.mass*G/1000;woodWeight+=weight;if(weight<EPS)continue;const a={x:b.start[0],y:b.start[2]},z={x:b.end[0],y:b.end[2]};if(Array.isArray(b.massCenter)||norm(a,z)<EPS){const c=b.massCenter??b.start.map((x,i)=>(x+b.end[i])/2);route({type:'point',point:{x:c[0],y:c[2]},weight,sourceBoardId:b.id});}else route({type:'line',a,b:z,weight,sourceBoardId:b.id});}
-   const actual={force:sum(samples.map(s=>s.characteristic)),momentX:sum(samples.map(s=>s.characteristic*s.point.x)),momentY:sum(samples.map(s=>s.characteristic*s.point.y))},balance={force:actual.force-expected.force,momentX:actual.momentX-expected.momentX,momentY:actual.momentY-expected.momentY};if(Object.values(balance).some(e=>!finite(e)||Math.abs(e)>1e-6))throw Error('Не сохранены сила и первые моменты при передаче перегородки.');
-   for(const {j,load}of staged)j.b.wallLoads.push(load);for(const {board,load}of stagedBlocks){if(!blockLoads.has(board.id))blockLoads.set(board.id,{board,loads:[]});blockLoads.get(board.id).loads.push(load);}
-   out.foundationSamples.push(...samples);out.routedBoardIds.push(...sourceBoards);out.routedWallLayerIds.push(wall.id);out.routedJoistIds.push(...new Set(staged.map(s=>s.j.id)));out.walls.push({wallId:wall.id,level:1,orientation:entry.orientation,status:'routed',layerWeight,woodWeight,expected,actual,balance,joistIds:[...new Set(staged.map(s=>s.j.id))],transferBoardIds:[...new Set(stagedBlocks.map(s=>s.board.id))],sourceBoardIds:sourceBoards,connectionVerified:false});
-  }catch(e){out.unverifiedWallIds.push(wall.id);out.walls.push({wallId:wall.id,status:'unverified',reason:e.message});for(const j of affected){j.b.wallLoadsComplete=false;(j.b.wallLoadUnknownWallIds??=[]).push(wall.id);}}
- }
- for(const {board,loads}of blockLoads.values()){board.wallLoads=loads;const L=Math.hypot(board.end[0]-board.start[0],board.end[2]-board.start[2]),self=board.mass*G/1000/L,calculated=solveFloorWallBeam({length:L,b:board.b,h:board.h,E:p.material.E,Fb:p.material.Fb,Fv:p.material.Fv??1.5,uniformService:self,uniformDesign:self*gamma,loads});out.transferMembers.push({boardId:board.id,wallIds:[...new Set(loads.map(l=>l.wallId))],...calculated,connectionVerified:false});}
- const worst=out.transferMembers.reduce((a,b)=>!a||b.utilization>a.utilization?b:a,null);if(worst)out.checks.push({id:'floor-wall-transfer-members',label:'Опорные вставки под перегородками: изгиб/срез/прогиб',status:out.transferMembers.some(m=>!m.valid||m.status==='fail')?'fail':'pass',value:worst.utilization,limit:1,memberIds:out.transferMembers.filter(m=>m.status==='fail'||!m.valid).map(m=>m.boardId),partial:true});
- out.checks.push({id:'floor-partition-load-path',label:'Собственный вес перегородок через реальный каркас пола',status:out.unverifiedWallIds.length?'unverified':'pass',routedWallIds:out.routedWallLayerIds,unverifiedWallIds:out.unverifiedWallIds,note:'Проверена передача только собственного веса перегородок первого этажа. Неполные пути не заменены случайной ближайшей лагой; для них сохранён прежний условный глобальный перенос.'},{id:'floor-wall-transfer-connections',label:'Стыки опорных вставок, настил и распределение по доскам',status:'unverified',note:'Распределение по соседним доскам принято по координатам опирания; клеёный пакет и жёсткость настила не засчитываются. Торцевые гвозди/подвесы, смятие и эксцентричная передача на гранях лаг требуют расчёта.'});
- const bearing=supports.filter(w=>w.kind!=='partition');if(bearing.length)out.checks.push({id:'floor-bearing-wall-reactions',label:'Несущие стены: кровельные/верхние реакции через платформу',status:'unverified',wallIds:[...new Set(bearing.map(w=>w.wallId))],note:'Геометрическое обрамление не означает распределение кровельных и межэтажных сосредоточенных реакций по лагам. Эти реакции не добавлены в частный расчёт перегородок.'});
- for(const k of['routedBoardIds','routedWallLayerIds','routedJoistIds','unverifiedWallIds'])out[k]=[...new Set(out[k])];for(const w of out.walls.filter(w=>w.balance))for(const k of['force','momentX','momentY'])out.balance[k]+=w.balance[k];out.status=out.checks.some(c=>c.status==='fail')?'fail':'unverified';out.assumptions=['Расчёт ограничен собственным весом ненесущих перегородок первого этажа: нетто-масса реальных досок, слои стен без проёмов и заполнение проёмов. Ни снег, ни реакции несущих стен сюда не включены.','Каждая новая лага проверяется своим отдельным I=b*h³/12; пакет не считается монолитом. Блоки передают нагрузку на лаги, но не уменьшают их пролёты.','Деревянные доски распределены по их действительной оси, вертикальные — в плане сосредоточенно. Если задан massCenter, использован его план. Участки слоёв стен учитывают проёмы по их фактическим интервалам.','Собственный вес поперечной вставки включён в её локальную балочную проверку. В частных проверках лаг он уже входит в среднее давление фактической древесины пола; повторная сосредоточенная добавка не выполняется.','Нагрузка в стыке двух смежных опорных досок распределена линейно по их координатам. У поперечной вставки реакции вычислены по её настоящим торцам; передача с торца на ось лаги эксцентрична и не подтверждает крепёж.'];fp.wallLoadTransfers=out;return out;
+    const j = lo ?? hi;
+    if (Math.abs(key(j) - coord) > width(j) / 2 + EPS)
+      throw Error("Нагрузка выходит за физическую ширину подстилающей доски.");
+    return [{ item: j, f: 1, coordinate: coord }];
+  }
+  let sequence = 0;
+  const blockLoads = new Map();
+  for (const wall of walls.filter((w) => w.kind === "partition")) {
+    const entries = supports.filter((s) => s.wallId === wall.id),
+      affected = resolve(entries.flatMap((s) => s.joistIds ?? [])),
+      staged = [],
+      samples = [],
+      stagedBlocks = [],
+      sourceBoards = [],
+      expected = { force: 0, momentX: 0, momentY: 0 };
+    let layerWeight = 0,
+      woodWeight = 0;
+    try {
+      if (
+        !entries.length ||
+        entries.some(
+          (e) =>
+            e.level !== 1 || !e.geometryComplete || !["parallel", "perpendicular"].includes(e.orientation),
+        )
+      )
+        throw Error("Нет полного подтверждённого ортогонального обрамления первого этажа.");
+      if (entries.length !== 1)
+        throw Error("Повторяемые стены по этажам требуют отдельного рекурсивного пути нагрузки.");
+      const entry = entries[0],
+        level = geometry?.levels?.find((l) => l.index === entry.level),
+        H = wall.height ?? level?.height;
+      if (!finite(H) || H <= 0) throw Error("Не определена высота перегородки.");
+      const js = resolve(entry.joistIds ?? []).filter((j) => j.level === 1),
+        bs = transfers.filter((b) =>
+          (entry.transferBoardIds ?? []).some((id) => [b.id, b.sourceBoardId, b.memberId].includes(id)),
+        );
+      const valid = (j) =>
+        j.b.supportStatus === "pass" &&
+        j.vB - j.vA > EPS &&
+        j.A?.kind === "grillage" &&
+        j.Z?.kind === "grillage" &&
+        typeof j.A.sourceId === "string" &&
+        typeof j.Z.sourceId === "string";
+      const addJoist = (j, load, applicationU) => {
+        if (!valid(j))
+          throw Error(
+            "Лага не имеет двух реальных опор ростверка; перемычка/нижняя стена не обходится автоматически.",
+          );
+        const q = {
+          ...load,
+          id: `FWL-${wall.id}-${++sequence}`,
+          wallId: wall.id,
+          applicationU,
+          source: "partitionOwnWeight",
+        };
+        if (
+          (q.type === "point" && (q.at < -EPS || q.at > j.vB - j.vA + EPS)) ||
+          (q.type === "partialUDL" && (q.from < -EPS || q.to > j.vB - j.vA + EPS))
+        )
+          throw Error("Нагрузка попала на непроверенную концевую консоль лаги.");
+        staged.push({ j, load: q });
+        const L = j.vB - j.vA,
+          P = q.type === "point" ? q.service : q.qService * (q.to - q.from),
+          a = q.type === "point" ? q.at : (q.from + q.to) / 2;
+        for (const [S, R] of [
+          [j.A, (P * (L - a)) / L],
+          [j.Z, (P * a) / L],
+        ]) {
+          const v = S.station ?? V(S.point);
+          samples.push({
+            point: plan(applicationU, v),
+            characteristic: R,
+            design: R * gamma,
+            area: 0,
+            beamId: S.sourceId,
+            wallId: wall.id,
+            sourceBoardId: q.sourceBoardId,
+            source: "partitionViaFloor",
+            joistId: j.id,
+          });
+        }
+      };
+      function transferToBlock(b, primitive, f) {
+        const aa = b.start[fixed],
+          zz = b.end[fixed],
+          a = Math.min(aa, zz),
+          z = Math.max(aa, zz),
+          v = b.start[along],
+          L = z - a,
+          source = primitive.type === "point" ? primitive.point : primitive.a,
+          load =
+            primitive.type === "point"
+              ? {
+                  type: "point",
+                  at: U(source) - a,
+                  service: primitive.weight * f,
+                  design: primitive.weight * f * gamma,
+                  sourceBoardId: primitive.sourceBoardId,
+                }
+              : {
+                  type: "partialUDL",
+                  from: Math.min(U(primitive.a), U(primitive.b)) - a,
+                  to: Math.max(U(primitive.a), U(primitive.b)) - a,
+                  qService: (primitive.weight * f) / norm(primitive.a, primitive.b),
+                  qDesign: (primitive.weight * f * gamma) / norm(primitive.a, primitive.b),
+                  sourceBoardId: primitive.sourceBoardId,
+                };
+        if (
+          L <= EPS ||
+          (load.type === "point" && (load.at < -EPS || load.at > L + EPS)) ||
+          (load.type === "partialUDL" && (load.from < -EPS || load.to > L + EPS))
+        )
+          throw Error("Опорная вставка не покрывает участок нагрузки.");
+        stagedBlocks.push({
+          board: b,
+          load: { ...load, id: `FWB-${wall.id}-${++sequence}`, wallId: wall.id },
+        });
+        const P = primitive.weight * f,
+          x = primitive.type === "point" ? U(primitive.point) : (U(primitive.a) + U(primitive.b)) / 2,
+          ends = [...(b.supports ?? [])].sort((s, t) => U(s.point) - U(t.point));
+        if (ends.length !== 2) throw Error("У поперечной вставки не заданы две реальные грани лаг.");
+        for (const [end, R, face] of [
+          [ends[0], (P * (z - x)) / L, a],
+          [ends[1], (P * (x - a)) / L, z],
+        ]) {
+          const candidates = resolve(end.memberIds ?? []).filter((j) => within(j, v)),
+            j = candidates.sort((q, r) => Math.abs(q.u - face) - Math.abs(r.u - face))[0];
+          if (!j) throw Error("Конец поперечной вставки не связан с реальной лагой.");
+          addJoist(
+            j,
+            {
+              type: "point",
+              at: v - j.vA,
+              service: R,
+              design: R * gamma,
+              sourceBoardId: primitive.sourceBoardId,
+              transferBoardId: b.id,
+            },
+            face,
+          );
+        }
+      }
+      function route(primitive) {
+        const center =
+          primitive.type === "point"
+            ? primitive.point
+            : { x: (primitive.a.x + primitive.b.x) / 2, y: (primitive.a.y + primitive.b.y) / 2 };
+        expected.force += primitive.weight;
+        expected.momentX += primitive.weight * center.x;
+        expected.momentY += primitive.weight * center.y;
+        if (entry.orientation === "parallel") {
+          const parts =
+            primitive.type === "point"
+              ? [primitive]
+              : (() => {
+                  const a = Math.min(V(primitive.a), V(primitive.b)),
+                    z = Math.max(V(primitive.a), V(primitive.b)),
+                    cuts = unique([
+                      a,
+                      z,
+                      ...js.flatMap((j) => [j.vA, j.vB]).filter((x) => x > a + EPS && x < z - EPS),
+                    ]);
+                  return cuts.slice(1).map((v, i) => ({
+                    type: "line",
+                    a: plan(U(center), cuts[i]),
+                    b: plan(U(center), v),
+                    weight: (primitive.weight * (v - cuts[i])) / (z - a),
+                    sourceBoardId: primitive.sourceBoardId,
+                  }));
+                })();
+          for (const part of parts) {
+            const a = part.type === "point" ? V(part.point) : Math.min(V(part.a), V(part.b)),
+              z = part.type === "point" ? a : Math.max(V(part.a), V(part.b)),
+              mid = (a + z) / 2,
+              rows = shares(
+                js.filter((j) => within(j, mid)),
+                U(center),
+                (j) => j.u,
+                (j) => j.width,
+              );
+            for (const { item: j, f, coordinate } of rows)
+              if (part.type === "point")
+                addJoist(
+                  j,
+                  {
+                    type: "point",
+                    at: a - j.vA,
+                    service: part.weight * f,
+                    design: part.weight * f * gamma,
+                    sourceBoardId: part.sourceBoardId,
+                  },
+                  coordinate,
+                );
+              else
+                addJoist(
+                  j,
+                  {
+                    type: "partialUDL",
+                    from: a - j.vA,
+                    to: z - j.vA,
+                    qService: (part.weight * f) / (z - a),
+                    qDesign: (part.weight * f * gamma) / (z - a),
+                    sourceBoardId: part.sourceBoardId,
+                  },
+                  coordinate,
+                );
+          }
+        } else {
+          const pieces =
+            primitive.type === "point"
+              ? [primitive]
+              : (() => {
+                  const a = Math.min(U(primitive.a), U(primitive.b)),
+                    z = Math.max(U(primitive.a), U(primitive.b)),
+                    cuts = unique([
+                      a,
+                      z,
+                      ...js
+                        .flatMap((j) => [j.u - j.width / 2, j.u + j.width / 2])
+                        .concat(bs.flatMap((b) => [b.start[fixed], b.end[fixed]]))
+                        .filter((x) => x > a + EPS && x < z - EPS),
+                    ]);
+                  return cuts.slice(1).map((u, i) => ({
+                    type: "line",
+                    a: plan(cuts[i], V(center)),
+                    b: plan(u, V(center)),
+                    weight: (primitive.weight * (u - cuts[i])) / (z - a),
+                    sourceBoardId: primitive.sourceBoardId,
+                  }));
+                })();
+          for (const part of pieces) {
+            const point =
+                part.type === "point"
+                  ? part.point
+                  : { x: (part.a.x + part.b.x) / 2, y: (part.a.y + part.b.y) / 2 },
+              u = U(point),
+              v = V(point),
+              direct = js.filter((j) => within(j, v) && Math.abs(j.u - u) <= j.width / 2 + EPS);
+            if (direct.length) {
+              for (const { item: j, f, coordinate } of shares(
+                direct,
+                u,
+                (j) => j.u,
+                (j) => j.width,
+              ))
+                addJoist(
+                  j,
+                  {
+                    type: "point",
+                    at: v - j.vA,
+                    service: part.weight * f,
+                    design: part.weight * f * gamma,
+                    sourceBoardId: part.sourceBoardId,
+                  },
+                  coordinate,
+                );
+            } else {
+              const rows = shares(
+                bs.filter(
+                  (b) =>
+                    u >= Math.min(b.start[fixed], b.end[fixed]) - EPS &&
+                    u <= Math.max(b.start[fixed], b.end[fixed]) + EPS,
+                ),
+                v,
+                (b) => b.start[along],
+                (b) => b.b / 1000,
+              );
+              for (const { item: b, f } of rows) transferToBlock(b, part, f);
+            }
+          }
+        }
+      }
+      const L = norm(wall.a, wall.b),
+        openings = (p.openings ?? []).filter(
+          (o) => o.wallId === wall.id && (o.floor ?? wall.level ?? 1) === 1,
+        ),
+        cuts = unique([
+          0,
+          L,
+          ...openings.flatMap((o) => [o.offset, o.offset + o.width]).filter((x) => x > 0 && x < L),
+        ]);
+      for (let i = 1; i < cuts.length; i++) {
+        const a = cuts[i - 1],
+          b = cuts[i],
+          oHeight = sum(
+            openings
+              .filter((o) => (a + b) / 2 >= o.offset && (a + b) / 2 <= o.offset + o.width)
+              .map((o) => o.height),
+          ),
+          q = (H - oHeight) * (p.loads.wallDead ?? 0) + oHeight * (p.loads.openingDead ?? 0),
+          point = (s) => ({
+            x: wall.a.x + ((wall.b.x - wall.a.x) * s) / L,
+            y: wall.a.y + ((wall.b.y - wall.a.y) * s) / L,
+          }),
+          weight = q * (b - a);
+        if (weight > EPS) {
+          route({ type: "line", a: point(a), b: point(b), weight });
+          layerWeight += weight;
+        }
+      }
+      const owned = instances.filter(
+        (b) =>
+          !b.annexId &&
+          b.wallId === wall.id &&
+          (b.floor ?? b.level ?? 1) === 1 &&
+          ["walls", "bracing"].includes(b.category),
+      );
+      for (const b of owned) {
+        if (!finite(b.mass) || b.mass < 0) throw Error("Нет корректной массы реальной стеновой доски.");
+        sourceBoards.push(b.id);
+        const weight = (b.mass * G) / 1000;
+        woodWeight += weight;
+        if (weight < EPS) continue;
+        const a = { x: b.start[0], y: b.start[2] },
+          z = { x: b.end[0], y: b.end[2] };
+        if (Array.isArray(b.massCenter) || norm(a, z) < EPS) {
+          const c = b.massCenter ?? b.start.map((x, i) => (x + b.end[i]) / 2);
+          route({ type: "point", point: { x: c[0], y: c[2] }, weight, sourceBoardId: b.id });
+        } else route({ type: "line", a, b: z, weight, sourceBoardId: b.id });
+      }
+      const actual = {
+          force: sum(samples.map((s) => s.characteristic)),
+          momentX: sum(samples.map((s) => s.characteristic * s.point.x)),
+          momentY: sum(samples.map((s) => s.characteristic * s.point.y)),
+        },
+        balance = {
+          force: actual.force - expected.force,
+          momentX: actual.momentX - expected.momentX,
+          momentY: actual.momentY - expected.momentY,
+        };
+      if (Object.values(balance).some((e) => !finite(e) || Math.abs(e) > 1e-6))
+        throw Error("Не сохранены сила и первые моменты при передаче перегородки.");
+      for (const { j, load } of staged) j.b.wallLoads.push(load);
+      for (const { board, load } of stagedBlocks) {
+        if (!blockLoads.has(board.id)) blockLoads.set(board.id, { board, loads: [] });
+        blockLoads.get(board.id).loads.push(load);
+      }
+      out.foundationSamples.push(...samples);
+      out.routedBoardIds.push(...sourceBoards);
+      out.routedWallLayerIds.push(wall.id);
+      out.routedJoistIds.push(...new Set(staged.map((s) => s.j.id)));
+      out.walls.push({
+        wallId: wall.id,
+        level: 1,
+        orientation: entry.orientation,
+        status: "routed",
+        layerWeight,
+        woodWeight,
+        expected,
+        actual,
+        balance,
+        joistIds: [...new Set(staged.map((s) => s.j.id))],
+        transferBoardIds: [...new Set(stagedBlocks.map((s) => s.board.id))],
+        sourceBoardIds: sourceBoards,
+        connectionVerified: false,
+      });
+    } catch (e) {
+      out.unverifiedWallIds.push(wall.id);
+      out.walls.push({ wallId: wall.id, status: "unverified", reason: e.message });
+      for (const j of affected) {
+        j.b.wallLoadsComplete = false;
+        (j.b.wallLoadUnknownWallIds ??= []).push(wall.id);
+      }
+    }
+  }
+  for (const { board, loads } of blockLoads.values()) {
+    board.wallLoads = loads;
+    const L = Math.hypot(board.end[0] - board.start[0], board.end[2] - board.start[2]),
+      self = (board.mass * G) / 1000 / L,
+      calculated = solveFloorWallBeam({
+        length: L,
+        b: board.b,
+        h: board.h,
+        E: p.material.E,
+        Fb: p.material.Fb,
+        Fv: p.material.Fv ?? 1.5,
+        uniformService: self,
+        uniformDesign: self * gamma,
+        loads,
+      });
+    out.transferMembers.push({
+      boardId: board.id,
+      wallIds: [...new Set(loads.map((l) => l.wallId))],
+      ...calculated,
+      connectionVerified: false,
+    });
+  }
+  const worst = out.transferMembers.reduce((a, b) => (!a || b.utilization > a.utilization ? b : a), null);
+  if (worst)
+    out.checks.push({
+      id: "floor-wall-transfer-members",
+      label: "Опорные вставки под перегородками: изгиб/срез/прогиб",
+      status: out.transferMembers.some((m) => !m.valid || m.status === "fail") ? "fail" : "pass",
+      value: worst.utilization,
+      limit: 1,
+      memberIds: out.transferMembers.filter((m) => m.status === "fail" || !m.valid).map((m) => m.boardId),
+      partial: true,
+    });
+  out.checks.push(
+    {
+      id: "floor-partition-load-path",
+      label: "Собственный вес перегородок через реальный каркас пола",
+      status: out.unverifiedWallIds.length ? "unverified" : "pass",
+      routedWallIds: out.routedWallLayerIds,
+      unverifiedWallIds: out.unverifiedWallIds,
+      note: "Проверена передача только собственного веса перегородок первого этажа. Неполные пути не заменены случайной ближайшей лагой; для них сохранён прежний условный глобальный перенос.",
+    },
+    {
+      id: "floor-wall-transfer-connections",
+      label: "Стыки опорных вставок, настил и распределение по доскам",
+      status: "unverified",
+      note: "Распределение по соседним доскам принято по координатам опирания; клеёный пакет и жёсткость настила не засчитываются. Торцевые гвозди/подвесы, смятие и эксцентричная передача на гранях лаг требуют расчёта.",
+    },
+  );
+  const bearing = supports.filter((w) => w.kind !== "partition");
+  if (bearing.length)
+    out.checks.push({
+      id: "floor-bearing-wall-reactions",
+      label: "Несущие стены: кровельные/верхние реакции через платформу",
+      status: "unverified",
+      wallIds: [...new Set(bearing.map((w) => w.wallId))],
+      note: "Геометрическое обрамление не означает распределение кровельных и межэтажных сосредоточенных реакций по лагам. Эти реакции не добавлены в частный расчёт перегородок.",
+    });
+  for (const k of ["routedBoardIds", "routedWallLayerIds", "routedJoistIds", "unverifiedWallIds"])
+    out[k] = [...new Set(out[k])];
+  for (const w of out.walls.filter((w) => w.balance))
+    for (const k of ["force", "momentX", "momentY"]) out.balance[k] += w.balance[k];
+  out.status = out.checks.some((c) => c.status === "fail") ? "fail" : "unverified";
+  out.assumptions = [
+    "Расчёт ограничен собственным весом ненесущих перегородок первого этажа: нетто-масса реальных досок, слои стен без проёмов и заполнение проёмов. Ни снег, ни реакции несущих стен сюда не включены.",
+    "Каждая новая лага проверяется своим отдельным I=b*h³/12; пакет не считается монолитом. Блоки передают нагрузку на лаги, но не уменьшают их пролёты.",
+    "Деревянные доски распределены по их действительной оси, вертикальные — в плане сосредоточенно. Если задан massCenter, использован его план. Участки слоёв стен учитывают проёмы по их фактическим интервалам.",
+    "Собственный вес поперечной вставки включён в её локальную балочную проверку. В частных проверках лаг он уже входит в среднее давление фактической древесины пола; повторная сосредоточенная добавка не выполняется.",
+    "Нагрузка в стыке двух смежных опорных досок распределена линейно по их координатам. У поперечной вставки реакции вычислены по её настоящим торцам; передача с торца на ось лаги эксцентрична и не подтверждает крепёж.",
+  ];
+  fp.wallLoadTransfers = out;
+  return out;
 }

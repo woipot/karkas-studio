@@ -1,0 +1,191 @@
+/* Materials share the viewer's palette and card language. */
+.materials-block {
+  margin: 28px 0;
+  min-width: 0;
+  color: #637c51;
+}
+.materials-block h3,
+.engine-report-section > h3 {
+  font-size: 20px;
+  font-weight: 500;
+  color: #526d3d;
+  margin: 22px 0 12px;
+}
+.materials-block p {
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.materials-alternatives {
+  margin-bottom: 16px;
+}
+.selected-format {
+  background: #f0f6e7;
+}
+.section-standard {
+  display: block;
+  width: fit-content;
+  margin-top: 5px;
+  padding: 2px 6px;
+  border: 1px solid #dae4cc;
+  border-radius: 4px;
+  font-size: 9px;
+  color: #63804d;
+  background: #f2f7e9;
+}
+.section-standard.rare,
+.section-standard.none {
+  color: #a17944;
+  background: #faf2e3;
+  border-color: #e5d2ae;
+}
+.sheet-stock svg {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  border: 1px solid #aabd98;
+}
+.sheet-stock {
+  scroll-margin-top: 20px;
+}
+.sheet-stock:target,
+.sheet-stock.focused {
+  border-color: #a4692f;
+  box-shadow: 0 0 0 2px #d4b78a;
+}
+.sheet-stock h3 {
+  overflow-wrap: anywhere;
+}
+.sheet-stock .engine-table-card {
+  margin-top: 12px;
+}
+.engine-table-card,
+.engine-facts-panel,
+.engine-report-section,
+.engine-model-card {
+  min-width: 0;
+  max-width: 100%;
+}
+.mp-row,
+.mp-head {
+  overflow-wrap: anywhere;
+}
+.mp-row > strong {
+  white-space: normal;
+  min-width: 0;
+}
+.mp-body > .engine-button {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.nh-material-group {
+  min-width: 0;
+  margin: 22px 0;
+  padding: 18px;
+  border: 1px solid #dce5d0;
+  border-radius: 7px;
+  background: #fbfdf8;
+}
+.nh-material-group legend {
+  color: #526d3d;
+  font-size: 14px;
+  padding: 0 7px;
+}
+.nh-field select {
+  max-width: 100%;
+  min-width: 0;
+}
+@media (max-width: 650px) {
+  .nh-steps ol {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+  }
+  .nh-steps ol li {
+    width: 100%;
+  }
+  .nh-steps ol button {
+    width: 100%;
+  }
+  .nh-material-group {
+    padding: 12px;
+  }
+  .nh-material-group .nh-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .engine-facts-panel {
+    display: block;
+  }
+  .mp-panel.side {
+    width: 100%;
+    max-height: none;
+    box-sizing: border-box;
+  }
+  .engine-pager > div {
+    align-items: center;
+  }
+}
+
+.materials-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 18px 0;
+}
+.materials-navigation a {
+  color: #637c51;
+  background: #f2f7e9;
+  border: 1px solid #dae4cc;
+  border-radius: 5px;
+  padding: 8px 10px;
+  font-size: 11px;
+  text-decoration: none;
+}
+.materials-navigation a:hover {
+  background: #e6f0d6;
+}
+[id="sheet-cutting"],
+[id="insulation"],
+[id="profiled-beam"],
+[id="boards"] {
+  scroll-margin-top: 20px;
+}
+
+.sheet-destinations {
+  max-height: 280px;
+  overflow: auto;
+}
+.sheet-stock .engine-stock-head h3 small {
+  display: block;
+  margin: 8px 0 0;
+}
+@media (max-width: 650px) {
+  .engine-overview-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .engine-facts-panel {
+    width: 100%;
+  }
+  .engine-facts-panel .mp-panel.side {
+    position: static;
+    inset: auto;
+    width: 100%;
+    max-width: 100%;
+    max-height: none;
+  }
+  .mp-panel.side .mp-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    padding: 8px;
+  }
+  .mp-panel.side .mp-tabs button {
+    min-width: 0;
+    flex: 1 1 auto;
+    white-space: normal;
+    padding: 8px 6px;
+  }
+  .mp-panel.side .mp-body {
+    overflow: visible;
+  }
+}

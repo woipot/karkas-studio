@@ -26,7 +26,7 @@ import {
 import { normalizeDesignerState } from "./designer-state.js";
 import { calculateRoofZones } from "./roof-zones.js";
 import { memberLoadProject } from "./load-profile.js";
-import { analyzeSourceRoof } from "./source-roof-mechanics.js";
+import { analyzeSourceRoof, trussRoofWallStuds, wallStudChecks } from "./source-roof-mechanics.js";
 import { checkDesignerMembers } from "./designer-mechanics.js";
 import { calculateCutting, cuttingRowsToCSV, cuttingToPrintHTML } from "./cutting.js";
 import { calculateEstimate, estimateRowsToCSV } from "./estimate-engine.js";
@@ -219,6 +219,22 @@ export function evaluateHouse(project, planning = {}) {
             `Представительная оценка по эквивалентной нагрузке (одна погонная нагрузка на все стены) заменена расчётом каждой стойки по фактическим реакциям кровли: ${c.supersededBy}. ${c.note ?? ""}`.trim();
         }
     result.assumptions.push(...sourceRoof.assumptions);
+  }
+  // Truss/rafter roofs (one storey): studs from the real row reactions instead of one equivalent
+  // line load for every stud of every wall.
+  if (!sourceRoof) {
+    const roofWallStuds = trussRoofWallStuds(p, result);
+    if (roofWallStuds) {
+      result.roofWallStuds = roofWallStuds;
+      result.checks.push(...wallStudChecks(roofWallStuds, "roof", "кровлей"));
+      for (const c of result.checks)
+        if (c.id === "designerStudCompression" || c.id === "designerStudPlateBearing") {
+          c.supersededBy = c.id === "designerStudCompression" ? "roof-wall-studs" : "roof-wall-plate-bearing";
+          c.status = "unverified";
+          c.note =
+            `Представительная оценка по эквивалентной нагрузке заменена расчётом каждой стойки по реакциям ферм/стропил: ${c.supersededBy}. ${c.note ?? ""}`.trim();
+        }
+    }
   }
   const snowAssessment = analyzeSnowCases(p, result);
   result.snowAssessment = snowAssessment;

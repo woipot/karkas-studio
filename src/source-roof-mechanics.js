@@ -185,7 +185,7 @@ const WALL_CARRIERS = /^(stud|king|jack|corner)$/;
  * A reaction on a wall's top plate (or directly on a stud) goes to the nearest carrying stud
  * of that wall (the top plate spans stud to stud); cripples under sills carry no roof load.
  */
-function wallStudForces(p, r, others, delivered, f, mat) {
+export function wallStudForces(p, r, others, delivered, f, mat) {
   const walls = new Map((p.walls ?? []).map((w) => [w.id, w])),
     byWall = new Map();
   for (const b of others) {
@@ -277,7 +277,19 @@ function wallStudForces(p, r, others, delivered, f, mat) {
         trib = ((pos[i + 1] ?? s0) - (pos[i - 1] ?? s0)) / 2 || (w.studStep ?? 0.6),
         L = Math.hypot(...b.end.map((v, k) => v - b.start[k])),
         restraint = p.material?.studRestraint,
-        weak = finite(restraint) && restraint > 0 ? Math.min(L, restraint) : L,
+        // Same rule as the representative stud check: structural sheets on this wall restrain the
+        // weak axis at the field nail spacing unless switched off; explicit studRestraint wins.
+        sheathed =
+          p.material?.studSheathingRestraint !== false &&
+          [...(r.bracingModel?.panels ?? []), ...(r.sheetModel?.panels ?? [])].some(
+            (q) => q.wallId === wallId,
+          ),
+        nail = (p.bracing?.fieldNailSpacing ?? 300) / 1000, // stored in mm
+        weak = Math.min(
+          L,
+          finite(restraint) && restraint > 0 ? restraint : Infinity,
+          sheathed ? nail : Infinity,
+        ),
         layers = (p.loads?.wallDead ?? 0) * L * trib,
         self = ((b.mass ?? 0) * G) / 1000,
         N = e.design + layers * f.layers + self * f.timber,
@@ -295,6 +307,8 @@ function wallStudForces(p, r, others, delivered, f, mat) {
         tributaryWidth: trib,
         length: L,
         weakAxisLength: weak,
+        weakAxisRestraint:
+          sheathed && weak === Math.min(L, nail) ? "sheathing" : weak < L ? "explicit" : "unbraced",
         lambda: comp.lambda,
         lambdaLimit: comp.lambdaLimit,
         phi: comp.phi,
@@ -856,4 +870,76 @@ export function analyzeSourceRoof(p, r) {
     balanceError: appliedDesign - deliveredDesign - unresolvedDesign,
     checks,
   };
+}
+
+/** Checks for per-stud wall forces (shared by imported roofs and truss roofs). */
+export function wallStudChecks(wallStuds, prefix, what) {
+  if (!wallStuds?.studs?.length) return [];
+  const studs = wallStuds.studs,
+    worst = studs.reduce((a, q) => (q.utilization > a.utilization ? q : a)),
+    worstBearing = studs.reduce((a, q) => (q.bearingUtilization > a.bearingUtilization ? q : a));
+  return [
+    {
+      id: `${prefix}-wall-studs`,
+      label: `Стойки стен под ${what}: сжатие φ от фактических реакций`,
+      status: worst.utilization > 1 ? "fail" : "pass",
+      value: worst.N,
+      limit: worst.capacity,
+      utilization: worst.utilization,
+      unit: "кН",
+      worstId: worst.id,
+      failIds: studs.filter((q) => q.utilization > 1).map((q) => q.id),
+      note: `Реакции передаются на ближайшие несущие стойки под обвязкой (между стойками — по правилу рычага), плюс вес стены с грузовой ширины. Худшая: ${worst.id} (${worst.wallId}), N = ${worst.N.toFixed(1)} кН.`,
+    },
+    {
+      id: `${prefix}-wall-plate-bearing`,
+      label: `Нижняя обвязка под стойками стен (${what}): смятие поперёк волокон`,
+      status: worstBearing.bearingUtilization > 1 ? "fail" : "pass",
+      value: worstBearing.bearingStress,
+      limit: worstBearing.bearingLimit,
+      utilization: worstBearing.bearingUtilization,
+      unit: "МПа",
+      worstId: worstBearing.id,
+      failIds: studs.filter((q) => q.bearingUtilization > 1).map((q) => q.id),
+    },
+  ];
+}
+
+/**
+ * Truss/rafter roofs of a one-storey house: the zone routing gives the real reaction of every
+ * truss row at both bearings; map each to its exterior wall and solve the studs like above.
+ */
+export function trussRoofWallStuds(p, r) {
+  const routing = r?.loads?.roofSupportRouting ?? [];
+  const levels = r?.geometry?.levels ?? [];
+  if (!routing.length || levels.length > 1) return null;
+  const walls = (p.walls ?? []).filter((w) => w.kind === "exterior");
+  const nearest = (pt) => {
+    let best = null,
+      bestD = Infinity;
+    for (const w of walls) {
+      const dx = w.b.x - w.a.x,
+        dz = w.b.y - w.a.y,
+        L2 = dx * dx + dz * dz || 1,
+        t = Math.max(0, Math.min(1, ((pt[0] - w.a.x) * dx + (pt[2] - w.a.y) * dz) / L2)),
+        d = Math.hypot(pt[0] - (w.a.x + t * dx), pt[2] - (w.a.y + t * dz));
+      if (d < bestD) ((best = w), (bestD = d));
+    }
+    return bestD <= 0.35 ? best : null;
+  };
+  const delivered = [];
+  for (const zone of routing)
+    for (const row of zone.rows ?? [])
+      for (const [pt, design, service] of [
+        [row.bearingStart, row.designA, row.characteristicA],
+        [row.bearingEnd, row.designB, row.characteristicB],
+      ]) {
+        if (!Array.isArray(pt) || !finite(design)) continue;
+        const w = nearest(pt);
+        if (w) delivered.push({ wallId: w.id, point: pt, design, service: service ?? design, to: null });
+      }
+  if (!delivered.length) return null;
+  const mat = resolveTimberMaterial(p.material ?? {}).values;
+  const ws = wallStudForces(p, r, r.timber?.instances ?? [], delivered, loadFactors(p.loads ?? {}), mat);
+  return ws.studs.length ? { ...ws, delivered: delivered.length } : null;
 }

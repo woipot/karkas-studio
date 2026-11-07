@@ -497,6 +497,8 @@ export function validateDesignerProject(input) {
     if (p.roof.framing !== undefined && !["auto", "rafters", "truss", "tiedRafters"].includes(p.roof.framing))
       error("roof.framing", "Несущая схема кровли: auto, rafters или truss.");
     if (p.roof.heelClearance !== undefined) range(p.roof.heelClearance, 0, 1, "roof.heelClearance");
+    if (p.roof.webRestraint !== undefined && p.roof.webRestraint !== null)
+      range(p.roof.webRestraint, 0.2, 10, "roof.webRestraint");
     for (const [k, lo, hi] of [
       ["ceilingDrop", 0, 1],
       ["kneeRun", 0.4, 1],

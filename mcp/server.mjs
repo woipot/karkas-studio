@@ -183,6 +183,7 @@ const generationSchema = z
         framing: z.enum(["auto", "rafters", "truss", "tiedRafters"]).optional(),
         wallFraming: z.enum(["auto", "continuous", "stacked"]).optional(),
         heelClearance: num(0, 1).optional(),
+        webRestraint: num(0.2, 10).optional().describe("Шаг продольной связи раскосов ферм из плоскости, м."),
         ceilingDrop: num(0, 1).optional(),
         kneeRun: num(0.4, 1).optional(),
         collarHeightRatio: num(0.4, 0.9).optional(),

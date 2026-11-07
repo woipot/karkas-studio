@@ -52,6 +52,9 @@ export const trussDefaults = {
   ceilingSpacing: null,
   /** Out-of-plane restraint spacing of chords (roof battens / ceiling lining), m. */
   chordRestraint: 0.6,
+  /** Out-of-plane restraint of web members by a continuous lateral brace (продольная связь раскосов
+   * через все фермы), m; null = unrestrained over the full web length. */
+  webRestraint: null,
 };
 const g = 9.80665;
 const sum = (a) => a.reduce((s, x) => s + x, 0);
@@ -354,6 +357,12 @@ export function buildTruss(input = {}) {
     ceilingDead: [0, 15],
     chordRestraint: [0.05, 60],
   };
+  if (
+    p.webRestraint !== null &&
+    p.webRestraint !== undefined &&
+    (!finite(p.webRestraint) || p.webRestraint < 0.2 || p.webRestraint > 10)
+  )
+    result.errors.push("webRestraint: шаг продольной связи раскосов 0,2…10 м или null.");
   for (const [key, [min, max]] of Object.entries(bounds))
     if (!finite(p[key]) || p[key] < min || p[key] > max)
       result.errors.push(`${key}: требуется число от ${min} до ${max}.`);
@@ -568,7 +577,7 @@ export function buildTruss(input = {}) {
       const euler = (Math.PI ** 2 * p.E * Imin) / (b.length * 1000) ** 2 / 1000;
       // СП 64 / СНиП II-25-80 п. 4.2–4.3: in-plane l0 = node-to-node length (h in plane);
       // out of plane (b): chords restrained by battens/ceiling at chordRestraint,
-      // web members unrestrained over their full length.
+      // web members over their full length unless a continuous lateral brace (webRestraint) is given.
       const chord = b.role !== "web",
         kind = chord
           ? "chord"
@@ -576,7 +585,11 @@ export function buildTruss(input = {}) {
             ? "supportStrut"
             : "web",
         l0InPlane = b.length,
-        l0OutOfPlane = chord ? Math.min(b.length, p.chordRestraint) : b.length,
+        l0OutOfPlane = chord
+          ? Math.min(b.length, p.chordRestraint)
+          : finite(p.webRestraint) && p.webRestraint > 0
+            ? Math.min(b.length, p.webRestraint)
+            : b.length,
         buckling = axialCompression({
           N: Math.max(0, -force),
           b: b.b,

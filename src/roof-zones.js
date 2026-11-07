@@ -1426,6 +1426,7 @@ export function calculateRoofZones(
               tensionDesign: p.material?.Ft ?? 8,
               compressionDesign: p.material?.Fc ?? 12,
               timberDensity: density,
+              webRestraint: z.webRestraint ?? p.roof?.webRestraint ?? null,
             });
       if (physicalGable && z.analysis?.stable) {
         const topShift =

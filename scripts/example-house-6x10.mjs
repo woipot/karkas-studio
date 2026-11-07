@@ -153,6 +153,26 @@ p.roomSchedule = [
     ],
   },
 ];
+// Roof overhangs protect the walls from rain: 500 mm at the eaves (long walls, low/high sides of the
+// slopes), 400 mm at the gables (start/end). Plan-projection distances from the wall axes.
+// Long support struts of the trusses (1.87 m) get one continuous lateral brace at mid-length
+// (продольная связь раскосов через все фермы): out-of-plane l0 = 0.95 m.
+p.roof = { ...p.roof, overhangs: { low: 0.5, high: 0.5, start: 0.4, end: 0.4 }, webRestraint: 0.95 };
+// Gable overhangs are carried by real outlookers of the roof battens: counter-battens 50×50,
+// battens 50×100 @350 mm (metal tile), façade service battens 45×45 for the ventilated gap.
+p.auxiliaryTimber = {
+  enabled: true,
+  wallService: "45x45",
+  roofCounter: "50x50",
+  roofBattens: "50x100",
+  roofInternal: "48x148",
+  roofService: "45x45",
+  roofBattenStep: 0.35,
+  roofInternalStep: 0.6,
+  roofAboveRafterGap: 0,
+  roofInterior: false,
+  ceilingBattens: false,
+};
 // Small covered porch centred on the entrance door (x 3.8–4.8 → porch x 2.8–5.8), shared grillage.
 p.annexes = [
   {

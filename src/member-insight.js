@@ -292,7 +292,7 @@ function grillageAnalysis(r, board) {
 }
 
 function wallStudFromRoofPath(r, board) {
-  const ws = r.sourceRoofMechanics?.wallStuds;
+  const ws = r.roofWallStuds ?? r.sourceRoofMechanics?.wallStuds;
   if (!ws?.studs?.length) return null;
   const s = ws.studs.find((q) => q.id === board.id);
   if (!s)
@@ -365,7 +365,9 @@ function studAnalysis(r, board) {
 }
 
 function plateAnalysis(r, board) {
-  const ws = r.sourceRoofMechanics?.wallStuds?.studs?.filter((q) => q.wallId === board.wallId);
+  const ws = (r.roofWallStuds ?? r.sourceRoofMechanics?.wallStuds)?.studs?.filter(
+    (q) => q.wallId === board.wallId,
+  );
   if (ws?.length) {
     const w = ws.reduce((a, q) => (q.bearingUtilization > a.bearingUtilization ? q : a));
     return {
@@ -405,8 +407,8 @@ function plateAnalysis(r, board) {
 // Engine checks that describe a member type as a whole (representative checks without ids).
 const ROLE_CHECKS = [
   [STUD_ROLES, /^designerStud/],
-  [new Set(["plate"]), /^designerStudPlateBearing$|^source-roof-wall-plate-bearing$/],
-  [STUD_ROLES, /^source-roof-wall-studs$/],
+  [new Set(["plate"]), /^designerStudPlateBearing$|^(source-)?roof-wall-plate-bearing$/],
+  [STUD_ROLES, /^(source-)?roof-wall-studs$/],
   [new Set(["joist"]), /^designerJoist|^designerFloorVibration$|^floor-(supports|stock|blocking)-L/],
   [new Set(["grillagePly"]), /^grillage-|^pileCapacity$|^designerGrillagePileBearing$/],
   [new Set(["top", "bottom", "web", "rafter", "topChord"]), /^designerRoofHeelBearing$/],

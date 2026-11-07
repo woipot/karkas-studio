@@ -155,7 +155,9 @@ const RULES = [
   },
   {
     name: "studs",
-    match: (c) => /^designerStud(Compression|PlateBearing|Slenderness)$/.test(c.id),
+    match: (c) =>
+      /^designerStud(Compression|PlateBearing|Slenderness)$/.test(c.id) ||
+      /^(source-)?roof-wall-(studs|plate-bearing)$/.test(c.id),
     group: () => ({ key: "studs", label: "Стойки несущих стен" }),
     candidates: studCandidates,
   },

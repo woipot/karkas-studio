@@ -153,6 +153,41 @@ p.roomSchedule = [
     ],
   },
 ];
+// Small covered porch centred on the entrance door (x 3.8–4.8 → porch x 2.8–5.8), shared grillage.
+p.annexes = [
+  {
+    id: "PORCH",
+    name: "Крытая веранда у входа · 3 × 1,8 м",
+    kind: "coveredTerrace",
+    attachedWallId: "GEN-L1-W3",
+    offset: 10 - 5.8, // W3 runs from x = 10 to x = 0
+    width: 3,
+    depth: 1.8,
+    gap: 0.075,
+    foundation: {
+      spacing: 3,
+      capacity: 40,
+      edgeInset: 0.3,
+      grillage: { section: "50x200", plies: 3, capSize: 250, deflectionRatio: 300 },
+      mode: "shared",
+    },
+    floor: { section: "50x200", spacing: 0.5, deckThickness: 0.028, blockingStep: 1.2 },
+    roof: {
+      pitch: 10,
+      lowEaveHeight: 2.2, // high side 2.2 + 1.8·tan10° ≈ 2.52 m stays under the main eave (wall top 2.8 m)
+      section: "50x150",
+      spacing: 0.6,
+      beamSection: "100x200",
+      beamPlies: 1,
+      postSection: "100x100",
+      battenSection: "50x100",
+      battenStep: 0.6,
+      overhangs: { low: 0.3, high: 0, start: 0.2, end: 0.2 },
+    },
+    // SP 20.13330 табл. 8.3: террасы/балконы 2,0 кПа; снег и ветер — как у дома.
+    loads: { floorDead: 0.25, live: 2.0, roofDead: 0.3, snow: 1.5, wind: 0.3, snowMu: 1, deckSnowFactor: 1 },
+  },
+];
 // Let-in braces give no weak-axis restraint: one row of horizontal blocking (ригели) at mid-height.
 p.material = { ...p.material, studRestraint: 1.35 };
 p.site = {

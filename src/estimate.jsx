@@ -1,3 +1,4 @@
+import InsulationTable, { useInsulation } from "./insulation-table.jsx";
 import { calculateEstimate, resolvePrices, estimateRowsToCSV } from "./estimate-engine.js";
 export { calculateEstimate, resolvePrices, estimateRowsToCSV } from "./estimate-engine.js";
 import React, { useEffect, useMemo, useState } from "react";
@@ -113,9 +114,11 @@ export default function EstimatePanel({
   onPricesChange,
   onExport,
 }) {
+  const reportForInsulation = useMemo(() => ({ project, result }), [project, result]);
+  const insulation = useInsulation(reportForInsulation);
   const e = useMemo(
-    () => precomputedEstimate ?? calculateEstimate(project, result, precomputedCutting),
-    [project, result, precomputedEstimate, precomputedCutting],
+    () => precomputedEstimate ?? calculateEstimate(project, { ...result, insulation }, precomputedCutting),
+    [project, result, insulation, precomputedEstimate, precomputedCutting],
   );
   const p = e.prices;
   const update = (key, value) => {
@@ -185,10 +188,11 @@ export default function EstimatePanel({
           <small>Укрупнённо, по редактируемым процентам</small>
         </div>
       </div>
+      <InsulationTable insulation={insulation} />
       <div className="estimate-controls">
         {[
           ["timberM3", "Базовая цена древесины", "₽/м³", 1e9],
-          ["wastePercent", e.cutting ? "Запас листов и утепления" : "Закупочный запас", "%", 300],
+          ["wastePercent", e.cutting ? "Запас листов и кровли" : "Закупочный запас", "%", 300],
           ["laborPercent", "Работы от материалов", "%", 300],
           ["contingencyPercent", "Резерв от материалов и работ", "%", 300],
         ].map(([key, label, suffix, max]) => (

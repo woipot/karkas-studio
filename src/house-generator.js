@@ -1056,6 +1056,7 @@ function build(ctx, strategy) {
   if (axes.size === 1) joistAxis = [...axes][0];
   const project = {
     ...clone(defaultDesignerProject),
+    ...(spec.insulation !== undefined ? { insulation: clone(spec.insulation) } : {}),
     name: spec.name ?? "Дом · параметрическая генерация",
     floors: levels.length,
     height: levels[0].height,

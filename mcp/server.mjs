@@ -1,5 +1,10 @@
 #!/usr/bin/env node
-import { annexSchema, doubleHeightConfigurationSchema } from "./project-features.mjs";
+import {
+  annexSchema,
+  doubleHeightConfigurationSchema,
+  insulationSchema,
+  insulationProjectFields,
+} from "./project-features.mjs";
 import { analyzeEnvelope } from "../src/hygrothermal.js";
 import { compareFoundationOptions } from "../src/foundation-options.js";
 import { createReadOnlyPreview } from "./preview.mjs";
@@ -106,6 +111,7 @@ const generationSchema = z
       .enum(Object.keys(LAYOUT_STRATEGIES))
       .optional()
       .describe("Стратегия планировки; без неё генератор перебирает стратегии до первой подходящей."),
+    insulation: insulationSchema.optional(),
     site: siteSchema.optional(),
     studStep: num(0.2, 1.2).optional().describe("Шаг стоек всех стен, м (по умолчанию 0.6)."),
     joistSpacing: num(0.2, 1.2).optional().describe("Шаг лаг перекрытий, м (по умолчанию 0.6)."),
@@ -145,6 +151,7 @@ const generationSchema = z
       .optional(),
     roof: z
       .object({
+        thermalBoundary: z.enum(["ceiling", "slopes"]).optional(),
         shape: z.enum(["mono", "gable", "hip"]).optional(),
         pitch: num(2, 60).optional(),
         pitchRight: num(2, 60).optional(),
@@ -375,7 +382,7 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
   register(
     "karkas_import_project",
     "Импортировать полный проект schema version=2, включая произвольные стены, проёмы, объекты, этажи и зоны. Вход валидируется; расчёты выполняются до сохранения.",
-    z.object({ project: z.record(z.string(), z.unknown()) }).strict(),
+    z.object({ project: z.object(insulationProjectFields).catchall(z.unknown()) }).strict(),
     (a) => engine.create(a.project),
     false,
   );
@@ -506,6 +513,7 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
             "assumptions",
             "snow",
             "envelope",
+            "insulation",
             "foundation_selection",
             "floor_platform",
             "partition_heads",

@@ -1,3 +1,4 @@
+import { validateInsulation } from "./insulation.js";
 import { validateSourceRoofModel } from "./source-roof.js";
 import { buildAuxiliaryTimber } from "./auxiliary-timber.js";
 import { buildAnnexes, validateAnnexes, sharedAnnexGrillageLines } from "./annexes.js";
@@ -875,6 +876,7 @@ export function validateDesignerProject(input) {
     }
   }
   for (const e of validateGrillageExtensions(p).errors) error(e.field, e.message);
+  validateInsulation(p, error);
   validateAnnexes(p, error);
   for (const e of validateSpatialLayoutInput(p)) error(e.field, e.message);
   return { valid: errors.length === 0, errors, warnings };

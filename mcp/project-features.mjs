@@ -170,3 +170,67 @@ export const doubleHeightConfigurationSchema = z
     replaceVoidIds: z.array(id).max(100).optional(),
   })
   .strict();
+
+const insulationAssemblySchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    thickness: num(Number.MIN_VALUE, 1)
+      .optional()
+      .describe("Толщина утепления, м; без значения — envelope или полость."),
+    product: z.enum(["wool-50", "wool-100"]).optional(),
+  })
+  .strict();
+export const insulationSchema = z
+  .object({
+    walls: insulationAssemblySchema.optional(),
+    floor: insulationAssemblySchema.optional(),
+    roof: insulationAssemblySchema.extend({ boundary: z.enum(["ceiling", "slopes"]).optional() }).optional(),
+    partitions: insulationAssemblySchema.optional(),
+    wasteFactor: num(0, 1)
+      .optional()
+      .describe("Доля запаса; иллюстративное умолчание 0.05, без монтажного сжатия."),
+  })
+  .strict();
+
+// Preserve the established imported project envelope/roof fields; validate the
+// new insulation metadata without stripping existing structural definitions.
+export const insulationProjectFields = {
+  insulation: insulationSchema.optional(),
+  prices: z
+    .object({ insulationPack: num(0, 1e9).optional() })
+    .catchall(z.unknown())
+    .optional(),
+  envelope: z
+    .object({
+      assemblies: z
+        .array(
+          z
+            .object({
+              layers: z
+                .array(
+                  z
+                    .object({
+                      insulation: z.boolean().optional(),
+                      density: z.number().finite().nonnegative().optional(),
+                    })
+                    .catchall(z.unknown()),
+                )
+                .optional(),
+            })
+            .catchall(z.unknown()),
+        )
+        .optional(),
+      costItems: z.array(z.object({ material: z.string().optional() }).catchall(z.unknown())).optional(),
+    })
+    .catchall(z.unknown())
+    .optional(),
+  roof: z
+    .object({
+      thermalBoundary: z.enum(["ceiling", "slopes"]).optional(),
+      zones: z
+        .array(z.object({ thermalBoundary: z.enum(["ceiling", "slopes"]).optional() }).catchall(z.unknown()))
+        .optional(),
+    })
+    .catchall(z.unknown())
+    .optional(),
+};

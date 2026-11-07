@@ -1,3 +1,5 @@
+import InsulationTable, { useInsulation } from "./insulation-table.jsx";
+import { calculateEstimate } from "./estimate-engine.js";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import DesignerModel from "./designer-model.jsx";
 import AppearanceView from "./appearance-view.jsx";
@@ -1450,6 +1452,7 @@ export function MaterialsView({ report }) {
     [page, setPage] = useState(1),
     [subtab, setSubtab] = useState("boards"),
     [sheetPage, setSheetPage] = useState(1);
+  const insulation = useInsulation(report);
   const r = report.result,
     rows = r.timber.schedule ?? [],
     types = [...new Set(rows.map((row) => row.category))];
@@ -1486,6 +1489,7 @@ export function MaterialsView({ report }) {
         <Counter label="Плиты к закупке" value={sheets.length} unit="листов" />
         <Counter label="Масса плит" value={fmt(r.bracingModel?.quantities?.panelMass, 0)} unit="кг" />
       </div>
+      <InsulationTable insulation={insulation} />
       <div className="engine-filter-tabs">
         <button className={subtab === "boards" ? "active" : ""} onClick={() => setSubtab("boards")}>
           Доски
@@ -1879,7 +1883,15 @@ export function CuttingView({ report }) {
 }
 
 export function EstimateView({ report }) {
-  const e = report.estimate,
+  const insulation = useInsulation(report);
+  const derivedEstimate = useMemo(
+    () =>
+      report.result.insulation
+        ? report.estimate
+        : calculateEstimate(report.project, { ...report.result, insulation }, report.cutting),
+    [report, insulation],
+  );
+  const e = derivedEstimate,
     symbol = e?.currency === "EUR" ? "€" : e?.currency === "USD" ? "$" : "₽",
     amount = (n) => `${fmt(n, 0)} ${symbol}`;
   if (!e) return <div className="engine-empty">Смета отсутствует в отчёте.</div>;
@@ -1908,6 +1920,10 @@ export function EstimateView({ report }) {
         <Counter label="Резерв" value={fmt(e.reserve, 0)} unit={symbol} />
         <Counter label="Древесина к закупке" value={fmt(e.procurementTimberVolume, 3)} unit="м³" />
       </div>
+      {!report.result.insulation && (
+        <p>Утепление и смета пересчитаны из геометрии сохранённого отчёта; исходная ревизия не изменена.</p>
+      )}
+      <InsulationTable insulation={insulation} />
       <div className="engine-table-card">
         <table>
           <thead>

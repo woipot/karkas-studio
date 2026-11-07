@@ -1,3 +1,4 @@
+import { calculateInsulation } from "./insulation.js";
 import { parseSection } from "./catalog.js";
 import { calculateCutting } from "./cutting.js";
 import { defaultPrices } from "./prices.js";
@@ -14,6 +15,8 @@ export function resolvePrices(input = {}) {
         maximum = key.endsWith("Percent") ? 300 : 1e9;
       p[key] = value <= maximum ? value : fallback;
     }
+  if (Number.isFinite(input?.insulationPack) && input.insulationPack >= 0 && input.insulationPack <= 1e9)
+    p.insulationPack = input.insulationPack;
   p.currency = ["RUB", "EUR", "USD"].includes(input?.currency) ? input.currency : "RUB";
   p.sectionPrices = {};
   if (input?.sectionPrices && typeof input.sectionPrices === "object")
@@ -25,6 +28,12 @@ export function resolvePrices(input = {}) {
 
 /** Geometry-based preliminary procurement estimate, no market-price claims. */
 export function calculateEstimate(project = {}, result = {}, precomputedCutting) {
+  if (
+    !result.insulation &&
+    Array.isArray(result.geometry?.levels) &&
+    result.timber?.instances?.some((b) => b.start && b.end)
+  )
+    result = { ...result, insulation: calculateInsulation(project, result) };
   const prices = resolvePrices(project.prices),
     factor = 1 + prices.wastePercent / 100;
   const geo = result.geometry ?? {},
@@ -181,17 +190,39 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
     );
   }
 
-  add(
-    "insulation",
-    "Утепление наружных стен",
-    "м²",
-    netWall,
-    "insulationM2",
-    true,
-    project.wallThickness
-      ? `Расценка за м² при толщине ${fmt(numeric(project.wallThickness) * 1000, 0)} мм; без вычета древесины.`
-      : "Расценка за м² наружной стены; состав и толщину утепления уточните в цене. Без вычета древесины.",
-  );
+  if (result.insulation) {
+    for (const [i, pack] of result.insulation.totals.packs.entries()) {
+      // Legacy insulationM2 refers to the original 150 mm wall allowance
+      // (defaultDesignerProject). This is a declared budget conversion, not a market price.
+      const unitPrice = prices.insulationPack ?? (prices.insulationM2 * pack.packVolume) / 0.15;
+      rows.push({
+        id: i === 0 ? "insulation" : "insulation-" + pack.product,
+        name: pack.name,
+        category: "material",
+        unit: "уп.",
+        product: pack.product,
+        netQuantity: pack.netVolume / pack.packVolume,
+        quantity: pack.packs,
+        unitPrice,
+        total: money(pack.packs * unitPrice),
+        editableKey: "insulationPack",
+        wasteQuantity: pack.packs - pack.netVolume / pack.packVolume,
+        wasteCost: money((pack.packs - pack.netVolume / pack.packVolume) * unitPrice),
+        note: `${fmt(pack.netVolume, 3)} м³ чистыми; ${fmt(pack.packVolume, 3)} м³/уп. Запас, полные слои плит и округление включены один раз. Цена insulationPack либо пересчёт прежней insulationM2 при 150 мм.`,
+      });
+    }
+  } else {
+    // Compatibility for legacy aggregate takeoffs lacking frame/slab coordinates.
+    add(
+      "insulation",
+      "Утепление наружных стен · старая ведомость",
+      "м²",
+      netWall,
+      "insulationM2",
+      true,
+      "Объём по каркасу недоступен; прежняя площадная оценка.",
+    );
+  }
   add(
     "roof",
     "Кровельное покрытие",
@@ -336,6 +367,15 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
     wallAndRoof: netWall + roofArea,
   };
   for (const item of project.envelope?.costItems ?? []) {
+    // Existing release projects contain separate floor/ceiling wool allowances.
+    // Pack procurement supersedes these physical materials, but no other layers.
+    if (
+      result.insulation &&
+      (item.material === "insulation" ||
+        ["ceiling-insulation", "floor-insulation"].includes(item.id) ||
+        /минват|минеральн.*ват/i.test(item.name))
+    )
+      continue;
     const area = envelopeAreas[item.basis];
     if (
       !Number.isFinite(area) ||
@@ -381,6 +421,7 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
     procurementTimberVolume,
     cutting,
     complete:
+      result.insulation?.complete !== false &&
       geo.closed !== false &&
       geo.platformAreaComplete !== false &&
       (cutting ? cutting.summary.complete : true),
@@ -395,7 +436,8 @@ export function calculateEstimate(project = {}, result = {}, precomputedCutting)
       cutting
         ? "Древесина закупается по полной карте шестиметровых досок. Остатки и пропилы уже входят в её цену; процентный запас повторно не добавляется."
         : `Запас ${fmt(prices.wastePercent)}% включён в древесину; для старой ведомости без отдельных деталей карта раскроя недоступна.`,
-      `Запас ${fmt(prices.wastePercent)}% добавляется к обшивке, утеплению и кровельному покрытию.`,
+      `Запас ${fmt(prices.wastePercent)}% добавляется к обшивке и кровельному покрытию. Утеплитель — по собственному запасу и упаковкам; старые ведомости без геометрии сохраняют площадную оценку.`,
+      ...(result.insulation?.assumptions ?? []),
       `Работы = ${fmt(prices.laborPercent)}% от материалов; резерв = ${fmt(prices.contingencyPercent)}% от материалов и работ.`,
       "Смета ограничена перечисленными позициями. Земля, изыскания, проектирование, доставка, инженерные системы, отделка и специальные узлы отдельно не оценены.",
       `Расценки в ${prices.currency}. Это заданные ставки; НДС/налоговые надбавки и индексация автоматически не добавляются.`,

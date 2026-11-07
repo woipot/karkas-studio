@@ -18,10 +18,13 @@ const { project: p } = generateHouse({
   bracing: { method: "letIn" },
 });
 const part = (id, a, b) => ({ id, level: 1, a, b, kind: "partition", section: "50x100", studStep: 0.6 });
+// Layout (plan, y down): bedroom x 0–2.8; central column x 2.8–5.8 with bathroom + tech room on top
+// (both entered from the hall) and the warm hall at the bottom; kitchen-living x 5.8–10.
 p.walls.push(
-  part("P-BED", { x: 3.1, y: 0.075 }, { x: 3.1, y: 5.925 }),
+  part("P-BED", { x: 2.8, y: 0.075 }, { x: 2.8, y: 5.925 }),
   part("P-KL", { x: 5.8, y: 0.075 }, { x: 5.8, y: 5.925 }),
-  part("P-TECH", { x: 3.15, y: 2.6 }, { x: 5.75, y: 2.6 }),
+  part("P-HALL", { x: 2.85, y: 2.6 }, { x: 5.75, y: 2.6 }),
+  part("P-BATH", { x: 4.35, y: 0.075 }, { x: 4.35, y: 2.55 }),
 );
 const op = (id, wallId, type, offset, width, height, sill) => ({
   id,
@@ -35,15 +38,17 @@ const op = (id, wallId, type, offset, width, height, sill) => ({
   floor: 1,
 });
 p.openings = [
-  op("D-ENTRY", "GEN-L1-W3", "door", 10 - 5.0, 1.0, 2.1, 0), // x 4.0–5.0, bottom long side
-  op("W-BED", "GEN-L1-W3", "window", 10 - 2.3, 1.4, 1.4, 0.8), // bedroom window, bottom side
+  op("D-ENTRY", "GEN-L1-W3", "door", 10 - 4.8, 1.0, 2.1, 0), // x 3.8–4.8, bottom long side
+  op("W-BED", "GEN-L1-W3", "window", 10 - 2.1, 1.4, 1.4, 0.8), // bedroom window, bottom side
   op("W-LIVING", "GEN-L1-W3", "window", 10 - 9.0, 1.8, 1.5, 0.7), // living window, bottom side
   op("W-LIVING-END", "GEN-L1-W2", "window", 2.2, 1.6, 1.4, 0.8), // gable end
   op("W-KITCHEN", "GEN-L1-W1", "window", 7.0, 1.2, 1.0, 1.1), // over the sink
-  op("W-TECH", "GEN-L1-W1", "window", 4.2, 0.6, 0.6, 1.5),
+  op("W-BATH", "GEN-L1-W1", "window", 3.85, 0.4, 0.6, 1.5), // small bathroom window above the basin
+  op("W-TECH", "GEN-L1-W1", "window", 4.9, 0.6, 0.6, 1.5),
   op("D-BED", "P-BED", "door", 2.8 - 0.075, 0.9, 2.1, 0), // y 2.8–3.7 from the hall
   op("D-LIVING", "P-KL", "door", 2.8 - 0.075, 1.1, 2.1, 0), // y 2.8–3.9 hall → kitchen-living
-  op("D-TECH", "P-TECH", "door", 4.1 - 3.15, 0.8, 2.1, 0), // x 4.1–4.9 from the hall
+  op("D-BATH", "P-HALL", "door", 3.2 - 2.85, 0.7, 2.1, 0), // x 3.2–3.9 from the hall
+  op("D-TECH", "P-HALL", "door", 4.75 - 2.85, 0.75, 2.1, 0), // x 4.75–5.5 from the hall
 ];
 p.roomSchedule = [
   {
@@ -51,10 +56,10 @@ p.roomSchedule = [
     name: "Спальня",
     kind: "room",
     level: 1,
-    polygon: R(0.075, 0.075, 3.05, 5.925),
-    labelPoint: { x: 1.55, y: 4.6 },
+    polygon: R(0.075, 0.075, 2.75, 5.925),
+    labelPoint: { x: 1.4, y: 4.6 },
     fixtures: [
-      fx("BED-WARDROBE", "wardrobe", "Шкаф 600 мм · 2,7 м", R(0.2, 0.075, 2.9, 0.675), 2),
+      fx("BED-WARDROBE", "wardrobe", "Шкаф 600 мм · 2,4 м", R(0.2, 0.075, 2.6, 0.675), 2),
       fx(
         "BED-160",
         "bed",
@@ -74,8 +79,8 @@ p.roomSchedule = [
     name: "Тёплая прихожая",
     kind: "room",
     level: 1,
-    polygon: R(3.15, 2.65, 5.75, 5.925),
-    labelPoint: { x: 4.45, y: 3.9 },
+    polygon: R(2.85, 2.65, 5.75, 5.925),
+    labelPoint: { x: 4.4, y: 3.8 },
     planLabel: "Прихожая",
     fixtures: [
       fx(
@@ -83,10 +88,10 @@ p.roomSchedule = [
         "sofa",
         "Банкетка/софа 1600",
         [
-          { x: 3.15, y: 5.8 },
-          { x: 3.15, y: 4.2 },
-          { x: 3.95, y: 4.2 },
-          { x: 3.95, y: 5.8 },
+          { x: 2.85, y: 5.8 },
+          { x: 2.85, y: 4.2 },
+          { x: 3.65, y: 4.2 },
+          { x: 3.65, y: 5.8 },
         ],
         2,
       ),
@@ -94,13 +99,31 @@ p.roomSchedule = [
     ],
   },
   {
+    id: "BATH",
+    name: "Санузел с душем",
+    kind: "room",
+    level: 1,
+    polygon: R(2.85, 0.075, 4.3, 2.55),
+    labelPoint: { x: 3.57, y: 2.15 },
+    planLabel: "С/у",
+    fixtures: [
+      fx("SHOWER", "shower", "Душ 900×900", R(2.85, 0.075, 3.75, 0.975), 2),
+      fx("WC", "wc", "WC", R(2.85, 1.25, 3.5, 1.65), 1),
+      fx("WASHBASIN", "washbasin", "Раковина", R(3.8, 1.15, 4.3, 1.75), 3),
+    ],
+  },
+  {
     id: "TECH",
     name: "Техпомещение",
     kind: "room",
     level: 1,
-    polygon: R(3.15, 0.075, 5.75, 2.55),
-    labelPoint: { x: 4.45, y: 1.3 },
-    fixtures: [fx("TECH-EQ", "utilityEquipment", "Котёл / бойлер / щит", R(3.2, 0.1, 4.6, 0.7), 2)],
+    polygon: R(4.4, 0.075, 5.75, 2.55),
+    labelPoint: { x: 4.9, y: 2.15 },
+    planLabel: "Тех.",
+    fixtures: [
+      fx("TECH-EQ", "utilityEquipment", "Котёл / бойлер / щит", R(4.45, 0.075, 5.7, 0.675), 2),
+      fx("WASHER", "washer", "Стиралка", R(5.1, 1.0, 5.75, 1.6), 3),
+    ],
   },
   {
     id: "LIVING",
@@ -136,7 +159,7 @@ p.site = {
   country: "RU",
   planView: { yAxis: "down", entranceAt: "bottom", bedroomAt: "left" },
   assumptions: [
-    "Пример по описанию заказчика: дом 6×10 м, каркас 50×150 с врезными укосинами 25×100. Вход и спальня — по нижней длинной стороне плана. Мебель — геометрические резервы, не нагрузки.",
+    "Пример по описанию заказчика: дом 6×10 м, каркас 50×150 с врезными укосинами 25×100. Вход и спальня — по нижней длинной стороне плана. Санузел с душем и техпомещение — с входом из прихожей, мокрые зоны рядом; вентиляция санузла, трапы и уклоны не проектировались. Мебель — геометрические резервы, не нагрузки.",
     "Стойки раскреплены из плоскости горизонтальными ригелями-распорками на середине высоты (шаг 1,35 м): при врезных укосинах без обшивки без них гибкость стойки 2,65 м превышает предел СП 64 (λ 184 > 120).",
   ],
 };

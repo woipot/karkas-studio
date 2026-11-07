@@ -270,3 +270,18 @@
 .mp-util.muted i {
   background: #c5cdb8;
 }
+.mp-panel.side {
+  position: relative;
+  inset: auto;
+  width: auto;
+  max-width: none;
+  max-height: 760px;
+  box-shadow: none;
+  border-color: #dce5d0;
+  border-radius: 7px;
+  animation: none;
+  z-index: auto;
+}
+.mp-panel.side .mp-tabs button {
+  padding: 7px 4px;
+}

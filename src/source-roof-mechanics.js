@@ -121,8 +121,9 @@ function tributaryWidths(frames, family, fallback) {
       const aq = [dot(Q.board.start, uh), dot(Q.board.end, uh)].sort((a, b) => a - b);
       if (Math.min(a0[1], aq[1]) - Math.max(a0[0], aq[0]) < 0.3) continue;
       const dc = dot(add(Q.P, mul(Q.u, Q.L / 2)), across) - c0;
-      if (dc > 0.01 && dc < right) right = dc;
-      if (dc < -0.01 && -dc < left) left = -dc;
+      // Boards closer than 0.15 m side by side are laps/sisters on the same line, not the next rafter.
+      if (dc > 0.15 && dc < right) right = dc;
+      if (dc < -0.15 && -dc < left) left = -dc;
     }
     const sides = [left, right].filter((v) => v < 1.6);
     out.set(
@@ -198,20 +199,70 @@ function wallStudForces(p, r, others, delivered, f, mat) {
     return ((x - w.a.x) * dx + (z - w.a.y) * dy) / L;
   };
   const posOf = (w, b) => along(w, b.start[0], b.start[2]);
-  const forces = new Map();
+  // A reaction on the top plate between two carrying studs is shared by the lever rule (the
+  // plate spans stud to stud); a reaction delivered straight onto a stud stays on it.
+  const forces = new Map(),
+    add = (b, design, service) => {
+      const e = forces.get(b.id) ?? { design: 0, service: 0, count: 0 };
+      e.design += design;
+      e.service += service;
+      e.count++;
+      forces.set(b.id, e);
+    };
   for (const d of delivered) {
     if (!d.wallId || !d.point || !byWall.has(d.wallId)) continue;
     const w = walls.get(d.wallId),
       s0 = along(w, d.point[0], d.point[2]),
       list = byWall.get(d.wallId),
-      target =
-        list.find((b) => b.id === d.to) ??
-        list.reduce((a, b) => (Math.abs(posOf(w, b) - s0) < Math.abs(posOf(w, a) - s0) ? b : a));
-    const e = forces.get(target.id) ?? { design: 0, service: 0, count: 0 };
-    e.design += d.design;
-    e.service += d.service;
-    e.count++;
-    forces.set(target.id, e);
+      direct = list.find((b) => b.id === d.to);
+    if (direct) {
+      add(direct, d.design, d.service);
+      continue;
+    }
+    const left = list.filter((b) => posOf(w, b) <= s0).sort((a, b) => posOf(w, b) - posOf(w, a))[0],
+      right = list.filter((b) => posOf(w, b) > s0).sort((a, b) => posOf(w, a) - posOf(w, b))[0];
+    if (left && right) {
+      const l = posOf(w, left),
+        r0 = posOf(w, right),
+        kR = (s0 - l) / (r0 - l);
+      add(left, d.design * (1 - kR), d.service * (1 - kR));
+      add(right, d.design * kR, d.service * kR);
+    } else add(left ?? right, d.design, d.service);
+  }
+  // King + jack pairs and doubled studs nailed side by side work as one built-up post:
+  // the roof load on the group is shared by area.
+  for (const [wallId, list] of byWall) {
+    const w = walls.get(wallId),
+      sorted = [...list].sort((a, b) => posOf(w, a) - posOf(w, b)),
+      groups = [];
+    for (const b of sorted) {
+      const g = groups.at(-1);
+      if (g && posOf(w, b) - posOf(w, g.at(-1)) <= (g.at(-1).b + b.b) / 2000 + 0.01) g.push(b);
+      else groups.push([b]);
+    }
+    for (const g of groups) {
+      if (g.length < 2) continue;
+      const total = g.reduce(
+          (t, b) => {
+            const e = forces.get(b.id);
+            return {
+              design: t.design + (e?.design ?? 0),
+              service: t.service + (e?.service ?? 0),
+              count: t.count + (e?.count ?? 0),
+            };
+          },
+          { design: 0, service: 0, count: 0 },
+        ),
+        area = g.reduce((t, b) => t + b.b * b.h, 0);
+      if (!total.count) continue;
+      for (const b of g)
+        forces.set(b.id, {
+          design: (total.design * b.b * b.h) / area,
+          service: (total.service * b.b * b.h) / area,
+          count: total.count,
+          group: g.map((q) => q.id),
+        });
+    }
   }
   const studs = [];
   for (const [wallId, list] of byWall) {
@@ -238,6 +289,7 @@ function wallStudForces(p, r, others, delivered, f, mat) {
         N,
         Ncharacteristic: e.service + layers + self,
         roofReactions: e.count,
+        groupIds: e.group ?? null,
         roofDesign: e.design,
         tributaryWidth: trib,
         length: L,

@@ -19,6 +19,23 @@ const governing = (parts) => {
   );
   return best ? { label: "Определяет", text: `${best[0]} · ${Math.round(best[1] * 100)}%` } : null;
 };
+// Slenderness λ/λmax is a geometric limit of СП 64, not a share of the load: it is reported as
+// its own row and fails the member only when exceeded; "Загрузка" is strength only.
+const slendernessRow = (lambda, limit) => {
+  if (!finite(lambda) || !finite(limit) || limit <= 0) return null;
+  const ratio = lambda / limit;
+  return {
+    label: "Гибкость λ / предел СП 64",
+    text: `${Math.round(lambda)} из ${Math.round(limit)}${ratio > 1 ? " — превышена" : ""}`,
+    ratio,
+  };
+};
+const strengthStatus = (u, slender, base) =>
+  base === "unverified"
+    ? "unverified"
+    : (finite(u) && u > 1) || (slender && slender.ratio > 1)
+      ? "fail"
+      : "pass";
 const maxBy = (list, f) => list.reduce((a, b) => (a === null || f(b) > f(a) ? b : a), null);
 
 export const roleLabels = {
@@ -172,28 +189,26 @@ function frameAnalysis(r, board) {
   const m = zone?.frameAnalysis?.members?.find((q) => q.id === board.frameMemberId);
   if (!m) return null;
   const u = Math.max(
-    ...[
-      m.interaction,
-      m.shearUtilization,
-      m.axialUtilization,
-      m.slendernessUtilization,
-      m.compressionStabilityUtilization,
-    ].filter(finite),
+    ...[m.interaction, m.shearUtilization, m.axialUtilization, m.compressionStabilityUtilization].filter(
+      finite,
+    ),
     0,
   );
+  const slender = slendernessRow(m.lambda, m.lambdaLimit);
   return {
     source: "frame",
     title: `Элемент рамы ${m.id}`,
-    status: u > 1 ? "fail" : "pass",
+    status: strengthStatus(u, slender),
     utilization: u,
+    slenderness: slender,
     rows: [
       governing([
         ["изгиб со сжатием", m.interaction],
         ["срез у запила", m.notchShear?.utilization],
         ["срез", m.notchShear ? null : m.shearUtilization],
         ["устойчивость", m.compressionStabilityUtilization],
-        ["гибкость", m.slendernessUtilization],
       ]),
+      slender,
       row("Момент max", m.maxMoment, "кН·м"),
       row("Поперечная сила max", m.maxShear, "кН"),
       row("Сжатие max", m.maxCompression, "кН"),
@@ -289,17 +304,20 @@ function wallStudFromRoofPath(r, board) {
           ? "Укороченная стойка под подоконником/над перемычкой: вертикальную нагрузку от кровли не несёт."
           : "По фактическому пути нагрузки реакции кровли уходят на соседние стойки; эта несёт собственный вес стены.",
     };
+  const slenderWS = slendernessRow(s.lambda, s.lambdaLimit),
+    uWS = Math.max(s.compressionUtilization ?? 0, s.bearingUtilization ?? 0);
   return {
     source: "wallStud",
     title: "Стойка стены: сжатие от фактических реакций кровли",
-    status: s.utilization > 1 ? "fail" : "pass",
-    utilization: s.utilization,
+    status: strengthStatus(uWS, slenderWS),
+    utilization: uWS,
+    slenderness: slenderWS,
     rows: [
       governing([
         ["устойчивость φ", s.compressionUtilization],
-        ["гибкость λ", s.slendernessUtilization],
         ["смятие обвязки", s.bearingUtilization],
       ]),
+      slenderWS,
       row("Сжимающее усилие N", s.N, "кН"),
       row("в т.ч. от кровли", s.roofDesign, "кН"),
       row("Реакций сверху", s.roofReactions, "шт.", 0),
@@ -408,18 +426,21 @@ function sourceRoofAnalysis(r, board) {
         : "опора не найдена",
     },
   ];
-  if (m.kind === "axial")
+  if (m.kind === "axial") {
+    const slenderAx = slendernessRow(m.lambda, m.lambdaLimit),
+      uAx = Math.max(m.compressionUtilization ?? 0, m.bearingUtilization ?? 0);
     return {
       source: "sourceRoof",
       title: "Сжатый элемент кровли: усилие по пути нагрузки",
-      status: m.status,
-      utilization: m.utilization,
+      status: strengthStatus(uAx, slenderAx, m.status),
+      utilization: uAx,
+      slenderness: slenderAx,
       rows: [
         governing([
           ["устойчивость φ", m.compressionUtilization],
-          ["гибкость λ", m.slendernessUtilization],
           ["смятие опоры", m.bearingUtilization],
         ]),
+        slenderAx,
         row("Сжимающее усилие N", m.N, "кН"),
         row("N нормативное", m.Ncharacteristic, "кН"),
         row("Длина", m.length, "м", 3),
@@ -435,6 +456,7 @@ function sourceRoofAnalysis(r, board) {
       ],
       note: m.note,
     };
+  }
   return {
     source: "sourceRoof",
     title: m.passThrough

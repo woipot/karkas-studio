@@ -80,14 +80,14 @@ function StockBar({ cutting }) {
   );
 }
 
-export function MemberPanel({ report, id, onClose }) {
+export function MemberPanel({ report, id, onClose, side = false }) {
   const insight = useMemo(() => memberInsight(report, id), [report, id]);
   const [tab, setTab] = useState("loads");
   if (!insight) return null;
   const { board, facts, cutting, analysis, checks } = insight;
   const failed = checks.filter((c) => c.status === "fail").length;
   return (
-    <aside className="mp-panel" aria-label="Параметры доски">
+    <aside className={"mp-panel" + (side ? " side" : "")} aria-label="Параметры доски">
       <header className="mp-head">
         <div>
           <div className="mp-eyebrow">ДОСКА · {board.id}</div>

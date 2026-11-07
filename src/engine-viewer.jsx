@@ -1184,9 +1184,6 @@ export function Overview({ report }) {
                 fitKey={fitKey}
               />
             )}
-            {selected?.type === "member" && (
-              <MemberPanel report={report} id={selected.id} onClose={() => setSelected(null)} />
-            )}
             <div className="engine-canvas-tag">
               <span>
                 {view === "3d"
@@ -1302,6 +1299,8 @@ export function Overview({ report }) {
                 масса не включена в расчёт.
               </p>
             </div>
+          ) : selected?.type === "member" && r.timber?.instances?.some((b) => b.id === selected.id) ? (
+            <MemberPanel report={report} id={selected.id} onClose={() => setSelected(null)} side />
           ) : (
             <SelectionFacts selected={selected} p={p} r={r} />
           )}

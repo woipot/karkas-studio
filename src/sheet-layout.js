@@ -3,6 +3,7 @@ import { defaultSheetPrices } from "./prices.js";
 import { resolveSheet, sheetCandidates, sheetSources, floorDeckThickness } from "./sheet-catalog.js";
 import { sheetPolygons, buildWallBracing } from "./wall-bracing.js";
 import { loadFactors } from "./load-profile.js";
+import { sheetRun, MIN_STRIP } from "./sheet-seams.js";
 const { clean, area, triangulate, intersect, subtract, rectangle } = sheetPolygons;
 // Numerical geometry tolerance, not a construction or bearing allowance.
 const EPS = 1e-7;
@@ -43,6 +44,8 @@ function supported(q, supports) {
 const sheetPrice = (project, stock) =>
   project.prices?.sheetPrices?.[`${stock.id}-${stock.thickness}`] ??
   defaultSheetPrices[`${stock.id}-${stock.thickness}`];
+/** Stock sheets above the first wall row: each one means a horizontal joint in the wall sheathing. */
+const wallJoints = (panels) => new Set(panels.filter((p) => p.sheetRow > 1).map((p) => p.stockSheetId)).size;
 function alternative(layout, stock, project) {
   return {
     product: stock.id,
@@ -58,8 +61,11 @@ function alternative(layout, stock, project) {
     complete: layout.complete,
   };
 }
+// Walls: a format that covers the storey height in one sheet wins over a cheaper one that needs a
+// horizontal joint (blocking, a narrow top band, a weaker racking panel); then cost.
 const rankFormats = (a, b) =>
   Number(b.complete) - Number(a.complete) ||
+  (a.horizontalJoints ?? 0) - (b.horizontalJoints ?? 0) ||
   a.cost - b.cost ||
   a.count - b.count ||
   a.unusedPercent - b.unusedPercent ||
@@ -137,17 +143,25 @@ function layoutFixedSurface({
   const sheets = [],
     panels = [],
     seams = [];
-  let row = 0;
-  for (let y = y0; y < y1 - EPS; y += stock.width) {
-    const top = Math.min(y1, y + stock.width);
-    let x = x0,
-      col = 0;
-    while (x < x1 - EPS) {
-      // Stagger on a real framing axis nearest (and below) half a stock length.
-      const reach = stagger && row % 2 && col === 0 ? stock.length / 2 : stock.length;
-      const target = Math.min(x1, x + reach);
-      const snap = stations.filter((s) => s > x + EPS && s <= target + EPS).at(-1);
-      const end = target >= x1 - EPS ? x1 : (snap ?? target);
+  // Rows across the supports and sheets along each row: the remainders are merged or balanced
+  // with the first piece so the diaphragm has no strips (see sheet-seams.js).
+  const rowEdges = sheetRun(y0, y1, stock.width, { minPiece: MIN_STRIP });
+  let previousRow = [];
+  for (let row = 0; row < rowEdges.length - 1; row++) {
+    const y = rowEdges[row],
+      top = rowEdges[row + 1];
+    // Stagger on a real framing axis nearest half a stock length.
+    const colEdges = sheetRun(x0, x1, stock.length, {
+      stations,
+      first: stagger && row % 2 ? stock.length / 2 : stock.length,
+      minPiece: stock.length / 2,
+      minGap: EPS,
+      avoid: stagger ? previousRow.slice(1, -1) : [],
+    });
+    previousRow = colEdges;
+    for (let col = 0; col < colEdges.length - 1; col++) {
+      const x = colEdges[col],
+        end = colEdges[col + 1];
       const tile = rectangle(x, y, end, top);
       let pieces = triangles.map((t) => intersect(t, tile)).filter((p) => p.length >= 3 && area(p) > EPS);
       for (const hole of holes) pieces = pieces.flatMap((p) => subtract(p, clean(hole)));
@@ -216,10 +230,7 @@ function layoutFixedSurface({
               });
           }
       }
-      x = end;
-      col++;
     }
-    row++;
   }
   const netArea = sum(panels.map((p) => p.area)),
     purchasedArea = sheets.length * stock.width * stock.length;
@@ -392,7 +403,11 @@ export function buildSheetBracing(project, context) {
         if (spec.side === "both")
           parts = parts.concat(parts.map((p) => ({ ...p, id: `${p.id}-IN`, batchId: "walls-interior" })));
         const cutting = cutSheetParts(parts, c.stock, options);
-        return { ...c, panels, alternative: alternative(cutting, c.stock, project) };
+        return {
+          ...c,
+          panels,
+          alternative: { ...alternative(cutting, c.stock, project), horizontalJoints: wallJoints(panels) },
+        };
       })
       .sort((a, b) => rankFormats(a.alternative, b.alternative));
     const best = variants[0],
@@ -475,7 +490,8 @@ export function buildHouseSheets(project, context) {
         const candidate = { ...selected, sheathing: { ...selected.sheathing } };
         for (const kind of group.kinds)
           candidate.sheathing[kind] = { ...candidate.sheathing[kind], product: stock.id };
-        const { sheetModel } = build(candidate);
+        const { sheetModel, bracingModel } = build(candidate);
+        const horizontalJoints = group.kinds.includes("walls") ? wallJoints(bracingModel.panels ?? []) : 0;
         // Include explicitly fixed surfaces of the same pair: their offcuts may join this pool.
         const rows = sheetModel.purchases.filter(
           (r) => r.thickness === group.thickness && resolveSheet(r)?.material === group.material,
@@ -507,6 +523,7 @@ export function buildHouseSheets(project, context) {
           unusedPercent: purchasedArea ? (1 - area / purchasedArea) * 100 : 0,
           cost: sum(rows.map((r) => r.count * sheetPrice(project, resolveSheet(r)))),
           complete: rows.every((r) => r.complete),
+          horizontalJoints,
           purchases: rows.map((r) => ({ product: r.product, count: r.count })),
         };
       })
@@ -522,10 +539,10 @@ export function buildHouseSheets(project, context) {
     if (!surfaceAlternatives.has(surface.id)) continue;
     surface.alternatives = surfaceAlternatives.get(surface.id).sort(rankFormats);
     surface.selectionBasis =
-      "Формат выбран по минимальной стоимости общего раскроя дома для материала и толщины; альтернативы поверхности справочные и не суммируются.";
+      "Формат выбран для материала и толщины по общему раскрою дома: для стен — без горизонтальных стыков, затем по минимальной стоимости; альтернативы поверхности справочные и не суммируются.";
   }
   result.sheetModel.assumptions.push(
-    "Автоматический формат един для пары материал/толщина во всём доме; выбран минимум стоимости общего гильотинного раскроя среди доступных форматов. Явные форматы поверхностей фиксированы. Альтернативы поверхностей справочные, их закупки не суммируются.",
+    "Автоматический формат един для пары материал/толщина во всём доме; для стен сначала предпочитается формат без горизонтальных стыков (лист на всю высоту этажа), затем минимум стоимости общего гильотинного раскроя среди доступных форматов. Явные форматы поверхностей фиксированы. Альтернативы поверхностей справочные, их закупки не суммируются.",
   );
   return result;
 }

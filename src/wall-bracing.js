@@ -1,3 +1,4 @@
+import { sheetRun, narrowPieces, MIN_STRIP } from "./sheet-seams.js";
 import { cutSheetParts, sheetPartsFromPanels, sheetCuttingOptions } from "./sheet-cutting.js";
 import { loadFactors } from "./load-profile.js";
 /** Actual wall bracing geometry. Shear capacity is never inferred from a picture. */
@@ -494,29 +495,31 @@ export function buildWallBracing(project, result = {}) {
       checks: lineChecks,
     };
     if (p.method === "sheathing") {
-      const xs = [0];
-      while (xs.at(-1) < L - EPS) {
-        const from = xs.at(-1),
-          target = Math.min(L, from + p.sheetWidth),
-          snap = vertical
-            .map((q) => q.s)
-            .filter((s) => s > from + 0.25 && s <= target + EPS)
-            .sort((a, b) => b - a)[0],
-          end = target >= L - EPS ? L : (snap ?? target);
-        xs.push(end);
-        if (xs.length > 500) break;
-      }
-      const ys = [baseY],
-        maxY = baseY + height;
-      while (ys.at(-1) < maxY - EPS) {
-        const from = ys.at(-1),
-          target = Math.min(maxY, from + p.sheetHeight),
-          snap = horizontal
-            .map((q) => q.y)
-            .filter((y) => y > from + 0.25 && y <= target + EPS && y >= target - 0.2)
-            .sort((a, b) => b - a)[0];
-        ys.push(target >= maxY - EPS ? maxY : (snap ?? target));
-        if (ys.length > 200) break;
+      // Full-height, full-width sheets wherever possible; the end remainders are merged or
+      // balanced with the first sheet instead of leaving slivers (see sheet-seams.js).
+      const xs = sheetRun(0, L, p.sheetWidth, {
+          stations: vertical.map((q) => q.s),
+          minPiece: Math.max(p.sheetWidth / 2, height / 4),
+          // An unavoidable narrow column goes over an opening, not to a wall end or corner.
+          soft: os.map((o) => [o.offset, o.offset + o.width]),
+        }),
+        maxY = baseY + height,
+        ys = sheetRun(baseY, maxY, p.sheetHeight, {
+          stations: horizontal.map((q) => q.y),
+          window: 0.2,
+          minPiece: MIN_STRIP,
+        });
+      // EN 1995-1-1 9.2.4.2(3): sheet columns narrower than h/4 do not contribute to racking.
+      const narrow = narrowPieces(xs, height / 4);
+      if (narrow.length) {
+        const rackingIntervals = minus(
+          clearIntervals,
+          narrow.map((q) => [q.from, q.to]),
+        ).filter(([a, b]) => b - a > 0.05);
+        wallLine.narrowSheetColumns = narrow.map((q) => ({ from: q.from, to: q.to, width: q.length }));
+        wallLine.availableLength = sum(rackingIntervals.map(([a, b]) => b - a));
+        wallLine.capacity = p.designShear === null ? null : p.designShear * wallLine.availableLength;
+        wallLine.utilization = wallLine.capacity > 0 ? demandShear / wallLine.capacity : null;
       }
       const triangles = triangulate(frame),
         face = exteriorNormal * (p.sheetSide === "interior" ? -1 : 1) * (D / 2 + p.thickness / 2000),
@@ -965,18 +968,21 @@ export function buildWallBracing(project, result = {}) {
       id: `${w.id}-${l.index}-shear-capacity`,
       label: `${label}: сдвиговая несущая способность`,
       status:
-        capacity !== null && demandShear > capacity
+        wallLine.capacity !== null && demandShear > wallLine.capacity
           ? "fail"
           : p.designShear === null
             ? "unverified"
             : "warning",
       value: demandShear,
-      limit: capacity,
+      limit: wallLine.capacity,
       unit: "кН",
       note:
         p.designShear === null
           ? "Несущая способность не задана. Изображение панели или укосины не подтверждает сопротивление сдвигу."
-          : "Предварительное сравнение введённой кН/м с грузовой длиной, без подтверждения анкеров, аспектного отношения и крепежа.",
+          : "Предварительное сравнение введённой кН/м с грузовой длиной, без подтверждения анкеров, аспектного отношения и крепежа." +
+            (wallLine.narrowSheetColumns?.length
+              ? ` Листы уже h/4 (${wallLine.narrowSheetColumns.map((q) => (q.width * 1000).toFixed(0)).join(", ")} мм) в грузовую длину не включены (EN 1995-1-1 п. 9.2.4.2(3)).`
+              : ""),
     });
     lineChecks.push({
       id: `${w.id}-${l.index}-load-path`,

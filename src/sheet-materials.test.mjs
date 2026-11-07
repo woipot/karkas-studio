@@ -153,22 +153,21 @@ test("6×2.8 wall minus 1.5×1.5 window: five tall blanks + five reusable strip 
     );
 });
 
-test("4×5 deck @600: alternating 2/3 sheets per 1.25 m row, end joints on actual joists", () => {
+test("4×5 deck @600: two sheets per 1.25 m row, no slivers, end joints on actual joists", () => {
   const r = layoutSheetSurface(floorOptions());
-  // Ten installed blanks, seven purchased sheets: four 2.4 m blanks,
-  // two 1.6 m blanks, one sheet for both 1.2 m blanks; 0.4 m blanks use offcuts.
+  // Rows 2.4+1.6 / 1.8+2.2 m: eight blanks, eight purchased sheets; no piece shorter than half a sheet.
   assert.deepEqual(
     [1, 2, 3, 4].map((i) => r.sheets.filter((s) => s.row === i).length),
-    [2, 3, 2, 3],
+    [2, 2, 2, 2],
   );
-  assert.equal(r.purchaseCount, 7);
+  assert.equal(r.purchaseCount, 8);
   assert.equal(r.fullCount, 0);
-  assert.equal(r.cutCount, 7);
+  assert.equal(r.cutCount, 8);
   near(r.area, 20);
   near(r.mass, 223.2);
-  near(r.unusedPercent, (100 * 1.875) / 21.875);
-  near(r.cutting.reusableArea, 1.12125);
-  near(r.cutting.wasteArea, 0.75375);
+  near(r.unusedPercent, 20);
+  near(r.cutting.reusableArea, 3.985);
+  near(r.cutting.wasteArea, 1.015);
   assert.equal(r.lowerBound, 7);
   const ends = r.seams.filter((e) => Math.abs(e.a.x - e.b.x) < 1e-8);
   assert.ok(ends.length);
@@ -182,7 +181,7 @@ test("stair hole is removed from polygons and self-weight, including partial sto
   const r = layoutSheetSurface({ ...options, holes: [hole] });
   near(r.area, 19);
   near(r.mass, 212.04);
-  assert.equal(r.purchaseCount, 7);
+  assert.equal(r.purchaseCount, 8);
   for (const p of r.panels) near(sheetPolygons.area(sheetPolygons.intersect(p.localPolygon, hole)), 0);
 });
 

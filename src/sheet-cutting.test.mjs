@@ -141,26 +141,27 @@ test("6×2.8 wall: 2500 format needs 6 sheets; 2800 format needs 5, with one net
   verifyMap(y);
 });
 
-test("4×5 floor: seven stock sheets, 3 mm cuts, preserved main axis and at least one actual bay stagger", () => {
+test("4×5 floor: eight stock sheets, no slivers, 3 mm cuts, preserved main axis and an actual bay stagger", () => {
   const r = floorCase(),
     c = r.cutting;
-  // Four 2.4×1.25 blanks consume four sheets. Two 1.6 blanks consume two;
-  // both 0.4 blanks fit one 0.897 remainder (0.4+0.003+0.4+0.003=0.806).
-  // Both 1.2 blanks fit sheet seven: 1.2+0.003+1.2+0.003=2.406 m.
-  assert.equal(c.count, 7);
+  // Rows of 2.4+1.6 and 1.8+2.2 m (stagger one bay). The greedy 1.2+2.4+0.4 m row would save a
+  // sheet with 0.4 m slivers; sheathing is a diaphragm, so every piece stays ≥ half a sheet.
+  // Eight blanks, none pair up on one 2.5 m sheet (1.6+2.2, 1.8+2.2 … > 2.5), so eight sheets.
+  assert.equal(c.count, 8);
   assert.equal(c.lowerBound, 7);
-  near(c.purchasedArea, 21.875);
+  near(c.purchasedArea, 25);
   near(c.area, 20);
-  near(c.kerfArea, 0.0375);
-  near(c.wasteArea, 0.75375);
-  near(c.reusableArea, 1.12125);
+  near(c.kerfArea, 0.03);
+  near(c.wasteArea, 1.015);
+  near(c.reusableArea, 3.985);
+  assert.ok(r.sheets.every((s) => s.bounds.end - s.bounds.x >= 1.25 - 1e-9));
   assert.ok(c.stocks.flatMap((s) => s.pieces).every((p) => !p.rotated));
   assert.equal(r.framing.jointStatus, "pass");
   assert.equal(r.framing.staggerStatus, "pass");
   assert.ok(r.framing.offsets.every((o) => o.steps >= 1));
   assert.deepEqual(
     r.framing.rows.map((r) => r.joints),
-    [[2.4], [1.2, 3.6], [2.4], [1.2, 3.6]],
+    [[2.4], [1.8], [2.4], [1.8]],
   );
   for (const p of r.sheets.filter((p) => !p.bounds.x || p.bounds.end < 4))
     near(p.bounds.end / 0.6, Math.round(p.bounds.end / 0.6));
@@ -211,13 +212,20 @@ test("auto format chooses minimum sheet cost, reports all formats, and respects 
       ["osb3-2500x1250", 6, 9000],
     ],
   );
+  // A cheap 2500 sheet does not buy a horizontal joint in the wall: the full-height 2800 sheet
+  // stays first; price still orders the formats that need a joint.
   const changed = wallCase("osb3", { sheetPrices: { "osb3-2500x1250-12": 100 } }).model.surfaces[0];
-  assert.equal(changed.product, "osb3-2500x1250");
-  assert.equal(changed.alternatives[0].cost, 600);
+  assert.equal(changed.product, "osb3-2800x1250");
+  assert.deepEqual(
+    changed.alternatives.map((a) => a.product),
+    ["osb3-2800x1250", "osb3-2500x1250", "osb3-2440x1220"],
+  );
+  assert.equal(changed.alternatives[1].cost, 600);
   assert.equal(wallCase("osb3-2500x1250").model.surfaces[0].alternatives.length, 1);
+  // 4×5 floor without slivers: 2500 sheets, 2.4+1.6 / 1.8+2.2 m rows, eight sheets.
   const floor = floorCase("osb3");
   assert.equal(floor.product, "osb3-2500x1250");
-  assert.equal(floor.alternatives[0].cost, 10500);
+  assert.equal(floor.alternatives[0].cost, 12000);
 });
 
 test("global cutting shares offcuts across surfaces but preserves part IDs and orientation", () => {
@@ -312,12 +320,19 @@ test("house 10×8 chooses one automatic format per material/thickness from whole
       reference.result.sheetModel.purchases.find((r) => r.thickness === 12).wastePercent,
     );
   }
-  assert.equal(selection.alternatives[0].cost, Math.min(...selection.alternatives.map((a) => a.cost)));
+  // Walls first avoid horizontal joints (full-height sheets), then the cheapest cutting.
+  const jointless = Math.min(...selection.alternatives.map((a) => a.horizontalJoints));
+  assert.equal(selection.alternatives[0].horizontalJoints, jointless);
+  assert.equal(
+    selection.alternatives[0].cost,
+    Math.min(...selection.alternatives.filter((a) => a.horizontalJoints === jointless).map((a) => a.cost)),
+  );
   const row = report.estimate.rows.find((r) => /^sheet-osb3-.*-12$/.test(r.id));
-  assert.equal(row.id, "sheet-osb3-2440x1220-12");
-  // Procurement arithmetic: 68 whole sheets × illustrative 1429 RUB/sheet = 97172 RUB.
-  assert.equal(row.quantity, 68);
-  assert.equal(row.total, 68 * 1429);
+  // 2.8 m storey: 2800×1250 sheets cover the wall height in one piece (no horizontal joint);
+  // 71 sheets × illustrative 1680 RUB/sheet = 119280 RUB (2440×1220 would be cheaper but jointed).
+  assert.equal(row.id, "sheet-osb3-2800x1250-12");
+  assert.equal(row.quantity, 71);
+  assert.equal(row.total, 71 * 1680);
   for (const surface of model.surfaces) assert.equal(surface.alternatives.length, 3);
 });
 

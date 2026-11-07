@@ -1,3 +1,4 @@
+import { wallFrameSection } from "./profiled-beam-catalog.js";
 /** Wall axes are immutable. Platform exterior = actual exterior frame face.
  * Pure geometry, m; no frame/connection capacity is inferred from this envelope. */
 const EPS = 1e-7,
@@ -124,7 +125,10 @@ export function prepareFloorContours(project, { geometry, walls = project.walls 
             profile = geometry.wallProfiles?.find(
               (q) => q.wallId === w?.id && q.level === level.index && q.mode === "continuous",
             ),
-            section = parse(profile?.section ?? w?.section),
+            section =
+              w?.system === "profiledBeam"
+                ? wallFrameSection(w, parse)
+                : parse(profile?.section ?? w?.section),
             depth = section?.h ?? rim.b;
           if (!w || !section)
             warnings.push(

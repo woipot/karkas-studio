@@ -39,6 +39,8 @@ const strengthStatus = (u, slender, base) =>
 const maxBy = (list, f) => list.reduce((a, b) => (a === null || f(b) > f(a) ? b : a), null);
 
 export const roleLabels = {
+  beamCourse: "Венец профилированного бруса",
+  beamCasing: "Обсада проёма",
   joist: "Лага перекрытия",
   rimJoist: "Обвязочная (краевая) балка",
   floorBlocking: "Блокинг между лагами",
@@ -487,6 +489,27 @@ function sourceRoofAnalysis(r, board) {
   };
 }
 
+function beamCourseAnalysis(r, board) {
+  const w = r.profiledBeam?.walls.find((w) => w.wallId === board.wallId && w.level === board.level);
+  if (!w) return null;
+  return {
+    source: "profiledBeam",
+    title: "Брусовая стена: венец и усадка",
+    status: "unverified",
+    utilization: w.bottomBearing?.utilization,
+    rows: [
+      row("Венец", board.course, "", 0),
+      row("Всего венцов", w.courseCount, "", 0),
+      row("Рабочая высота", w.courseHeight * 1000, "мм", 0),
+      row("Масса венцов дома", r.profiledBeam.mass, "кг", 1),
+      row("Сила у основания стены", w.designCompression, "кН"),
+      row("Смятие нижнего венца", w.bottomBearing?.stress, "МПа", 3),
+      row("Усадка стены · допущение", w.settlementMM, "мм", 0),
+      row("Изгиб от ветра", w.wind?.stress, "МПа"),
+    ],
+    note: "Углы, нагели, площадь контакта профиля и скользящие примыкания не подтверждены. Чистый объём учитывает показанные выборки; закупка — полное сечение по карте 6 м.",
+  };
+}
 function relatedChecks(r, board) {
   const keys = [board.id, board.memberId].filter(Boolean);
   const roleRules = ROLE_CHECKS.filter(([roles]) => roles.has(board.role)).map(([, re]) => re);
@@ -543,6 +566,7 @@ export function memberInsight(report, id) {
   if (!board) return null;
   const role = board.role;
   const analysis =
+    (role === "beamCourse" && beamCourseAnalysis(r, board)) ||
     sourceRoofAnalysis(r, board) ||
     (role === "joist" && joistAnalysis(r, board)) ||
     (TRUSS_ROLES.has(role) && trussAnalysis(r, board)) ||

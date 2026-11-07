@@ -4,6 +4,7 @@ import {
   doubleHeightConfigurationSchema,
   insulationSchema,
   insulationProjectFields,
+  profiledWallFeaturesSchema,
 } from "./project-features.mjs";
 import { analyzeEnvelope } from "../src/hygrothermal.js";
 import { compareFoundationOptions } from "../src/foundation-options.js";
@@ -70,6 +71,11 @@ const material = z
     Fv: num(0.1, 20).optional(),
     studRestraint: num(0.2, 8).optional(),
     columnK: num(0.5, 2).optional(),
+    Fc90Full: num(0.1, 20)
+      .optional()
+      .describe(
+        "Расчётное Rс90 по всей площади, МПа; прежнее допущение 1,8, подтвердить с коэффициентами СП64.",
+      ),
     Fc90: num(0.5, 20).optional().describe("Расчётное Rсм90, МПа (по умолчанию 3.0)."),
     Fc90PartialLength: z.boolean().optional(),
     grade: z.enum(["1", "2", "3"]).optional(),
@@ -113,6 +119,14 @@ const siteSchema = z
 const generationSchema = z
   .object({
     name: z.string().max(160).optional(),
+    wallSystem: z
+      .enum(["frame", "profiledBeam"])
+      .optional()
+      .describe("Система наружных стен; по умолчанию frame."),
+    beamSection: z
+      .enum(["90x140", "140x140", "140x190", "145x145", "145x195", "190x190", "195x195", "200x200"])
+      .optional()
+      .describe("Обязательно для profiledBeam; ширина × высота, мм. Рабочую высоту подтвердить."),
     strategy: z
       .enum(Object.keys(LAYOUT_STRATEGIES))
       .optional()
@@ -388,7 +402,13 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
   register(
     "karkas_import_project",
     "Импортировать полный проект schema version=2, включая произвольные стены, проёмы, объекты, этажи и зоны. Вход валидируется; расчёты выполняются до сохранения.",
-    z.object({ project: z.object(insulationProjectFields).catchall(z.unknown()) }).strict(),
+    z
+      .object({
+        project: z
+          .object({ ...insulationProjectFields, walls: z.array(profiledWallFeaturesSchema).max(300) })
+          .catchall(z.unknown()),
+      })
+      .strict(),
     (a) => engine.create(a.project),
     false,
   );
@@ -523,6 +543,7 @@ export function createMcpServer({ engine = createHouseEngine() } = {}) {
             "foundation_selection",
             "floor_platform",
             "partition_heads",
+            "profiled_beam",
             "fabrication_parts",
             "fabrication_patterns",
             "annexes",

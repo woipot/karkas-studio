@@ -234,3 +234,22 @@ export const insulationProjectFields = {
     .catchall(z.unknown())
     .optional(),
 };
+// Only new feature fields are strict here; legacy project fields retain core validation.
+export const profiledBeamSchema = z
+  .object({
+    section: z.enum(["90x140", "140x140", "140x190", "145x145", "145x195", "190x190", "195x195", "200x200"]),
+    profile: z.enum(["comb", "doubleTongue", "finnish"]).optional(),
+    moisture: z.enum(["natural", "kilnDried"]).optional(),
+    cornerJoint: z.enum(["warmCorner", "lap", "dovetail", "overhang"]).optional(),
+    dowelSpacing: num(1, 1.5).optional(),
+    jute: z.boolean().optional(),
+    // Working height is manufacturer data; no universal tooth geometry is prescribed by GOST8486.
+    courseHeight: num(0.045, 0.2).optional(),
+  })
+  .strict();
+export const profiledWallFeaturesSchema = z
+  .object({
+    system: z.enum(["frame", "profiledBeam"]).optional(),
+    beam: profiledBeamSchema.optional(),
+  })
+  .passthrough();

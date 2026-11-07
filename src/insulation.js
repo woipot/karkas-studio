@@ -1,4 +1,5 @@
 import { parseSection } from "./catalog.js";
+import { isBeamWall } from "./profiled-beam-catalog.js";
 import {
   boardSolids,
   slab,
@@ -164,7 +165,7 @@ export function calculateInsulation(project, result) {
   const assemblies = [],
     checks = [],
     assumptions = [
-      "Утепление: стены и пол первого этажа над проветриваемым подпольем включены; межэтажные перекрытия исключены. Перегородки — только при явном insulation.partitions (кроме enabled:false). Пристройки не утепляются автоматически.",
+      "Утепление: каркасные стены и пол первого этажа над проветриваемым подпольем включены; стены из профилированного бруса (сплошная древесина) в полостной объём не входят; межэтажные перекрытия исключены. Перегородки — только при явном insulation.partitions (кроме enabled:false). Пристройки не утепляются автоматически.",
       "Толщина: insulation → первый подходящий envelope.assemblies (слои insulation:true или с названием минваты/утеплителя) → глубина полости. Повторные сценарии влажности не добавляют материал. Стены: слой по центру сечения; пол: от верха лаг вниз; потолок: от потолочного datum вверх, иначе по нижнему поясу; скаты: от верхней грани реальных стропил внутрь по нормали; если стропил нет — от заданной поверхности кровли. Это геометрические допущения, не теплотехнический подбор.",
       "Наружные стены используют физические wallFootprint и угловые границы platformContours; если их нет в старом отчёте — полосу вдоль оси стены. Профильные вырезы читаются из общей cutGeometry с её численной точностью; неописанная обработка досок не восстанавливается.",
       "Продукт по умолчанию wool-50: иллюстративная минвата 1200×600×50, 12 плит, 0,432 м³/уп.; wool-100: 1200×600×100, 6 плит, 0,432 м³/уп. Формат 100 мм — по брошюре ROCKWOOL СКАНДИК; формат 50 мм не подтверждён как артикул производителя. Уточните поставку.",
@@ -281,6 +282,10 @@ export function calculateInsulation(project, result) {
   for (const w of result.walls ?? project.walls ?? []) {
     const type = w.kind === "exterior" ? "walls" : "partitions";
     if (type === "partitions" && !project.insulation?.partitions) continue;
+    // Profiled-beam walls are solid timber: no framed cavity to fill. External/internal insulation
+    // of a beam wall is a separate layer and is not generated automatically.
+    const source = (project.walls ?? []).find((q) => q.id === w.id) ?? w;
+    if (isBeamWall(source)) continue;
     const L = Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y),
       ux = (w.b.x - w.a.x) / L,
       uz = (w.b.y - w.a.y) / L;

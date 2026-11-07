@@ -305,7 +305,7 @@ export function buildWallBracing(project, result = {}) {
   };
   const walls = project.walls ?? result.walls ?? [],
     contexts = [];
-  for (const w of walls.filter((w) => w.kind !== "partition")) {
+  for (const w of walls.filter((w) => w.kind !== "partition" && w.system !== "profiledBeam")) {
     const applicable = w.level !== undefined ? levels.filter((l) => l.index === w.level) : levels;
     for (const l of applicable.length
       ? applicable

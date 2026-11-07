@@ -1,5 +1,12 @@
 import { resolveDressedProject } from "./lumber-standards.js";
 import { calculateInsulation, insulationProducts } from "./insulation.js";
+import {
+  profiledBeamSections,
+  beamProfiles,
+  beamMoistures,
+  beamCornerJoints,
+  beamDefaults,
+} from "./profiled-beam-catalog.js";
 import { analyzeSnowCases } from "./snow-envelope.js";
 import { analyzeEnvelope } from "./hygrothermal.js";
 import { compareFoundationOptions } from "./foundation-options.js";
@@ -459,6 +466,13 @@ export function engineCatalog() {
     },
     insulationProducts,
     sections: timberSections,
+    profiledBeam: {
+      sections: profiledBeamSections,
+      profiles: beamProfiles,
+      moisture: beamMoistures,
+      cornerJoints: beamCornerJoints,
+      defaults: beamDefaults,
+    },
     note: sectionCatalogNote,
     stockLength: 6,
     parameterGuide: {
@@ -1055,6 +1069,9 @@ export function createHouseEngine({
           break;
         case "floor_platform":
           data = r.floorPlatform;
+          break;
+        case "profiled_beam":
+          data = r.profiledBeam;
           break;
         case "partition_heads":
           data = r.partitionHeads;

@@ -1,6 +1,10 @@
 // Editable demonstration inputs, not market quotes.
 export const defaultPrices = Object.freeze({
   timberM3: 34000,
+  // Illustrative editable procurement rates, not verified market quotations or standard values.
+  profiledBeamM3: 42000,
+  juteM: 25,
+  dowelEach: 30,
   sheathingM2: 600,
   bracingSheetM2: 600,
   insulationM2: 900,

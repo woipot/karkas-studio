@@ -1,3 +1,4 @@
+import { wallFrameSection } from "./profiled-beam-catalog.js";
 import { prepareFloorContours } from "./floor-platform-contour.js";
 /** Physical platform framing. m / mm / kg. Transfer blocks can carry walls;
  * no transverse block is an extra vertical prop for a joist. */
@@ -358,7 +359,7 @@ export function buildFloorPlatform(
       for (const w of walls.filter(
         (w) => w.kind !== "partition" && (w.level === undefined || w.level === level.index - 1),
       )) {
-        const s = parse(w.section);
+        const s = wallFrameSection(w, parse);
         if (s)
           lines.push({
             id: w.id,
@@ -711,7 +712,7 @@ export function buildFloorPlatform(
     if (wallFraming)
       for (const w of levelWalls) {
         const L = dist(w.a, w.b),
-          s = parse(w.section);
+          s = wallFrameSection(w, parse);
         if (!s || Math.abs(w.b[fixed] - w.a[fixed]) > EPS || L < EPS) continue;
         const edge = w.kind === "exterior" ? rimSegments.find((e) => e.wallId === w.id) : null,
           n = edge ? Math.max(0, Math.ceil((s.h - rim.b) / section.b)) : Math.ceil(s.h / section.b),
@@ -930,7 +931,7 @@ export function buildFloorPlatform(
     const transferRows = [];
     if (wallFraming)
       for (const w of levelWalls) {
-        const s = parse(w.section);
+        const s = wallFrameSection(w, parse);
         if (!s || Math.abs(w.b[along] - w.a[along]) > EPS) continue;
         const edge = w.kind === "exterior" ? rimSegments.find((e) => e.wallId === w.id) : null,
           n = edge ? Math.max(0, Math.ceil((s.h - rim.b) / blocking.b)) : Math.ceil(s.h / blocking.b),
@@ -1067,7 +1068,7 @@ export function buildFloorPlatform(
     if (wallFraming)
       for (const w of levelWalls) {
         const L = dist(w.a, w.b),
-          s = parse(w.section);
+          s = wallFrameSection(w, parse);
         if (!s || L < EPS) continue;
         const u = { x: (w.b.x - w.a.x) / L, y: (w.b.y - w.a.y) / L },
           n = { x: -u.y, y: u.x },
